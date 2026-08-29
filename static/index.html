@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FinOS — Tax-optimal CTC structuring</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+<header class="hero" id="hero">
+  <canvas id="hero-canvas" aria-hidden="true"></canvas>
+  <span class="hero-float" id="float-1" style="top:18%; left:12%; font-size:22px; color:#4EF0C0;" aria-hidden="true">₹</span>
+  <span class="hero-float" id="float-2" style="top:65%; left:8%; font-size:16px; color:#A78BFA;" aria-hidden="true">87A</span>
+  <span class="hero-float" id="float-3" style="top:24%; left:86%; font-size:18px; color:#A78BFA;" aria-hidden="true">%</span>
+  <span class="hero-float" id="float-4" style="top:72%; left:88%; font-size:20px; color:#4EF0C0;" aria-hidden="true">✓</span>
+  <span class="hero-float" id="float-5" style="top:45%; left:5%; font-size:14px; color:#FFB86B;" aria-hidden="true">CTC</span>
+  <span class="hero-float" id="float-6" style="top:12%; left:70%; font-size:14px; color:#4EF0C0;" aria-hidden="true">80CCD2</span>
+  <div class="hero-inner">
+    <p class="hero-eyebrow">CTC structuring, audited</p>
+    <h1 class="hero-title">Every number here<br>traces back to something<br>you can check.</h1>
+    <p class="hero-sub">FinOS finds the tax-minimal way to split a salary offer. An AI layer explains and extracts — it never computes a rupee figure of its own.</p>
+    <p id="ai-status" class="ai-status">Checking AI layer status…</p>
+    <br>
+    <a href="#tool" class="hero-cta" id="hero-cta">Launch the optimizer ↓</a>
+  </div>
+  <div class="hero-ledger" aria-hidden="true">
+    <div class="ledger-row"><span>Old regime</span><span class="mono">₹1,25,112</span></div>
+    <div class="ledger-row accent"><span>New regime <span class="stamp">verified</span></span><span class="mono">₹88,140</span></div>
+    <div class="ledger-row total"><span>Annual saving</span><span class="mono">₹36,972</span></div>
+  </div>
+</header>
+
+<main class="wrap" id="tool">
+  <section class="card">
+    <h2><span class="entry-no">01</span> Paste an offer letter <span class="optional-tag">optional</span></h2>
+    <textarea id="offer-text" placeholder="Paste messy offer letter or CTC breakup text here — CTC, Basic, HRA etc."></textarea>
+    <button id="extract-btn">Extract fields</button>
+    <div id="extract-result" class="result-block hidden"></div>
+  </section>
+
+  <section class="card">
+    <h2><span class="entry-no">02</span> Your details</h2>
+    <div class="form-row">
+      <label>Total CTC (₹/year)
+        <input type="number" id="ctc-input" placeholder="e.g. 1800000">
+      </label>
+      <label>Annual rent paid (₹)
+        <input type="number" id="rent-input" placeholder="e.g. 540000" value="0">
+      </label>
+    </div>
+    <div class="form-row">
+      <label>City tier
+        <select id="city-input">
+          <option value="metro">Metro</option>
+          <option value="non_metro">Non-metro</option>
+        </select>
+      </label>
+      <label class="checkbox-label">
+        <input type="checkbox" id="nps-input"> Opt into employer NPS (80CCD2)
+      </label>
+    </div>
+    <button id="optimize-btn">Optimize</button>
+  </section>
+
+  <section id="results" class="card hidden">
+    <h2><span class="entry-no">03</span> Result</h2>
+    <div id="capability-strip" class="capability-strip"></div>
+    <div id="recommendation"></div>
+    <div id="composition-chart-wrap" class="chart-wrap"></div>
+    <div id="regime-chart-wrap" class="chart-wrap"></div>
+    <div id="sensitivity-chart-wrap" class="chart-wrap"></div>
+    <div id="explanation" class="explanation-block"></div>
+    <div id="compliance" class="compliance-block"></div>
+    <div id="negotiation" class="negotiation-block hidden"></div>
+    <table id="comparison-table"></table>
+  </section>
+</main>
+
+<footer class="foot">
+  <p>Built for the Razorpay AI Buildathon 2026 — tax logic validated against official government worked examples. <a href="/README.md">Read the architecture notes</a>.</p>
+</footer>
+
+<script src="/app.js"></script>
+</body>
+</html>
