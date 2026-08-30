@@ -18,7 +18,8 @@ import json
 import os
 import re
 from typing import Optional
-from tax_engine import SalaryStructure
+from optimizer import optimize
+from tax_engine import SalaryStructure, NPS_80CCD2_CAP_PCT
 
 try:
     import anthropic
@@ -303,6 +304,45 @@ def _check_rules(structure, rent_paid: float) -> list[dict]:
     return flags
 
 
+# ---------------------------------------------------------------------------
+# Radar/ring metrics: Compliance % and AI Coverage %
+# ---------------------------------------------------------------------------
+
+TOTAL_COMPLIANCE_RULES = 6  # R1-R6, defined above
+
+
+def compliance_pct(flags: list) -> float:
+    """(total rules - flags triggered) / total rules, as a percentage."""
+    triggered = len(flags)
+    return round((TOTAL_COMPLIANCE_RULES - triggered) / TOTAL_COMPLIANCE_RULES * 100, 1)
+
+
+def ai_coverage_pct(extraction_ran: bool, extraction_ai_backed: bool,
+                     explanation_ai_backed: bool, compliance_ai_backed: bool,
+                     negotiation_ran: bool, negotiation_ai_backed: bool) -> float:
+    """
+    % of the capabilities that actually ran THIS PASS that were genuinely
+    AI-backed (not fallback). A capability not running (e.g. no offer
+    letter pasted, so extraction/negotiation are not applicable) is
+    excluded from the denominator entirely — it's neutral, not a failure.
+    Penalizing a valid manual-CTC-only run for something that was never
+    applicable would be its own kind of misleading number.
+
+    Explanation and compliance always run (compliance's rule-matching
+    always executes even when it skips the LLM call for zero flags), so
+    the denominator is always >= 2 — no realistic divide-by-zero risk,
+    but guarded anyway.
+    """
+    ran = [explanation_ai_backed, compliance_ai_backed]
+    if extraction_ran:
+        ran.append(extraction_ai_backed)
+    if negotiation_ran:
+        ran.append(negotiation_ai_backed)
+    if not ran:
+        return 0.0
+    return round(sum(1 for x in ran if x) / len(ran) * 100, 1)
+
+
 def flag_compliance(structure, rent_paid: float) -> dict:
     """
     Check a salary structure against the fixed compliance_rules.md checklist.
@@ -336,6 +376,131 @@ def flag_compliance(structure, rent_paid: float) -> dict:
     for flag in triggered:
         flag["message"] = flag["rationale"]
     return {"flags": triggered, "ai_backed": False}
+
+
+# ---------------------------------------------------------------------------
+# RazorpayX pivot: band guardrail agent (replaces negotiate() in the UI —
+# negotiate() itself stays defined/tested above, just unwired from the new
+# flow, which is a B2B payroll-controller context rather than a candidate
+# negotiating their own offer).
+# ---------------------------------------------------------------------------
+
+GUARDRAIL_SYSTEM_PROMPT = """You rephrase already-decided payroll guardrail \
+check results into clear, professional sentences for a founder/HR/treasury \
+audience. You are given a JSON list of checks, each with an id, label, a \
+boolean "passed", and a rationale. Rephrase ONLY the rationale text for \
+checks where passed is false — return exactly one rephrased sentence per \
+failing check, one per line, in the same order they appear in the input, \
+nothing else. Do not invent a rupee figure, percentage, or section number \
+that is not already present in the rationale you were given. Do not add \
+commentary about checks that passed."""
+
+EPFO_AGGREGATE_CEILING = 750_000  # same threshold as compliance_rules.md Rule R5
+
+
+def evaluate_band_guardrail(structure: SalaryStructure, regime: str,
+                             band_min: float, band_max: float) -> dict:
+    """
+    Deterministic pass/flag checks on a structure before it's cleared for
+    RazorpayX payout export: is the CTC within the approved compensation
+    band, is the aggregate employer PF+NPS under the same Rs 7.5L ceiling
+    Rule R5 already flags, and is employer NPS within the regime-specific
+    Section 80CCD(2) cap (14% of basic under the new regime, 10% under the
+    old — NOT a flat 10%, per tax_engine.py's own NPS_80CCD2_CAP_PCT).
+
+    Same pattern as flag_compliance: rule matching is always deterministic;
+    the LLM, when available, only rephrases already-failing checks into
+    cleaner prose. It cannot flip a pass into a fail or vice versa.
+    Returns {"verdict": "pass"|"flag", "checks": [...], "ai_backed": bool,
+             "guard_triggered": bool}.
+    """
+    ctc = structure.ctc
+
+    band_ok = band_min <= ctc <= band_max
+    checks = [{
+        "id": "band_cost_neutrality",
+        "label": "Within approved compensation band",
+        "passed": band_ok,
+        "rationale": (
+            f"CTC of Rs {ctc:,.0f} is within the approved band of "
+            f"Rs {band_min:,.0f}-Rs {band_max:,.0f}."
+            if band_ok else
+            f"CTC of Rs {ctc:,.0f} falls outside the approved band of "
+            f"Rs {band_min:,.0f}-Rs {band_max:,.0f}."
+        ),
+    }]
+
+    epfo_total = structure.employer_pf + structure.employer_nps
+    epfo_ok = epfo_total <= EPFO_AGGREGATE_CEILING
+    checks.append({
+        "id": "epfo_ceiling",
+        "label": "EPFO aggregate contribution ceiling",
+        "passed": epfo_ok,
+        "rationale": (
+            f"Aggregate employer PF + NPS of Rs {epfo_total:,.0f} is within the "
+            f"Rs {EPFO_AGGREGATE_CEILING:,.0f}/year ceiling."
+            if epfo_ok else
+            f"Aggregate employer PF + NPS of Rs {epfo_total:,.0f} exceeds the "
+            f"Rs {EPFO_AGGREGATE_CEILING:,.0f}/year ceiling — the excess is a "
+            "taxable perquisite under Section 17(2)(vii), not currently "
+            "modeled in the tax engine."
+        ),
+    })
+
+    cap_pct = NPS_80CCD2_CAP_PCT.get(regime, NPS_80CCD2_CAP_PCT["old"])
+    nps_cap = cap_pct * structure.basic
+    nps_ok = structure.employer_nps <= nps_cap
+    checks.append({
+        "id": "80ccd2_cap",
+        "label": f"Section 80CCD(2) employer NPS cap ({regime} regime, {cap_pct:.0%} of basic)",
+        "passed": nps_ok,
+        "rationale": (
+            f"Employer NPS of Rs {structure.employer_nps:,.0f} is within the "
+            f"Section 80CCD(2) cap of {cap_pct:.0%} of basic (Rs {nps_cap:,.0f}) "
+            f"for the {regime} regime."
+            if nps_ok else
+            f"Employer NPS of Rs {structure.employer_nps:,.0f} exceeds the "
+            f"Section 80CCD(2) cap of {cap_pct:.0%} of basic "
+            f"(Rs {nps_cap:,.0f}) for the {regime} regime."
+        ),
+    })
+
+    failing = [c for c in checks if not c["passed"]]
+    verdict = "pass" if not failing else "flag"
+
+    if not failing:
+        for c in checks:
+            c["message"] = c["rationale"]
+        return {"verdict": verdict, "checks": checks, "ai_backed": False, "guard_triggered": False}
+
+    ai_backed = False
+    guard_triggered = False
+    if _client is not None:
+        try:
+            response = _client.messages.create(
+                model=MODEL,
+                max_tokens=400,
+                system=GUARDRAIL_SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": json.dumps(failing)}],
+            )
+            phrased = response.content[0].text.strip().split("\n")
+            phrased = [p.strip("- ").strip() for p in phrased if p.strip()]
+            if len(phrased) == len(failing):
+                for flag, message in zip(failing, phrased):
+                    flag["message"] = message
+                ai_backed = True
+        except Exception:
+            pass
+
+    if not ai_backed:
+        for flag in failing:
+            flag["message"] = flag["rationale"]
+
+    for c in checks:
+        if c["passed"]:
+            c["message"] = c["rationale"]
+
+    return {"verdict": verdict, "checks": checks, "ai_backed": ai_backed, "guard_triggered": guard_triggered}
 
 
 # ---------------------------------------------------------------------------
@@ -479,4 +644,213 @@ def negotiate(current_structure: SalaryStructure, current_best: dict,
         "changed_levers": changed_levers,
         "ai_backed": ai_backed,
         "guard_triggered": guard_triggered,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Conversational query layer
+# ---------------------------------------------------------------------------
+# Two distinct question types, handled differently:
+#   1. Explanatory ("why did old regime lose") - LLM narrates the EXISTING
+#      already-computed result, numeric-guarded like explain_result.
+#   2. Hypothetical ("what if my rent were higher") - the LLM's job is to
+#      identify WHICH input changed, never to guess the answer. Python then
+#      re-runs the real optimizer with the new value and the LLM narrates
+#      that real, freshly-computed result. Skipping this and letting the
+#      LLM estimate a plausible-sounding hypothetical would be exactly the
+#      kind of fabricated number this whole architecture exists to prevent.
+
+QUERY_CLASSIFY_PROMPT = """Classify the user's question about their tax \
+optimization result into exactly one JSON object, nothing else:
+
+{"type": "hypothetical", "param": "rent_paid", "value": 600000}
+or
+{"type": "hypothetical", "param": "nps_opted", "value": true}
+or
+{"type": "explanatory"}
+
+"hypothetical" means the user is asking "what if X were different" about \
+one of: rent_paid (number, rupees/year), ctc (number, rupees/year), \
+nps_opted (true/false), city ("metro" or "non_metro"). Extract the single \
+changed parameter and its new value. If the question doesn't clearly \
+specify both a parameter and a new value, return {"type": "explanatory"} \
+instead of guessing.
+
+"explanatory" means any other question about the existing result (why a \
+regime won, what a compliance flag means, what a number represents, etc).
+
+Return ONLY the JSON object, no other text."""
+
+QUERY_EXPLAIN_SYSTEM_PROMPT = """Answer the user's question about their \
+already-computed tax optimization result, using ONLY the numbers given to \
+you in the context JSON. Do not introduce any rupee figure, percentage, or \
+number that is not already present in that context. If the question asks \
+about something not covered by the given context, say so plainly rather \
+than guessing. Keep the answer to 2-4 sentences, plain language, no \
+markdown.
+
+If you reference a specific statutory basis, cite ONLY a section listed in \
+the context's "applicable_sections" array, using its exact wording (e.g. \
+"Section 10(13A)"), and only when it's actually relevant to the question. \
+Do not cite any section not present in that list, and do not cite one at \
+all if the list is empty or none apply."""
+
+QUERY_HYPOTHETICAL_SYSTEM_PROMPT = """Answer the user's 'what if' question \
+using ONLY the before/after numbers given to you in the context JSON — \
+these were computed by re-running the real tax optimizer with the changed \
+input, not estimated. State the new result and the difference from the \
+original clearly. Do not introduce any number not present in the context. \
+Keep the answer to 2-4 sentences, plain language, no markdown."""
+
+
+def _classify_query(question: str) -> dict:
+    if _client is None:
+        return {"type": "explanatory"}
+    try:
+        response = _client.messages.create(
+            model=MODEL, max_tokens=150,
+            system=QUERY_CLASSIFY_PROMPT,
+            messages=[{"role": "user", "content": question}],
+        )
+        raw = response.content[0].text.strip()
+        raw = re.sub(r"^```(json)?|```$", "", raw.strip()).strip()
+        parsed = json.loads(raw)
+        if parsed.get("type") not in ("hypothetical", "explanatory"):
+            return {"type": "explanatory"}
+        return parsed
+    except Exception:
+        return {"type": "explanatory"}
+
+
+def _deterministic_query_fallback(question: str, context: dict) -> str:
+    rec = context.get("recommended_regime", "the recommended regime")
+    tax = context.get("recommended_tax")
+    saving = context.get("annual_saving")
+    tax_str = f"₹{tax:,.0f}" if tax is not None else "the computed figure"
+    saving_str = f"₹{saving:,.0f}" if saving is not None else "the computed amount"
+    return (
+        f"I can't process that specific question right now (AI layer "
+        f"unavailable). Here's what's already computed: the recommended "
+        f"structure is under the {rec} regime, with total tax of {tax_str}, "
+        f"saving {saving_str}/year versus the other regime. See the sections "
+        f"above for the full breakdown."
+    )
+
+
+def answer_query(question: str, context: dict, ctc: float, rent_paid: float,
+                  city: str, nps_opted: bool) -> dict:
+    """
+    context: dict with at least recommended_regime, recommended_tax,
+    annual_saving — the already-computed result, used for explanatory
+    answers and as the fallback baseline.
+
+    Returns {"answer": str, "ai_backed": bool, "recalculated": bool,
+             "guard_triggered": bool}.
+    """
+    classification = _classify_query(question)
+
+    if classification.get("type") == "hypothetical" and classification.get("param") in {"rent_paid", "ctc", "nps_opted", "city"}:
+        new_kwargs = {"ctc": ctc, "rent_paid": rent_paid, "city": city, "nps_opted": nps_opted}
+        param, value = classification["param"], classification.get("value")
+        if value is None:
+            return {
+                "answer": _deterministic_query_fallback(question, context),
+                "ai_backed": False, "recalculated": False, "guard_triggered": False,
+            }
+        try:
+            if param == "rent_paid":
+                new_kwargs["rent_paid"] = float(value)
+            elif param == "ctc":
+                new_kwargs["ctc"] = float(value)
+            elif param == "nps_opted":
+                new_kwargs["nps_opted"] = bool(value)
+            elif param == "city":
+                new_kwargs["city"] = "metro" if str(value).lower() == "metro" else "non_metro"
+        except (TypeError, ValueError):
+            return {
+                "answer": _deterministic_query_fallback(question, context),
+                "ai_backed": False, "recalculated": False, "guard_triggered": False,
+            }
+
+        new_result = optimize(**new_kwargs)
+        new_tax = new_result["recommended"].tax_breakdown["total_tax"]
+        old_tax = context.get("recommended_tax", new_tax)
+        payload = {
+            "changed_param": param, "new_value": new_kwargs[param],
+            "original_tax": old_tax, "new_tax": new_tax,
+            "difference": round(new_tax - old_tax, 2),
+            "new_recommended_regime": new_result["recommended"].regime,
+        }
+        allowed = {round(old_tax, 2), round(new_tax, 2), round(new_tax - old_tax, 2), round(abs(new_tax - old_tax), 2)}
+
+        if _client is not None:
+            try:
+                response = _client.messages.create(
+                    model=MODEL, max_tokens=250,
+                    system=QUERY_HYPOTHETICAL_SYSTEM_PROMPT,
+                    messages=[{"role": "user", "content": json.dumps(payload)}],
+                )
+                candidate = response.content[0].text.strip()
+                nums = _extract_numbers(candidate)
+                guard_triggered = any(n >= 100 and not any(abs(n - a) < 1 for a in allowed) for n in nums)
+                if not guard_triggered:
+                    return {"answer": candidate, "ai_backed": True, "recalculated": True, "guard_triggered": False}
+            except Exception:
+                pass
+
+        diff = payload["difference"]
+        direction = "more" if diff > 0 else "less"
+        fallback = (
+            f"Recalculated with {param.replace('_', ' ')} = {value}: total tax "
+            f"would be ₹{new_tax:,.0f} ({new_result['recommended'].regime} regime), "
+            f"₹{abs(diff):,.0f} {direction} than the original ₹{old_tax:,.0f}."
+        )
+        return {"answer": fallback, "ai_backed": False, "recalculated": True, "guard_triggered": False}
+
+    # Explanatory path — ground the answer in a real recomputed old-vs-new
+    # diff rather than just the thin {recommended_regime, recommended_tax,
+    # annual_saving} the caller supplied, and attach a data-driven citation
+    # whitelist so "why" questions have real section references to draw on
+    # instead of the LLM inferring one from the regime name alone.
+    grounding = dict(context)
+    try:
+        full = optimize(ctc=ctc, rent_paid=rent_paid, city=city, nps_opted=nps_opted)
+        old_best, new_best = full["old_regime_best"], full["new_regime_best"]
+        grounding["old_regime_total_tax"] = old_best.tax_breakdown["total_tax"]
+        grounding["new_regime_total_tax"] = new_best.tax_breakdown["total_tax"]
+        grounding["tax_difference"] = round(
+            old_best.tax_breakdown["total_tax"] - new_best.tax_breakdown["total_tax"], 2
+        )
+        applicable_sections = []
+        if old_best.structure.hra > 0 or new_best.structure.hra > 0:
+            applicable_sections.append("Section 10(13A)")
+        applicable_sections.append("Section 192")
+        if old_best.structure.employer_nps > 0 or new_best.structure.employer_nps > 0:
+            applicable_sections.append("Section 80CCD(2)")
+        grounding["applicable_sections"] = applicable_sections
+    except Exception:
+        grounding["applicable_sections"] = []  # fall back to the thin context if recompute fails
+
+    allowed = set()
+    for v in grounding.values():
+        if isinstance(v, (int, float)):
+            allowed.add(round(v, 2))
+    if _client is not None:
+        try:
+            response = _client.messages.create(
+                model=MODEL, max_tokens=250,
+                system=QUERY_EXPLAIN_SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": json.dumps({"question": question, "context": grounding})}],
+            )
+            candidate = response.content[0].text.strip()
+            nums = _extract_numbers(candidate)
+            guard_triggered = any(n >= 100 and not any(abs(n - a) < 1 for a in allowed) for n in nums)
+            if not guard_triggered:
+                return {"answer": candidate, "ai_backed": True, "recalculated": False, "guard_triggered": False}
+        except Exception:
+            pass
+
+    return {
+        "answer": _deterministic_query_fallback(question, context),
+        "ai_backed": False, "recalculated": False, "guard_triggered": False,
     }

@@ -4,3 +4,11 @@ __pycache__/
 .DS_Store
 *.log
 *.bak2
+
+# frontend (Next.js)
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/next-env.d.ts
+frontend/.env*.local
+frontend/*.tsbuildinfo

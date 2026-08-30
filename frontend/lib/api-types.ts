@@ -1,0 +1,234 @@
+// Full, accurate request/response types for the Flask backend's /api/* routes.
+// Verified directly against app.py / ai_layer.py / tax_engine.py rather than
+// assumed — see the plan file for the specific line references.
+
+export type StructureDict = {
+  ctc: number;
+  basic: number;
+  hra: number;
+  lta: number;
+  special_allowance: number;
+  employer_pf: number;
+  employer_nps: number;
+  nps_opted: boolean;
+};
+
+export type TaxBreakdown = {
+  total_tax: number;
+  slab_tax: number;
+  tax_after_rebate: number;
+  tax_after_marginal_relief: number;
+  cess: number;
+  taxable_income: number;
+};
+
+export type OptResult = {
+  regime: "old" | "new";
+  structure: StructureDict;
+  taxable_income: number;
+  tax_breakdown: TaxBreakdown;
+  basic_pct: number;
+};
+
+export type ComplianceFlag = {
+  rule_id: string;
+  severity: "Low" | "Medium" | "High";
+  message: string;
+};
+
+export type NegotiationResponse = {
+  points: string; // prose, not a list, despite the field name
+  total_annual_saving: number;
+  changed_levers: string[];
+  ai_backed: boolean;
+  guard_triggered: boolean;
+};
+
+export type OptimizeResponse = {
+  ctc: number;
+  old_regime_best: OptResult;
+  new_regime_best: OptResult;
+  recommended_regime: "old" | "new";
+  annual_saving: number;
+  explanation: { explanation: string; ai_backed: boolean; guard_triggered: boolean };
+  compliance: { flags: ComplianceFlag[]; ai_backed: boolean };
+  compliance_checked_against: "as_offered" | "recommended";
+  negotiation?: NegotiationResponse; // present iff request included current_structure
+  metrics: {
+    optimization_value_pct: number;
+    compliance_pct: number;
+    ai_coverage_pct: number;
+  };
+  execution_trace?: TraceStage[];
+};
+
+export type SensitivityPoint = {
+  ctc: number;
+  old_tax: number;
+  new_tax: number;
+  recommended_regime: "old" | "new";
+};
+
+export type SensitivityResponse = {
+  points: SensitivityPoint[];
+  rent_paid: number;
+  city: string;
+  nps_opted: boolean;
+};
+
+export type HealthResponse = {
+  status: string;
+  ai_layer_active: boolean;
+};
+
+// /api/extract
+export type ExtractResponse = {
+  ctc: number | null;
+  basic: number | null;
+  hra: number | null;
+  lta: number | null;
+  special_allowance: number | null;
+  employer_pf: number | null;
+  ai_backed: boolean;
+  mismatch_warning?: string | null;
+  currency_note?: string;
+};
+
+// What actually gets sent back to /api/optimize's current_structure field —
+// deliberately a subset of ExtractResponse (backend ignores ctc/special_allowance
+// on this path; special_allowance is recomputed server-side as a residual, and
+// only basic is required — the backend treats basic<=0 the same as "omit this
+// field entirely," per _build_current_structure in app.py).
+export type CurrentStructurePayload = {
+  basic: number;
+  hra?: number;
+  lta?: number;
+  employer_pf?: number;
+};
+
+// /api/query
+export type QueryResponse = {
+  answer: string;
+  ai_backed: boolean;
+  recalculated?: boolean;
+  guard_triggered?: boolean;
+  error?: string;
+};
+
+export type QueryContext = {
+  recommended_regime: "old" | "new";
+  recommended_tax: number;
+  annual_saving: number;
+};
+
+// New for the RazorpayX pivot — /api/export-razorpayx
+
+export type CompositeBankAccountPayout = {
+  account_number: string; // grosslo's own RazorpayX account number, not the employee's
+  amount: number; // paise
+  currency: "INR";
+  mode: "IMPS" | "NEFT" | "RTGS";
+  purpose: "salary";
+  fund_account: {
+    account_type: "bank_account";
+    bank_account: { name: string; ifsc: string; account_number: string };
+    contact: {
+      name: string;
+      email?: string;
+      contact?: string;
+      type: "employee";
+      reference_id: string;
+    };
+  };
+  queue_if_low_balance: boolean;
+  reference_id: string;
+  narration: string;
+};
+
+export type TreasuryForecast = {
+  net_take_home_annual: number;
+  tds_escrow_annual: number;
+  epfo_challan_annual: number;
+  total_capital_outlay: number;
+  funding_deadline_hours_before_payroll: number;
+};
+
+export type GuardrailCheck = {
+  id: string;
+  label: string;
+  passed: boolean;
+  message: string;
+};
+
+export type GuardrailResponse = {
+  verdict: "pass" | "flag";
+  checks: GuardrailCheck[];
+  ai_backed: boolean;
+  guard_triggered: boolean;
+};
+
+// Execution trace — additive, optional on OptimizeResponse/GuardrailResponse.
+// Never a hardcoded placeholder: every line is built server-side from a
+// field that's already present elsewhere in the same response.
+export type TraceStage = {
+  stage: string; // e.g. "PARSE_INGESTION", "COMPLIANCE_PASS", "MATH_SOLVER", "POLICY_GATE"
+  message: string;
+};
+
+export type ExportRazorpayXResponse = {
+  // payouts is only present when the request included `employees` — the
+  // same endpoint doubles as a guardrail/treasury-only check before anyone
+  // has entered payroll bank details.
+  payouts?: CompositeBankAccountPayout[];
+  treasury_forecast: TreasuryForecast;
+  compliance_metadata: GuardrailResponse;
+  idempotency_key_hint: string; // a value the client can use to set X-Payout-Idempotency on real dispatch
+  execution_trace?: TraceStage[];
+};
+
+// Batch mode — /api/optimize-batch and /api/batch-audit
+
+export type OptimizeBatchRow = OptimizeResponse & {
+  row_index: number;
+  guardrail?: GuardrailResponse;
+  error?: string;
+};
+
+export type OptimizeBatchResponse = {
+  rows: OptimizeBatchRow[];
+};
+
+export type PenaltyScenarioRow = {
+  months_delayed: number;
+  section_7q_interest: number;
+  section_14b_damages: number;
+  section_14b_cap_applied: boolean;
+  section_201_1a_interest: number;
+  total: number;
+};
+
+export type PenaltyScenario = {
+  rows: PenaltyScenarioRow[];
+  disclaimer: string;
+};
+
+export type BatchAuditRow = {
+  row_index: number;
+  name?: string;
+  current_regime?: "old" | "new";
+  current_tax?: number;
+  unclaimed_savings?: number;
+  excess_contribution?: number;
+  guardrail?: GuardrailResponse;
+  treasury_forecast?: TreasuryForecast;
+  error?: string;
+};
+
+export type BatchAuditResponse = {
+  rows: BatchAuditRow[];
+  summary: {
+    total_excess_contribution: number;
+    total_unclaimed_savings: number;
+  };
+  penalty_scenario: PenaltyScenario;
+};

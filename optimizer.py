@@ -105,16 +105,19 @@ class OptimizationResult:
     lta: float
 
 
-def _basic_pct_range():
+def _basic_pct_range(pct_min: float = None, pct_max: float = None, pct_step: float = None):
+    pct_min = BASIC_PCT_MIN if pct_min is None else pct_min
+    pct_max = BASIC_PCT_MAX if pct_max is None else pct_max
+    pct_step = BASIC_PCT_STEP if pct_step is None else pct_step
     vals = []
-    v = BASIC_PCT_MIN
-    while v <= BASIC_PCT_MAX + 1e-9:
+    v = pct_min
+    while v <= pct_max + 1e-9:
         vals.append(round(v, 4))
-        v += BASIC_PCT_STEP
+        v += pct_step
     return vals
 
 
-def optimize_new_regime(ctc: float, nps_opted: bool) -> OptimizationResult:
+def optimize_new_regime(ctc: float, nps_opted: bool, basic_pct_range: list = None) -> OptimizationResult:
     """
     New regime: HRA/LTA/special-allowance are tax-identical, so we don't
     search their split. Only basic_pct affects tax (via PF/NPS deduction).
@@ -122,13 +125,23 @@ def optimize_new_regime(ctc: float, nps_opted: bool) -> OptimizationResult:
     chosen, remaining CTC (after basic/PF/NPS) is put entirely into
     special allowance for the canonical structure (equivalent tax outcome
     to any other split).
+
+    basic_pct_range: override the search range — used ONLY by
+    theoretical_minimum_tax() for a reference-only calculation. Normal
+    calls leave this as None and get the realistic 40-50% band.
     """
     best = None
-    for basic_pct in _basic_pct_range():
-        structure = build_structure(
-            ctc=ctc, basic_pct=basic_pct, hra_pct_of_remaining=0.0,
-            lta=0.0, regime="new", nps_opted=nps_opted,
-        )
+    for basic_pct in (basic_pct_range or _basic_pct_range()):
+        try:
+            structure = build_structure(
+                ctc=ctc, basic_pct=basic_pct, hra_pct_of_remaining=0.0,
+                lta=0.0, regime="new", nps_opted=nps_opted,
+            )
+        except ValueError:
+            # Infeasible at this basic_pct (e.g. PF+NPS exceeds remaining
+            # CTC at very high basic_pct — only reachable via the wide
+            # reference-only range used by theoretical_minimum_tax()).
+            continue
         taxable = taxable_income_for_structure(structure, "new", rent_paid=0, city="metro")
         tax = compute_tax(taxable, "new")
         if best is None or tax["total_tax"] < best.tax_breakdown["total_tax"]:
@@ -140,7 +153,7 @@ def optimize_new_regime(ctc: float, nps_opted: bool) -> OptimizationResult:
 
 
 def optimize_old_regime(ctc: float, rent_paid: float, city: CityTier,
-                         nps_opted: bool) -> OptimizationResult:
+                         nps_opted: bool, basic_pct_range: list = None) -> OptimizationResult:
     best = None
     lta_max = LTA_MAX_PCT_OF_CTC * ctc
     lta_values = []
@@ -149,7 +162,7 @@ def optimize_old_regime(ctc: float, rent_paid: float, city: CityTier,
         lta_values.append(round(v, 2))
         v += LTA_STEP_PCT_OF_CTC * ctc
 
-    for basic_pct in _basic_pct_range():
+    for basic_pct in (basic_pct_range or _basic_pct_range()):
         for lta in lta_values:
             hra_frac = 0.0
             while hra_frac <= 1.0 + 1e-9:
@@ -171,6 +184,66 @@ def optimize_old_regime(ctc: float, rent_paid: float, city: CityTier,
                     )
                 hra_frac += HRA_FRACTION_STEP
     return best
+
+
+def theoretical_minimum_tax(ctc: float, rent_paid: float, city: CityTier,
+                             nps_opted: bool) -> float:
+    """
+    Reference-only calculation: the true unconstrained mathematical minimum
+    tax achievable if basic salary weren't limited to the realistic 40-50%
+    market-convention band. NEVER shown to the user as a recommendation or
+    an actionable structure — the actual optimize() function still enforces
+    the realistic constraint for anything the user is told to do. This
+    exists solely to power the "Tax Efficiency" reference metric (radar
+    chart, sensitivity chart's third dashed line): how close the realistic
+    recommendation gets to the absolute floor, not what to do to reach it.
+
+    UI copy showing this number MUST make clear it is a reference floor,
+    not a real structure — see the agreed caption: "The lowest
+    mathematically possible tax if basic salary weren't limited to
+    realistic market conventions — a reference point, not a structure any
+    real company would offer."
+    """
+    wide_range = _basic_pct_range(pct_min=0.01, pct_max=0.99, pct_step=0.02)
+    old_ref = optimize_old_regime(ctc, rent_paid, city, nps_opted, basic_pct_range=wide_range)
+    new_ref = optimize_new_regime(ctc, nps_opted, basic_pct_range=wide_range)
+    return round(min(old_ref.tax_breakdown["total_tax"], new_ref.tax_breakdown["total_tax"]), 2)
+
+
+def naive_baseline_tax(ctc: float, rent_paid: float, city: CityTier) -> float:
+    """
+    'Did nothing' baseline: flat 50% basic (common convention, no active
+    optimization), zero HRA, zero LTA, no NPS opt-in (opting in requires an
+    active choice — the baseline assumes none was made), evaluated under
+    the NEW regime specifically because new regime is the actual statutory
+    default since the 2023-24 changes if no active regime election is
+    made. This is what "not using this tool" would have cost — a real,
+    defensible reference point, unlike an unconstrained mathematical floor
+    that can degenerate to zero and make a correct recommendation look
+    like it scored badly.
+    """
+    naive_structure = build_structure(
+        ctc=ctc, basic_pct=0.50, hra_pct_of_remaining=0.0,
+        lta=0.0, regime="new", nps_opted=False,
+    )
+    taxable = taxable_income_for_structure(naive_structure, "new", rent_paid=0, city=city)
+    return compute_tax(taxable, "new")["total_tax"]
+
+
+def optimization_value_pct(ctc: float, rent_paid: float, city: CityTier,
+                            nps_opted: bool) -> float:
+    """
+    Percentage tax saved by the actual recommendation vs. the naive 'did
+    nothing' baseline. Always well-defined (handles the case where both
+    are already zero — nothing to optimize, correctly shown as 0% rather
+    than crashing on a division by zero).
+    """
+    result = optimize(ctc=ctc, rent_paid=rent_paid, city=city, nps_opted=nps_opted)
+    realistic_tax = result["recommended"].tax_breakdown["total_tax"]
+    naive_tax = naive_baseline_tax(ctc, rent_paid, city)
+    if naive_tax == 0:
+        return 0.0
+    return round((1 - realistic_tax / naive_tax) * 100, 1)
 
 
 def optimize(ctc: float, rent_paid: float, city: CityTier, nps_opted: bool) -> dict:
