@@ -97,10 +97,13 @@ npm run dev                             # http://localhost:3000, proxies /api/* 
 ```
 
 To enable the real LLM-backed extraction/explanation/compliance-phrasing/query
-answering, set `ANTHROPIC_API_KEY` before starting the backend. **Without a
-key, every AI-layer function still works correctly** via its deterministic
-fallback, and `/health` reports `ai_layer_active: false` so this is visible
-rather than silent — a deliberate design choice, not a bolted-on fallback.
+answering, put `ANTHROPIC_API_KEY=sk-...` in a `.env` file in the project root
+(gitignored, loaded automatically via `python-dotenv` at startup — no manual
+`export` needed) or set it in your shell before starting the backend.
+**Without a key, every AI-layer function still works correctly** via its
+deterministic fallback, and `/health` reports `ai_layer_active: false` so
+this is visible rather than silent — a deliberate design choice, not a
+bolted-on fallback.
 
 ## What's genuinely AI-native, and what isn't
 

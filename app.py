@@ -6,6 +6,10 @@ compliance endpoints. Run with: python3 app.py [port]
 import sys
 import subprocess
 import uuid
+from dotenv import load_dotenv
+
+load_dotenv()  # must run before ai_layer is imported — it reads ANTHROPIC_API_KEY at import time
+
 from flask import Flask, request, jsonify, send_from_directory
 from optimizer import optimize, best_regime_for_given_structure, sensitivity_sweep, optimization_value_pct
 from ai_layer import extract_from_text, explain_result, flag_compliance, negotiate, compliance_pct, ai_coverage_pct, answer_query, evaluate_band_guardrail, EPFO_AGGREGATE_CEILING
