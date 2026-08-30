@@ -782,6 +782,8 @@ def answer_query(question: str, context: dict, ctc: float, rent_paid: float,
             "new_recommended_regime": new_result["recommended"].regime,
         }
         allowed = {round(old_tax, 2), round(new_tax, 2), round(new_tax - old_tax, 2), round(abs(new_tax - old_tax), 2)}
+        if isinstance(new_kwargs[param], (int, float)) and not isinstance(new_kwargs[param], bool):
+            allowed.add(round(new_kwargs[param], 2))
 
         if _client is not None:
             try:

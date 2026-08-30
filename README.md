@@ -179,6 +179,17 @@ guess at what the new number would be.
   apply to that scenario, and it was removed before shipping rather than
   left in — the exact kind of citation error a feature built around "real
   citations, not hallucinated" can't afford to make.
+- The hypothetical-recalc query path (`/api/query`, "what if my rent were
+  X") had never been run against the real Claude API before a live test
+  pass caught that its numeric guard was silently rejecting almost every
+  real answer: the guard's allow-list checked the recalculated tax figures
+  but not the changed parameter's own new value, which any natural-language
+  answer restates as a matter of course ("if your rent were ₹2,00,000..."),
+  so the feature was quietly always falling back to its templated response.
+  The deterministic-fallback test suite couldn't have caught this — it
+  exercises the fallback path directly, not the guard logic that sits in
+  front of a real LLM response. Fixed by adding the changed value to the
+  guard's allow-list when it's numeric.
 
 ## Test coverage
 
@@ -190,7 +201,16 @@ each compliance rule's trigger condition, and the conversational query
 layer's hypothetical-recalculation path. All pass with no
 `ANTHROPIC_API_KEY` set, exercising every deterministic fallback.
 
-**Not yet tested:** the live LLM-backed path for `ai_layer.py`'s functions —
-this requires a real `ANTHROPIC_API_KEY` and hasn't been exercised end-to-end
-against the actual Claude API. Test that explicitly before relying on it in a
-live demo; don't assume the fallback tests cover it.
+**The live LLM-backed path has been tested end-to-end against the real
+Claude API**, not just its deterministic fallback: extraction, explanation,
+compliance-flag phrasing, query classification, and the hypothetical-recalc
+query path were each exercised with a real `ANTHROPIC_API_KEY` and their
+output checked against the deterministic figures they're supposed to be
+grounded in. This testing caught one real bug — the hypothetical-recalc
+numeric guard's `allowed` set was missing the changed parameter's own new
+value (e.g. a restated rent figure), so any live answer that naturally
+repeated the number from the question (nearly all of them) was spuriously
+guard-rejected and silently fell back to the templated response, even though
+nothing was actually wrong with the answer. Fixed in `ai_layer.py` by adding
+the new numeric value to the guard's allow-list when the changed parameter
+is itself a number (`rent_paid`/`ctc`); all 49 tests still pass.
