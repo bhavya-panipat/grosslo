@@ -1,215 +1,203 @@
-# FinOS — Project Brief & Build Prompt
-**Target: Razorpay AI Buildathon 2026 — Open Track**
-**Status as of this doc: tax engine + optimizer core logic built and unit-verified. AI-native layer NOT YET DESIGNED — see Section 5, this is the top blocker.**
+# grosslo — architecture brief
 
----
+Razorpay AI Buildathon 2026, Open / Agentic Business Banking track.
 
-## 0. Read this first: fit risk
+This is the architecture document referenced from `README.md`. It exists to
+answer the questions a judge will actually ask: what does this do, what part
+is genuinely AI-native, what's deterministic and why, and what were the
+specific design decisions and tradeoffs along the way. It describes the
+system as built, not as planned — see `README.md` for setup/run instructions
+and the feature list.
 
-This is an *AI* buildathon. Submissions are judged specifically on the AI-native
-component — model/framework choices must be justifiable, and if the project touches
-agents, RAG, or LLM orchestration, that's expected to be the centerpiece of the demo.
-The Open track does not exempt a submission from this; it only means the *problem*
-doesn't have to fit a predefined category.
+## What grosslo is
 
-**As of this doc, FinOS is a deterministic rules engine + grid-search optimizer. It has
-no AI/LLM component.** This is a real gap, not a formality — a submission with correct
-tax math but no AI layer is not currently competitive for this specific buildathon,
-regardless of how good the underlying engineering is. Section 5 below must be resolved
-before further build time goes into UI/demo polish.
+An AI-assisted payroll controller that sits in front of RazorpayX. It takes a
+compensation decision — one new hire, or a whole CSV of them — and does four
+things a payroll/HR team currently does by hand, in spreadsheets, across
+multiple tools: structure the salary tax-efficiently, check it against a
+company's approved band and statutory ceilings, forecast the capital treasury
+needs to fund it, and generate a schema-accurate RazorpayX payout payload. It
+also runs the same checks *backwards* over an existing headcount, to surface
+compensation structures that are already out of policy or leaving money on
+the table.
 
-Separately: the prize is a ₹75,000/month, 6-or-12-month, **in-person Bangalore**
-internship starting September. Confirm this is logistically real against your LNMIIT
-term schedule before treating "winning" as the actual goal vs. "portfolio artifact."
+It does not place any live payout — every RazorpayX interaction in this repo
+stops at generating a correctly-shaped payload.
 
----
+## Why the architecture is deterministic-first
 
-## 1. What FinOS is (current scope)
+The single decision everything else in this codebase follows from: **no LLM
+call is ever the source of a number a user acts on.** A grid-search optimizer
+(`optimizer.py`) over a closed-form tax function (`tax_engine.py`) computes
+every tax, saving, and structure figure. This was a deliberate choice, not a
+default — an LLM computing someone's actual payroll tax liability is the
+wrong tool for a problem that has a correct, checkable, non-probabilistic
+answer. The AI layer's job is everything *around* that number: reading messy
+unstructured input, explaining a structured result in plain language, and
+answering follow-up questions — never producing the result itself.
 
-A CTC (Cost-to-Company) structuring optimizer for Indian salaried employees. Given a
-fixed total CTC, it finds the salary component split (basic / HRA / LTA / special
-allowance / employer PF / employer NPS) that minimizes the employee's total income tax
-liability, and compares the best achievable outcome under the old tax regime vs. the
-new tax regime, showing the delta.
+Two enforcement mechanisms make this a property of the code, not a
+convention people have to remember:
 
-**This is NOT:**
-- A payroll integration product (no HRMS/API connectivity — out of scope for this
-  build entirely, per earlier project pivot)
-- A general financial planning tool (no investments, no capital gains, no
-  multi-year modeling beyond the regime comparison)
-- A compliance auditor (does not check whether an *existing* company payroll setup
-  is compliant — only proposes an optimal *new* structure for a given CTC)
+1. **Numeric guard** (explanation, negotiation copy, query answers): the
+   LLM's response text is scanned for every number it contains; if any number
+   isn't traceable back to the input data the LLM was actually given, the
+   response is rejected and a templated deterministic fallback is used
+   instead.
+2. **Decide-then-phrase** (compliance flags, payroll guardrail): rule
+   evaluation happens entirely in Python, before the LLM is ever invoked. The
+   LLM's only role is turning an already-decided flag into a cleaner
+   sentence — it cannot add, drop, or reinterpret one.
 
-**Primary user flow:** user inputs total CTC, rent paid, city tier, and whether
-they plan to opt into NPS. Tool outputs: the tax-optimal salary split, under old
-regime and under new regime, and the annual rupee saving from picking the better one.
+`execution_trace.py` extends this discipline to the trace drawer shown in
+the UI: it never hooks into `optimize()`, `flag_compliance()`, or
+`evaluate_band_guardrail()` internally, and never runs before those
+functions return. It's a pure formatting layer over their real output —
+`trace_optimize_stage()` quotes the actual `flag_compliance` result and cites
+the real triggered rule's statutory section (or honestly reports "no flags
+triggered" when nothing fired), and `trace_guardrail_stage()` quotes the real
+`evaluate_band_guardrail()` verdict. A trace line can't cite something the
+underlying engine didn't actually decide.
 
----
+## System architecture
 
-## 2. Why this exists / positioning
+```
+Input: CTC form │ pasted offer letter │ CSV (new-hire batch or existing-employee audit)
+        │
+        ▼
+ai_layer.py — extraction              LLM w/ deterministic regex fallback
+        │
+        ▼
+optimizer.py + tax_engine.py          deterministic, unit-tested — sole
+        │                             source of every tax figure
+        ▼
+ai_layer.py — explanation             LLM narrates the engine's numbers,
+        │                             guarded against invented figures
+        ▼
+ai_layer.py — compliance flags        6 fixed rules (compliance_rules.md),
+        │                             matched in Python; LLM only rephrases
+        ▼
+ai_layer.py — payroll guardrail       band check + EPFO ₹7.5L aggregate
+        │                             ceiling + regime-specific 80CCD(2) cap
+        ▼
+payroll_breakdown.py                  treasury forecast: net disbursement,
+        │                             TDS escrow, EPFO challan, funding lead time
+        ▼
+penalty_exposure.py                   (audit mode only) illustrative delayed-
+        │                             remittance cost if payroll slips
+        ▼
+app.py                                RazorpayX Composite Payout payload
+                                       (schema only — no live dispatch)
+```
 
-Originally scoped as a credibility artifact to pitch directly to fintech technical
-teams for a hiring/co-founder conversation. Now being adapted as a Razorpay AI
-Buildathon Open Track submission — same underlying build, reframed. The core thesis
-(good in both contexts): CTC structuring is a well-defined, verifiable, rules-heavy
-problem with a real "wow, I didn't know that" moment for non-finance people, and it's
-narrow enough to actually get *right* in a short build window — which matters more
-for credibility than breadth.
+Backend: Flask, stdlib + `anthropic` SDK only. Frontend: Next.js 15 (App
+Router), React 19, TypeScript, Tailwind, Framer Motion, React Three Fiber —
+3 routes (`/`, `/optimize`, `/optimize/batch`), 32 components.
 
-**Known competitive reality:** basic CTC breakup suggestion already exists as a
-built-in feature in most Indian payroll SaaS (Zoho Payroll, Keka, greytHR). The
-differentiator is NOT "we suggest a breakup" — it's (a) genuine optimization across
-the full feasible space rather than a static template, (b) transparent, auditable
-logic (documented assumptions, not a black box), and (c) whatever the AI-native layer
-ends up being (Section 5).
+### Backend routes
 
----
+| Route | Purpose |
+|---|---|
+| `POST /api/optimize` | single-candidate structure + compliance + trace |
+| `POST /api/optimize-batch` | New Hire Batch — same pipeline, looped per CSV row |
+| `POST /api/batch-audit` | Compliance & Savings Audit — runs the guardrail and unclaimed-savings check against *existing* structures, not new offers |
+| `POST /api/sensitivity` | regime-crossover curve for the results chart |
+| `POST /api/extract` | offer-letter text → structured fields |
+| `POST /api/query` | conversational follow-up, including live "what if" re-runs of the deterministic engine |
+| `POST /api/export-razorpayx` | guardrail check + RazorpayX payload generation |
+| `GET /health` | reports whether `ANTHROPIC_API_KEY` is set (`ai_backed`) so degraded mode is visible, not silent |
 
-## 3. What's built and verified so far
+`/api/optimize` and `/api/optimize-batch` share one internal helper so the
+per-row batch path is not a second, divergent implementation of the same
+logic — it's the same function called in a loop, with row-level errors
+isolated so one bad CSV row doesn't fail the batch.
 
-### 3.1 Tax engine (`tax_engine.py`)
-- Progressive slab tax calculation, both regimes, FY 2025-26 / FY 2026-27
-  (confirmed via live search: Budget 2026 made no changes to slabs, standard
-  deduction, or rebate for either regime — these numbers are stable across both
-  FYs as of Aug 2026)
-- New regime slabs: nil to ₹4L, then 5/10/15/20/25/30% in ₹4L bands to ₹24L+
-- Old regime slabs: nil to ₹2.5L, 5% (2.5-5L), 20% (5-10L), 30% (>10L)
-- Standard deduction: ₹75,000 (new) / ₹50,000 (old)
-- Section 87A rebate: taxable income ≤ ₹12L → zero tax (new) / ≤ ₹5L (old)
-- **Marginal relief logic implemented and validated against the government's own
-  worked example** (₹61,500 slab tax → ₹10,000 payable at ~₹12.1L taxable income,
-  exact match)
-- HRA exemption: min(HRA received, rent − 10% of basic, 50%/40% of basic for
-  metro/non-metro)
-- Employer NPS (80CCD(2)): 10% of basic cap (old regime) / 14% of basic cap (new
-  regime) — the 14% figure is the post-Budget-2024 raised limit, confirmed correct
-  via search (not the older 10% figure that appears in stale sources)
-- Employer PF: 12% of basic
-- Cess: flat 4% on tax after rebate/relief, both regimes
-- Verified: gross salary up to ₹12.75L → zero tax for salaried individual under
-  new regime (matches public guidance), confirmed via engine test after
-  correcting a test-setup error (see 3.3 below — worth reusing in "what broke"
-  narrative)
+## Key design decisions
 
-### 3.2 Optimizer (`optimizer.py`)
-- Exhaustive grid search, not a general-purpose solver (scipy etc. rejected —
-  reasoning: the tax function has kinks at slab boundaries and a discrete
-  old-vs-new regime branch, making it piecewise/non-convex; grid search is
-  provably exhaustive over the discretized space at this scale, sub-second
-  runtime, and fully auditable by a reviewer — a defensible engineering choice
-  to be able to explain if asked)
-- New regime: search space collapses to basic_pct only, since HRA/LTA get zero
-  exemption under new regime and are tax-identical to special allowance — a
-  proven simplification, not a shortcut (worth stating explicitly if probed)
-- Old regime: full grid over (basic_pct, LTA amount, HRA-vs-special-allowance
-  split within remaining CTC)
-- Output: best structure under old regime, best under new regime, recommended
-  winner, and the rupee delta
+**The ₹7.5L aggregate EPFO ceiling is one constant, referenced everywhere it
+matters.** `EPFO_AGGREGATE_CEILING = 750_000` is defined once in
+`ai_layer.py` and reused by both the payroll guardrail and the batch-audit's
+excess-contribution calculation — not two independently-maintained
+thresholds that could silently drift apart.
 
-### 3.3 Testing notes (raw material for the "what broke" submission requirement)
-- Caught and removed a broken/duplicate draft function (`_apply_87a_rebate`
-  early version) left over from an editing false-start before it reached
-  production logic — a real example of catching your own mistake via
-  code review, not an invented anecdote
-- Caught a test-design error (fed the engine *taxable* income where the
-  ₹12.75L "salaried tax-free" claim actually refers to *gross* salary before
-  standard deduction) — engine was correct, test was wrong; a good concrete
-  example of "verify your own verification," which is a stronger story than
-  "I found a bug" for a judged demo
-- Optimizer initially had an unbounded upper end on basic_pct; caught before
-  building further that a pure tax-minimizing search with no ceiling would
-  push basic toward unrealistic levels (since employer PF/NPS shelter more tax
-  as basic grows) — added a 50% ceiling as an explicit, documented assumption
-  rather than letting the "optimal" output be something no real company would
-  implement
+**Basic salary is capped at 50% of CTC in the optimizer**, not left
+unconstrained. An early build iteration without this ceiling pushed basic
+upward indefinitely, because more basic mathematically shelters more income
+via employer PF/NPS — mathematically optimal, but not a structure any real
+company would offer. The 40–50% band matches market convention instead of
+the pure tax-minimizing optimum, an explicit, documented tradeoff.
 
----
+**Employee-side PF and the delayed-remittance penalty math live outside
+`tax_engine.py`, in `payroll_breakdown.py` and `penalty_exposure.py`,
+deliberately.** `tax_engine.py` only ever needed the employer's
+cost-to-company PF contribution to compute tax correctly; employee PF and
+statutory penalty interest are payroll/treasury concerns, not tax-liability
+concerns, and adding them to the tax engine would have coupled two things
+that change for different reasons. Keeping them in separate, newer modules
+that call into the tax engine read-only — instead of extending it — means
+the original 23-test-covered engine is untouched by later feature work; only
+additive modules and their own new tests carry the risk of a new bug.
 
-## 4. Full list of assumptions made (consolidate for docs/demo — state these
-explicitly, don't let a judge/reviewer discover them by probing)
+**Section 271C is deliberately absent from the delayed-remittance penalty
+scenario**, not an oversight. `penalty_exposure.py` models the cost of
+depositing already-deducted EPF/TDS late (Sections 7Q, 14B, 201(1A)). The
+Supreme Court held in *US Technologies International (P.) Ltd. v.
+Commissioner of Income Tax* (2023) that Section 271C's penalty applies only
+to a *failure to deduct* TDS in the first place — not to late remittance
+after deduction, which is the exact scenario this feature models, and which
+is already covered by Section 201(1A) interest. An earlier draft of this
+module included a 271C figure; it was removed after checking the actual
+ruling rather than relying on recalled priors, because a feature whose whole
+premise is real statutory citations can't afford a citation that's wrong in
+scope. `README.md`'s "what broke during development" section documents this
+by name.
 
-| # | Assumption | Why | Risk if wrong |
-|---|---|---|---|
-| 1 | Basic salary floor = 40% of CTC | Market convention, not statutory | Low — widely used norm |
-| 2 | Basic salary ceiling = 50% of CTC | Added to stop unconstrained tax-minimization from producing unrealistic structures (more basic → more tax-sheltered PF/NPS space) | Medium — arbitrary number, should be stated as a design tradeoff, not fact |
-| 3 | LTA exemption = 70% of claimed LTA amount (not 100%) | Real LTA exemption depends on actual travel, valid bills, economy-airfare cap, and a twice-per-4-year block limit that a structuring tool can't know in advance | Medium — still an estimate, not certain |
-| 4 | LTA search ceiling = 10% of CTC | Realistic company policy convention | Low-medium |
-| 5 | Employer PF computed on full basic (not capped at ₹15,000/month statutory minimum wage ceiling) | Matches common private-sector practice (voluntary higher PF) | Medium — some companies do cap at statutory minimum; toggle exists in code but defaults to uncapped |
-| 6 | Surcharge (income > ₹50L) NOT modeled | Out of scope for target demo audience (early-to-mid career hires) | Low for target users, but must be stated as a hard scope limit, not silently absent |
-| 7 | **Aggregate employer PF + NPS + superannuation contribution exceeding ₹7.5L/year is a taxable perquisite u/s 17(2)(vii) — NOT currently modeled** | Missed in build so far | **Medium-high at higher CTC bands where this could actually bind — needs a decision: model it, or explicitly scope out with a stated CTC ceiling for tool validity** |
-| 8 | Resident individual, age < 60, no other income sources, no capital gains, single tax filer | Keeps scope tractable | Low for target demo, must be stated |
-| 9 | Grid search step sizes (basic: 2.5%, LTA: 2% of CTC, HRA fraction: 5%) | Balance between exhaustiveness and runtime; runtime is sub-second at this resolution so finer steps are cheap if precision matters more | Low — easy to tighten, no design risk |
+**The RazorpayX Composite Payout payload shape was verified against
+RazorpayX's own API documentation**, not inferred from field-name guesses —
+nested `fund_account`/`bank_account`/`contact` objects, amount in paise, and
+the `X-Payout-Idempotency` header requirement for a real (never-issued-here)
+dispatch call.
 
-**Action needed:** Assumption #7 is the one gap in this list that isn't just a
-documented scope limit — it's a real correctness edge case that could matter at
-higher CTC bands your own optimizer might recommend (since it favors pushing basic
-toward the 50% ceiling). Decide: model it properly, or add a hard CTC ceiling to the
-tool's stated valid range (e.g., "not validated above ₹40L CTC") so the gap can't be
-triggered in a demo.
+**Batch CSV parsing uses `papaparse`**, not a hand-rolled splitter. This is
+the one place in the frontend where a subtly wrong parse (an unescaped comma
+inside a quoted field, for instance) produces a confidently wrong compliance
+or savings number rather than a visibly broken pixel — a different risk
+profile from presentation-layer code, where a bug is visibly wrong instead of
+silently wrong.
 
----
+**No CSV data or bank details are persisted anywhere.** Both batch routes are
+stateless Flask handlers — they compute a response from the request body and
+return it, the same as every other route in this app. There is no database
+and no server-side file write in this codebase. Parsed CSV rows live only in
+browser memory for the session tab.
 
-## 5. Open questions — must be answered before continuing the build
+## What's genuinely AI-native
 
-### 5.1 AI-native layer (BLOCKING — highest priority, unresolved)
-This is a rules engine right now, and the buildathon is an *AI* buildathon judged
-specifically on this dimension. Candidate directions, none yet chosen:
-- **Document extraction agent**: user uploads a messy offer letter / existing CTC
-  breakup (PDF/image), an LLM extracts structured salary components, feeds into
-  the existing deterministic engine. Real, defensible AI use — LLM does what it's
-  good at (unstructured → structured), deterministic engine does what it's good
-  at (tax math), avoids the "LLM doing arithmetic" anti-pattern.
-- **Explainer/reasoning agent**: after the optimizer produces a result, an LLM
-  generates a plain-language explanation of *why* this split is optimal, tailored
-  to the user's specific numbers — turns a table of numbers into something a
-  non-technical founder actually understands.
-- **Conversational structuring assistant**: chat interface where the user
-  describes their situation in natural language ("I make 18L, pay 40k rent in
-  Bangalore, my company is flexible on structure") and an agent extracts the
-  structured inputs, calls the engine, and responds conversationally — heavier
-  build, more clearly "agentic," higher risk of scope overrun before deadline.
-- **Anomaly/compliance flagging agent**: given an *existing* company payroll
-  structure (not just building a new one), an LLM-assisted agent flags likely
-  compliance gaps or inefficiencies — this reintroduces some of the "auditor"
-  scope explicitly cut earlier; reconsider only if it strengthens the AI-native
-  story enough to be worth the scope creep.
+- **Offer-letter extraction** — pulling structured CTC/basic/HRA/LTA/PF
+  fields out of unstructured pasted text, a task regex alone handles
+  unreliably across real-world offer-letter formats.
+- **Explanation** — turning a table of optimizer output into a plain-language
+  recommendation personalized to the user's actual numbers, guarded against
+  inventing any figure not already in that table.
+- **Compliance and guardrail phrasing** — rephrasing already-decided flags
+  into readable sentences, never deciding what to flag.
+- **Conversational query** (`/api/query`) — including hypothetical
+  ("what if I paid ₹5,000 more rent") questions that trigger a real re-run of
+  `optimizer.py`/`tax_engine.py` with the changed input and report the actual
+  recomputed result, rather than an LLM estimate of what the new number would
+  be.
 
-**This needs to be picked, not deferred, before further build time goes into
-anything else** — it determines the architecture, not just a feature bolted on
-at the end.
+## Test coverage
 
-### 5.2 Logistics reality check
-Is in-person Bangalore, starting September, for 6-12 months, actually compatible
-with your LNMIIT term schedule (graduating 2028)? If not, is this still worth
-building for (portfolio/credibility value) even if you wouldn't take the internship
-if offered? Answer honestly before optimizing further decisions around "winning."
+49 tests in `tests/test_finos.py`, passing with or without
+`ANTHROPIC_API_KEY` set (every AI-layer function has a deterministic
+fallback, so the full suite exercises real logic either way): the marginal
+relief calculation against the government's own worked example, the
+old-vs-new regime crossover, HRA metro/non-metro, the PF statutory ceiling,
+extraction mismatch detection, the explainer's numeric guard, each of the 6
+compliance rules' trigger conditions, and the query layer's hypothetical
+re-run path.
 
-### 5.3 Assumption #7 (aggregate employer contribution perquisite tax)
-Model it, or add a hard stated CTC ceiling to keep it out of scope? See Section 4.
-
-### 5.4 Demo format
-5-minute pitch video + public repo + architecture doc are required. What's the
-actual interface — a deployed web app, a CLI, a notebook walkthrough? This decides
-build priority for the remaining time: if it's a web app, real time needs to go to
-UI; if it's a notebook/CLI demo, that time goes to the AI layer and edge-case
-coverage instead. Don't default to "make it a polished web app" without deciding
-this deliberately — polish that isn't being judged is wasted build time.
-
-### 5.5 Test coverage
-Core tax logic is spot-checked, not exhaustively tested. Before demo: build an
-actual test suite covering — HRA metro vs non-metro, PF statutory-ceiling toggle
-on vs off, the old-vs-new crossover point across a range of CTC/rent combinations
-(useful for the demo narrative — show *where* the crossover happens, not just one
-static example), and NPS opted vs not-opted.
-
-### 5.6 "What broke" narrative
-Buildathon explicitly asks what broke and how it was solved. Section 3.3 has three
-real candidates already. Decide which becomes the headline story for the pitch
-video — the marginal relief validation catch is probably the strongest (shows
-rigor: caught your own test being wrong, not just a code bug).
-
----
-
-## 6. Immediate next step
-Resolve 5.1 (AI-native layer choice) before writing another line of engine code.
-Everything else in this doc can proceed in parallel once that's picked.
+Not yet exercised: the live LLM-backed path end-to-end against the real
+Claude API (the fallback tests cover behavior, not live-API latency/format
+edge cases) — see `README.md`'s known-limitations section.
