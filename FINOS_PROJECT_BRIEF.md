@@ -152,6 +152,22 @@ premise is real statutory citations can't afford a citation that's wrong in
 scope. `README.md`'s "what broke during development" section documents this
 by name.
 
+**The 6-rule compliance set and the tax engine's narrow scope (no surcharge,
+single income source, resident individuals only) are a deliberate hackathon
+boundary, not an unrecognized gap.** This build is scoped to demonstrate the
+mechanism — deterministic-first checks, real statutory citations, a
+guardrail that actually blocks a bad structure — correctly and defensibly
+for the salaried CTC ranges typical of early-to-mid career hires, rather
+than attempting broad real-world coverage under deadline pressure and
+risking a rule that's subtly wrong the way an early 271C draft was (see
+above). Expanding coverage — surcharge, multiple income sources, additional
+compliance rules beyond R1–R6 — is explicit, named, next-in-line roadmap
+work in `README.md`, not a silent limitation, and it's scoped to go through
+a practicing CA's review before being trusted at real enterprise scale,
+for the same reason the 271C citation got checked against the actual
+ruling instead of recalled knowledge: this is a domain where being
+confidently wrong is worse than being narrow.
+
 **The RazorpayX Composite Payout payload shape was verified against
 RazorpayX's own API documentation**, not inferred from field-name guesses —
 nested `fund_account`/`bank_account`/`contact` objects, amount in paise, and
