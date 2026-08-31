@@ -34,6 +34,7 @@ export type ComplianceFlag = {
   rule_id: string;
   severity: "Low" | "Medium" | "High";
   message: string;
+  rationale: string;
 };
 
 export type NegotiationResponse = {
@@ -231,4 +232,64 @@ export type BatchAuditResponse = {
     total_unclaimed_savings: number;
   };
   penalty_scenario: PenaltyScenario;
+};
+
+// --- Maker-checker review queue ---
+
+export type SubmissionRowStatus = "pending" | "approved" | "rejected";
+
+export type FieldChange = {
+  field: string;
+  before: number | boolean;
+  after: number | boolean;
+  reason: string;
+};
+
+export type RegimeChange = { before: string; after: string; reason: string } | null;
+
+export type SubmissionDiff = {
+  has_prior_offer: boolean;
+  note: string | null;
+  regime_change: RegimeChange;
+  field_changes: FieldChange[];
+};
+
+export type SubmissionRow = {
+  id: number;
+  submission_id: number;
+  row_index: number;
+  employee_name: string | null;
+  ctc: number;
+  status: SubmissionRowStatus;
+  reason: string | null;
+  decided_at: string | null;
+  decided_by: string | null;
+  input: {
+    ctc: number; rent_paid: number; city: string; nps_opted: boolean;
+    current_structure: StructureDict | null; employee_name: string | null;
+  };
+  computed: OptimizeResponse;
+  diff?: SubmissionDiff;
+};
+
+export type Submission = {
+  id: number;
+  created_at: string;
+  source: "single" | "batch";
+  submitted_by: string;
+  rows: SubmissionRow[];
+};
+
+export type CreateSubmissionResponse = {
+  submission_id: number;
+  inserted_row_ids: number[];
+  duplicates: { row_index: number; matches_existing_row_id: number }[];
+  row_errors: { row_index: number; error: string }[];
+};
+
+export type DecideRowResponse = {
+  already_decided: boolean;
+  status?: SubmissionRowStatus;
+  current_status?: SubmissionRowStatus;
+  message: string;
 };

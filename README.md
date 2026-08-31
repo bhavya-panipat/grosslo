@@ -41,6 +41,68 @@ execution trace, not a black box: what ran, what it found, and why.
   pass → math solver → policy gate — where every line is built from a field
   the underlying computation actually returned, never a scripted placeholder.
 
+## Maker-checker review (demo-scoped, stated explicitly)
+
+Closes a real gap the earlier build had: Compliance & Savings Audit could
+detect a problem, but there was no path from "here's an issue" to an
+actual decision being made and recorded. This adds that loop, scoped
+honestly for a demo rather than dressed up as production workflow
+infrastructure:
+
+- **HR submits** (`POST /api/submissions`) — a single offer or a CSV
+  batch, computed through the exact same `_build_optimize_response()`
+  every other route uses. Nothing new is computed here; this only decides
+  whether a result gets persisted for review.
+- **Finance reviews** (`GET /api/submissions`, `/hr` and `/finance` as two
+  separate frontend pages) — inspects the real execution trace, the real
+  compliance flags, and a before/after diff (below), then approves or
+  rejects **per row**, not only per whole submission — a 50-row batch
+  where 2 rows have flags doesn't require an all-or-nothing decision.
+- **Approving never dispatches anything.** It writes a status change and
+  an audit-log entry that says exactly that: *"Approved — Payout
+  SIMULATED, no live dispatch."* This is the same live-execution boundary
+  drawn everywhere else in this codebase, in button copy this time instead
+  of pitch copy, and it doesn't move here either.
+- **Rejecting requires a reason** (free text, mandatory) — a review
+  process that can't say no isn't a review process. The rejected row
+  returns to HR's queue with that reason visible, and the rejection is
+  logged exactly like an approval — a decision either way belongs in the
+  trail.
+- **A before/after diff, not just a raw trace.** For every offer with a
+  prior structure to compare against, Finance sees exactly which fields
+  changed and *why* — attributed to the specific compliance rule it
+  resolves (e.g. "Basic: ₹5,00,000 → ₹9,00,000 — R1 compliance fix") or to
+  "tax optimization" when no rule is involved. Zero new computation: this
+  reads the same `negotiation`/`compliance` data every other route already
+  produces (`diff_view.py`).
+- **Duplicate submissions are flagged, not silently reprocessed.** The
+  same employee at the same CTC submitted twice in the same day is
+  detected and blocked before it's inserted (`review_queue.py`). A
+  double-click on Approve doesn't write a second audit-log entry either —
+  the status transition only fires once, by construction, not because of
+  a special case bolted on for double-clicks.
+- **Bulk Salary Revision export** (`POST /api/export-salary-revision`)
+  closes the audit loop the rest of the way: takes a flagged employee's
+  current + corrected structure (already computed by the audit, invented
+  nowhere here) and generates a real multi-sheet XLSX — modeled on
+  RazorpayX Payroll's own documented two-sheet Salary Revision format
+  (Default Structure, Custom Structure), plus a Read Me sheet. **The exact
+  column headers were not verified against a live RazorpayX account** —
+  the file says so explicitly, in its own Read Me sheet and in the API
+  response's `X-Template-Honesty-Label` header, so this is never mistaken
+  for a confirmed, ready-to-upload template.
+
+**What this deliberately is not:** real authentication (`/hr` and
+`/finance` are a role toggle, not identity verification — anyone who can
+reach the app can reach both), a production database (SQLite, a single
+gitignored file, explicitly not the "real database" the roadmap describes
+for a steady-state company roster), a second-approver escalation tier, or
+a notification system for pending reviews. All four are reasonable ideas
+in isolation; none of them belong on top of an approval layer already
+honestly labeled as a demo simplification — making that layer *look* more
+sophisticated than the authentication underneath it can actually support
+would undermine the exact honesty this section is trying to model.
+
 ## Architecture — the one rule that matters most
 
 ```
@@ -93,7 +155,7 @@ grosslo invented, only one the compliance engine already decided.
 
 Backend:
 ```bash
-python3 -m unittest discover -s tests   # 51 tests, all pass with or without an API key
+python3 -m unittest discover -s tests   # 61 tests, all pass with or without an API key
 python3 app.py 8000                     # serves the API at http://127.0.0.1:8000
 ```
 
@@ -167,13 +229,32 @@ guess at what the new number would be.
   sources or capital gains.
 - The RazorpayX export generates a schema-verified payload only — no live
   call to RazorpayX is made anywhere in this codebase.
-- **No privacy or security posture beyond "don't persist anything
-  sensitive," stated plainly rather than left silent.** No encryption at
-  rest (there's nothing at rest to encrypt yet), no data-retention or
-  deletion policy, no access control beyond who can reach the local
-  `/api/audit-log` endpoint. This matters more than most limitations here
-  because this tool handles real compensation and bank-account data — it's
-  named explicitly so it's not mistaken for an oversight nobody noticed.
+- **Security and privacy posture, stated plainly rather than left silent —
+  this matters more than most limitations here, because this tool handles
+  real compensation data.** Persistence is now limited to two things: the
+  local `review_queue.db` (SQLite) that lets an HR submission survive
+  until Finance reviews it, and the local `audit_log.jsonl` decision
+  trail — nothing else. Specifically:
+  - **No encryption at rest.** Both files are plain SQLite/JSONL on disk.
+  - **No data-retention or deletion policy.** Data lives as long as the
+    demo session/database file does, with no expiry or purge mechanism.
+  - **No access control beyond the demo role-toggle** on `/hr` and
+    `/finance` — see "Maker-checker review, demo-scoped" below. It is a
+    UI convenience, not authentication; anyone who can reach the app can
+    reach both roles.
+  - **No employee PII or bank details in either persisted store** — the
+    review queue stores computed structures and decisions, the audit log
+    excludes names/bank details/emails by construction (see its own
+    section below). This limits exposure; it does not substitute for the
+    four gaps above.
+
+  Named explicitly as a pre-production gap, not an oversight — the same
+  discipline already applied to the LTA-utilization estimate, the 40%
+  basic floor, and the no-live-dispatch boundary elsewhere in this
+  document. **Real security infrastructure was deliberately not built for
+  this submission** — the honest statement is the correct move here; a
+  rushed implementation before Sept 5 would be worse than admitting the
+  gap plainly.
 - **The treasury forecast (`payroll_breakdown.treasury_forecast`) has no
   concept of history or an existing payroll baseline** — there's no database
   anywhere in this app, so the "capital required" figure is a literal sum
@@ -219,12 +300,14 @@ future plans:
   needs its own scoping work, ideally reviewed by a practicing CA before
   being trusted at real enterprise scale — the same discipline that caught
   the 271C citation error above.
-- **Closing the loop on the audit mode.** Compliance & Savings Audit
-  currently stops at detection — "here's ₹1.5L in excess EPFO
-  contribution," "here's ₹62K in unclaimed savings" — with no path from
-  finding a problem to actually fixing it. A real remediation flow
-  (generating a corrected structure and, eventually, the payout to match
-  it) is the natural next step and isn't built yet.
+- **Closing the audit-mode loop further — this is now partially built, not
+  fully.** The maker-checker review flow and the Bulk Salary Revision
+  export (see the dedicated section above) take a flagged employee from
+  "here's an issue" to a real, reviewable, approved correction and a
+  downloadable revision file. What's still roadmap, not built: any actual
+  RazorpayX-side application of that correction — the export produces a
+  file for manual upload, it doesn't touch RazorpayX at all, matching the
+  no-live-dispatch boundary drawn everywhere else in this project.
 - **Who actually operates this, day to day — an open product question,
   not yet a design decision.** HR, a payroll admin, an individual employee,
   or an API Razorpay's own systems call internally are all plausible, and
@@ -278,16 +361,35 @@ future plans:
   the explanation is actually shown, is untouched. The same 20-row batch
   now completes in under 4 seconds; a 500-row batch completes in ~34
   seconds (~69ms/row) instead of not completing at all.
+- The salary-revision export's honesty-label header hung the dev server
+  on the first real request against it, not in testing against mocked
+  data. `X-Template-Honesty-Label` carried the label text verbatim,
+  including an em dash — HTTP header values have to be Latin-1-encodable,
+  and the em dash isn't, so werkzeug threw a `UnicodeEncodeError` mid
+  response and the client hung waiting for a response that never
+  finished. The file's own Read Me sheet keeps the original Unicode text
+  fine (a spreadsheet cell has no such constraint); only the header copy
+  needed sanitizing. Caught by actually calling the endpoint over real
+  HTTP with a timeout, not by reading the code — this is exactly the kind
+  of bug that inspection alone doesn't surface.
 
 ## Test coverage
 
-51 tests across `tests/test_finos.py`, covering the marginal relief
+61 tests total — 51 in `tests/test_finos.py` covering the marginal relief
 calculation (validated against the government's own worked example), the
 old-vs-new regime crossover, HRA metro vs non-metro, the PF statutory-ceiling
 toggle, extraction's mismatch-detection logic, the explainer's numeric guard
 (including that batch mode's `skip_ai` path stays deterministic), each
 compliance rule's trigger condition, and the conversational query layer's
-hypothetical-recalculation path. All pass with no `ANTHROPIC_API_KEY` set,
+hypothetical-recalculation path; plus 10 in `tests/test_review_workflow.py`
+covering the maker-checker flow end to end — submission persistence,
+approval writes the correct simulated-not-dispatched status, rejection
+requires and stores a reason, the diff view's before/after values match a
+real optimizer run exactly (no invented attribution text), mixed-batch
+rows are decided independently, duplicate submissions are flagged rather
+than reprocessed, a double-approve doesn't double-write, and the salary-
+revision export's XLSX contains the real corrected values with the
+honesty label present. All pass with no `ANTHROPIC_API_KEY` set,
 exercising every deterministic fallback.
 
 **The live LLM-backed path has been tested end-to-end against the real

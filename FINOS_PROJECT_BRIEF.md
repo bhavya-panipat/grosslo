@@ -124,6 +124,11 @@ Router), React 19, TypeScript, Tailwind, Framer Motion, React Three Fiber —
 | `POST /api/query` | conversational follow-up, including live "what if" re-runs of the deterministic engine |
 | `POST /api/export-razorpayx` | guardrail check + RazorpayX payload generation |
 | `GET /api/audit-log` | read-only view of the local audit trail (`?limit=`) — inspect live what's actually been logged |
+| `POST /api/submissions` | HR submits a single offer or CSV batch for Finance review |
+| `GET /api/submissions` | Finance's queue (`?status=pending\|approved\|rejected`) |
+| `GET /api/submissions/<id>` | one submission's detail, including the before/after diff per row |
+| `POST /api/submissions/<id>/rows/<row_index>/decide` | approve or reject one row — idempotent, never dispatches |
+| `POST /api/export-salary-revision` | Bulk Salary Revision XLSX for already-flagged employees — file only, no live upload |
 | `GET /health` | reports whether `ANTHROPIC_API_KEY` is set (`ai_backed`) so degraded mode is visible, not silent |
 
 `/api/optimize` and `/api/optimize-batch` share one internal helper so the
@@ -247,6 +252,28 @@ seconds (~69ms/row). The single-candidate flow, where the explanation is
 actually shown, is untouched — see `README.md`'s "what broke" section for
 the full before/after.
 
+**The maker-checker review layer is three new, deliberately separate
+modules, not one bigger one.** `review_queue.py` (SQLite persistence and
+decision logic), `diff_view.py` (before/after presentation over data those
+other modules already computed), and `salary_revision_export.py` (XLSX
+generation) don't import each other's internals — each does exactly one
+job, matching the pattern already established by `payroll_breakdown.py`
+and `penalty_exposure.py` being separate from `tax_engine.py`. Two
+decisions worth naming explicitly:
+- **Idempotency on Approve is structural, not a bolted-on check.**
+  `decide_row()`'s SQL only updates rows still `status = 'pending'`; a
+  second call (a double-click, a retried request) matches zero rows and
+  returns `already_decided` instead of a special-cased guard clause. The
+  database's own atomicity does the work, which is a stronger guarantee
+  than an application-level flag would be.
+- **The diff view calls `optimizer.py`'s existing
+  `best_regime_for_given_structure()` to determine the as-offered
+  structure's own regime, rather than storing it separately.** This is a
+  call to an already-tested function that already exists for exactly this
+  purpose elsewhere in the codebase (the batch-audit route), not new
+  logic — the constraint the build brief for this feature set explicitly
+  called for.
+
 ## Open product questions (unresolved on purpose, not glossed over)
 
 These aren't roadmap items with a known next step — they're decisions that
@@ -288,14 +315,19 @@ features added one at a time.
 
 ## Test coverage
 
-51 tests in `tests/test_finos.py`, passing with or without
-`ANTHROPIC_API_KEY` set (every AI-layer function has a deterministic
-fallback, so the full suite exercises real logic either way): the marginal
-relief calculation against the government's own worked example, the
-old-vs-new regime crossover, HRA metro/non-metro, the PF statutory ceiling,
-extraction mismatch detection, the explainer's numeric guard, each of the 6
-compliance rules' trigger conditions, and the query layer's hypothetical
-re-run path.
+61 tests total, passing with or without `ANTHROPIC_API_KEY` set (every
+AI-layer function has a deterministic fallback, so the full suite
+exercises real logic either way): 51 in `tests/test_finos.py` — the
+marginal relief calculation against the government's own worked example,
+the old-vs-new regime crossover, HRA metro/non-metro, the PF statutory
+ceiling, extraction mismatch detection, the explainer's numeric guard,
+each of the 6 compliance rules' trigger conditions, and the query layer's
+hypothetical re-run path — plus 10 in `tests/test_review_workflow.py`
+covering the maker-checker flow: submission persistence, correctly-worded
+simulated approval, mandatory rejection reasons, the diff view matching
+real optimizer output exactly, independent row-level decisions on a mixed
+batch, duplicate-submission detection, double-approve protection, and the
+salary-revision export's real values plus honesty label.
 
 The live LLM-backed path has also been exercised end-to-end against the
 real Claude API (extraction, explanation, compliance phrasing, query

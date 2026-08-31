@@ -12,15 +12,20 @@ from dotenv import load_dotenv
 
 load_dotenv()  # must run before ai_layer is imported — it reads ANTHROPIC_API_KEY at import time
 
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, send_file
 from optimizer import optimize, best_regime_for_given_structure, sensitivity_sweep, optimization_value_pct
 from ai_layer import extract_from_text, explain_result, flag_compliance, negotiate, compliance_pct, ai_coverage_pct, answer_query, evaluate_band_guardrail, EPFO_AGGREGATE_CEILING
 from tax_engine import SalaryStructure, derive_pf, derive_nps
 from payroll_breakdown import treasury_forecast
 from penalty_exposure import build_scenario_table
 from execution_trace import trace_optimize_stage, trace_guardrail_stage
+import io
+import review_queue
+from diff_view import build_diff
+from salary_revision_export import build_salary_revision_workbook, TEMPLATE_HONESTY_LABEL
 
 app = Flask(__name__, static_folder="static", static_url_path="")
+review_queue.init_db()
 
 AUDIT_LOG_PATH = "audit_log.jsonl"
 
@@ -575,6 +580,161 @@ def _get_commit_history() -> dict:
         return {"commits": commits, "total_commits": sum(commits.values()), "available": True}
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return {"commits": {}, "total_commits": 0, "available": False}
+
+
+@app.route("/api/submissions", methods=["POST"])
+def api_create_submission():
+    """
+    HR's "Submit to Finance for Review" action. Computes each row via the
+    same _build_optimize_response() every other route uses (zero new tax
+    logic), then persists it to the review queue as 'pending'. Batch
+    submissions skip the per-row AI explanation the same way
+    /api/optimize-batch already does — same reasoning, same fix, reused
+    here rather than reintroduced.
+    """
+    data = request.get_json(force=True)
+    source = data.get("source")
+    if source not in ("single", "batch"):
+        return jsonify({"error": "source must be 'single' or 'batch'"}), 400
+
+    raw_rows = data.get("rows") if source == "batch" else [data.get("row")]
+    if not isinstance(raw_rows, list) or not raw_rows or any(not isinstance(r, dict) for r in raw_rows):
+        return jsonify({"error": "rows must be a non-empty list of row objects"}), 400
+
+    built_rows, row_errors = [], []
+    for i, row in enumerate(raw_rows):
+        try:
+            ctc = float(row["ctc"])
+            rent_paid = float(row.get("rent_paid", 0))
+            city = row.get("city", "metro")
+            nps_opted = bool(row.get("nps_opted", False))
+        except (KeyError, ValueError, TypeError):
+            row_errors.append({"row_index": i, "error": "ctc is required and must be numeric"})
+            continue
+        if ctc <= 0:
+            row_errors.append({"row_index": i, "error": "ctc must be positive"})
+            continue
+
+        current_structure = row.get("current_structure")
+        response, _ = _build_optimize_response(
+            ctc, rent_paid, city, nps_opted,
+            current_structure, bool(row.get("extraction_ai_backed", False)),
+            skip_explanation_ai=(source == "batch"),
+        )
+        built_rows.append({
+            "employee_name": row.get("employee_name"),
+            "ctc": ctc,
+            "input": {
+                "ctc": ctc, "rent_paid": rent_paid, "city": city, "nps_opted": nps_opted,
+                "current_structure": current_structure, "employee_name": row.get("employee_name"),
+            },
+            "computed": response,
+        })
+
+    if not built_rows:
+        return jsonify({"error": "no valid rows to submit", "row_errors": row_errors}), 400
+
+    result = review_queue.create_submission(source, built_rows, submitted_by=data.get("submitted_by", "hr"))
+    _append_audit_log("/api/submissions", {
+        "submission_id": result["submission_id"], "source": source,
+        "rows_submitted": len(built_rows), "duplicates_skipped": len(result["duplicates"]),
+    })
+    return jsonify({**result, "row_errors": row_errors})
+
+
+@app.route("/api/submissions", methods=["GET"])
+def api_list_submissions():
+    status = request.args.get("status")
+    return jsonify({"submissions": review_queue.list_submissions(status)})
+
+
+@app.route("/api/submissions/<int:submission_id>", methods=["GET"])
+def api_get_submission(submission_id):
+    """Finance's detail view — includes the before/after diff per row, built over already-computed data only."""
+    submission = review_queue.get_submission(submission_id)
+    if submission is None:
+        return jsonify({"error": "submission not found"}), 404
+    for row in submission["rows"]:
+        row["diff"] = build_diff(row["input"], row["computed"])
+    return jsonify(submission)
+
+
+@app.route("/api/submissions/<int:submission_id>/rows/<int:row_index>/decide", methods=["POST"])
+def api_decide_row(submission_id, row_index):
+    """
+    Finance's approve/reject action on one row. Idempotent: a second call
+    on an already-decided row (a double-click, a retried request) writes
+    nothing and returns already_decided=True — see review_queue.decide_row.
+    Approving NEVER calls RazorpayX or dispatches anything; the response
+    and audit-log entry say so explicitly, on purpose, matching the same
+    boundary drawn everywhere else in this codebase around live execution.
+    """
+    data = request.get_json(force=True)
+    decision = data.get("decision")
+    reason = data.get("reason")
+    if decision not in ("approve", "reject"):
+        return jsonify({"error": "decision must be 'approve' or 'reject'"}), 400
+    if decision == "reject" and not reason:
+        return jsonify({"error": "a rejection requires a reason"}), 400
+
+    try:
+        result = review_queue.decide_row(submission_id, row_index, decision, reason,
+                                          decided_by=data.get("decided_by", "finance"))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    if result["already_decided"]:
+        return jsonify({
+            "already_decided": True,
+            "current_status": result["current_status"],
+            "message": f"This row was already {result['current_status']} — no second decision was recorded.",
+        }), 409
+
+    _append_audit_log("/api/submissions/decide", {
+        "submission_id": submission_id, "row_index": row_index, "decision": decision, "reason": reason,
+    })
+    return jsonify({
+        "already_decided": False,
+        "status": result["row"]["status"],
+        "message": "Approved — Payout SIMULATED, no live dispatch." if decision == "approve"
+                    else f"Rejected: {reason}",
+    })
+
+
+@app.route("/api/export-salary-revision", methods=["POST"])
+def api_export_salary_revision():
+    """
+    Generates a Bulk Salary Revision XLSX for already-flagged employees —
+    see salary_revision_export.py for the honesty label on the template
+    shape and why this is a separate module from the RazorpayX payout
+    payload generator. No live upload occurs; this returns a file only.
+    """
+    data = request.get_json(force=True)
+    employees = data.get("employees")
+    if not isinstance(employees, list) or not employees:
+        return jsonify({"error": "employees must be a non-empty list of {employee_name, ctc, current, corrected}"}), 400
+    for i, e in enumerate(employees):
+        if not isinstance(e, dict) or not e.get("employee_name") or "ctc" not in e or "current" not in e or "corrected" not in e:
+            return jsonify({"error": f"employee at index {i} requires employee_name, ctc, current, and corrected"}), 400
+
+    wb = build_salary_revision_workbook(employees)
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    _append_audit_log("/api/export-salary-revision", {"employee_count": len(employees)})
+
+    response = send_file(
+        buf, as_attachment=True, download_name="grosslo_salary_revision.xlsx",
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    # HTTP header values must be Latin-1-encodable — the em-dash in
+    # TEMPLATE_HONESTY_LABEL isn't, and setting it directly hung the dev
+    # server on a real request (caught live, not by inspection). The file's
+    # own Read Me sheet keeps the original Unicode; only the header copy is
+    # ASCII-sanitized, since that's the only one with an encoding constraint.
+    response.headers["X-Template-Honesty-Label"] = TEMPLATE_HONESTY_LABEL.replace("—", "-")
+    return response
 
 
 @app.route("/api/commit-history")
