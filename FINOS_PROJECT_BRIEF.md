@@ -2,6 +2,21 @@
 
 Razorpay AI Buildathon 2026, AI Finance Controller track.
 
+**Why this track and not AI Risk Manager, addressed directly, not left for
+a reviewer to ask:** what's most *built out* today — six compliance rules,
+a guardrail that actively blocks a bad structure, a penalty-exposure module
+citing real statutory sections — genuinely reads closer to a risk-management
+surface than a treasury one; the treasury forecast, by contrast, is one
+formula with no steady-state tracking yet. Finance Controller was picked
+for where this is headed, not for whichever surface happens to be furthest
+along today: the roadmap's endpoint is grosslo sitting in the actual
+payment-execution path — structuring, checking, and generating the payout
+that gets funded — which is a controller function, not a monitoring one.
+Risk Manager would be the more defensible claim if judged purely on what's
+built this week; Finance Controller is the honest claim about the category
+this is being built toward. Both are true; this doc says so on purpose
+instead of picking whichever reads better.
+
 This is the architecture document referenced from `README.md`. It exists to
 answer the questions a judge will actually ask: what does this do, what part
 is genuinely AI-native, what's deterministic and why, and what were the
@@ -11,23 +26,21 @@ and the feature list.
 
 ## What grosslo is
 
-An AI-assisted payroll controller that sits in front of RazorpayX. It takes a
-compensation decision — one new hire, or a whole CSV of them — and does four
-things a payroll/HR team currently does by hand, in spreadsheets, across
-multiple tools: structure the salary tax-efficiently, check it against a
-company's approved band and statutory ceilings, forecast the capital treasury
-needs to fund it, and generate a schema-accurate RazorpayX payout payload. It
-also runs the same checks *backwards* over an existing headcount, to surface
-compensation structures that are already out of policy or leaving money on
-the table.
+**Stated precisely, up front:** grosslo is the decision and compliance layer
+a real autonomous payroll controller would need underneath it — not yet the
+acting system itself. No route in this codebase writes state, calls an
+external API, or moves money; every RazorpayX interaction stops at
+generating a correctly-shaped payload. "Controller" describes what this is
+built toward, not a write-authority this build currently holds.
 
-It does not place any live payout — every RazorpayX interaction in this repo
-stops at generating a correctly-shaped payload. Stated precisely: this is
-the decision and compliance layer a real autonomous controller would need
-underneath it, not yet the acting system itself — no route in this codebase
-writes state, calls an external API, or moves money. "Controller" describes
-what this is built toward, not a write-authority this build currently
-holds.
+It takes a compensation decision — one new hire, or a whole CSV of them —
+and does four things a payroll/HR team currently does by hand, in
+spreadsheets, across multiple tools: structure the salary tax-efficiently,
+check it against a company's approved band and statutory ceilings, forecast
+the capital treasury needs to fund it, and generate a schema-accurate
+RazorpayX payout payload. It also runs the same checks *backwards* over an
+existing headcount, to surface compensation structures that are already out
+of policy or leaving money on the table.
 
 ## Why the architecture is deterministic-first
 

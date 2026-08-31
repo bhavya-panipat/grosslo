@@ -352,6 +352,23 @@ class TestComplianceAndCoverageMetrics(unittest.TestCase):
             0.0
         )
 
+    def test_ai_coverage_excludes_compliance_with_zero_flags(self):
+        # Manual CTC only, clean structure (zero compliance flags -> nothing
+        # for the LLM to phrase, compliance_ai_backed is correctly False by
+        # construction). Compliance must be excluded from the denominator
+        # the same way extraction/negotiation are when not applicable — the
+        # only thing that actually ran (explanation) was AI-backed, so this
+        # should read 100%, not silently cap at 50% for the most common,
+        # cleanest-structure path. Found live via a panel-style walkthrough,
+        # not by inspection alone.
+        self.assertEqual(
+            ai_coverage_pct(extraction_ran=False, extraction_ai_backed=False,
+                             explanation_ai_backed=True, compliance_ai_backed=False,
+                             negotiation_ran=False, negotiation_ai_backed=False,
+                             compliance_ran=False),
+            100.0
+        )
+
 
 class TestCommitHistoryParser(unittest.TestCase):
     def test_counts_multiple_commits_per_day(self):

@@ -319,7 +319,8 @@ def compliance_pct(flags: list) -> float:
 
 def ai_coverage_pct(extraction_ran: bool, extraction_ai_backed: bool,
                      explanation_ai_backed: bool, compliance_ai_backed: bool,
-                     negotiation_ran: bool, negotiation_ai_backed: bool) -> float:
+                     negotiation_ran: bool, negotiation_ai_backed: bool,
+                     compliance_ran: bool = True) -> float:
     """
     % of the capabilities that actually ran THIS PASS that were genuinely
     AI-backed (not fallback). A capability not running (e.g. no offer
@@ -328,12 +329,19 @@ def ai_coverage_pct(extraction_ran: bool, extraction_ai_backed: bool,
     Penalizing a valid manual-CTC-only run for something that was never
     applicable would be its own kind of misleading number.
 
-    Explanation and compliance always run (compliance's rule-matching
-    always executes even when it skips the LLM call for zero flags), so
-    the denominator is always >= 2 — no realistic divide-by-zero risk,
-    but guarded anyway.
+    Compliance rule-matching always *executes*, but there's nothing for the
+    LLM to do when zero rules fire — no flags to rephrase into plain
+    language. That's the same "not applicable" case extraction/negotiation
+    already get excluded for, so compliance is excluded from the
+    denominator too when compliance_ran is False (i.e. zero flags),
+    instead of counting as a fallback data point that silently caps this
+    metric near 50% on the most common, cleanest-structure path. Caller
+    passes compliance_ran=len(flags) > 0. Defaults to True so existing
+    call sites that always had flags aren't forced to pass it.
     """
-    ran = [explanation_ai_backed, compliance_ai_backed]
+    ran = [explanation_ai_backed]
+    if compliance_ran:
+        ran.append(compliance_ai_backed)
     if extraction_ran:
         ran.append(extraction_ai_backed)
     if negotiation_ran:

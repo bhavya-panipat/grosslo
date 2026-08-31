@@ -5,7 +5,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "grosslo",
-  description: "grosslo — the AI-assisted payroll controller for RazorpayX.",
+  description: "grosslo — the decision and compliance layer for RazorpayX payroll. No live dispatch, by design.",
 };
 
 export default function RootLayout({

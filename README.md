@@ -1,21 +1,20 @@
-# grosslo — the AI-assisted payroll controller for RazorpayX
+# grosslo — the decision and compliance layer for RazorpayX payroll
 
 Built for the Razorpay AI Buildathon 2026, AI Finance Controller track.
+
+**Stated precisely, up front:** grosslo is the decision and compliance layer
+a real autonomous payroll controller would need underneath it — not yet the
+acting system itself. Nothing in this build calls RazorpayX's real API,
+writes to a database, or moves money; every code path terminates in a
+recommendation or a generated payload. That boundary is deliberate (see
+"Known limitations" and "Roadmap" below), not a gap discovered after the
+fact.
 
 grosslo structures a compensation offer, checks it against a company's approved
 band and statutory ceilings, forecasts the capital a treasury team needs to fund
 it, and exports a schema-accurate RazorpayX Composite Payout payload — for one
 candidate at a time or a whole CSV batch. Every step is logged as a real
 execution trace, not a black box: what ran, what it found, and why.
-
-**What grosslo is today, stated precisely:** the decision and compliance
-layer a real autonomous controller would need underneath it — not yet the
-acting system itself. Every code path here terminates in a recommendation
-or a generated payload; nothing in this build calls RazorpayX's real API,
-writes to a database, or moves money. That boundary is deliberate (see
-"Known limitations" and "Roadmap" below), and it's the honest reason this
-is scoped as a controller *in name and direction*, not yet in the sense of
-holding write-authority over anything.
 
 ## What it actually does
 

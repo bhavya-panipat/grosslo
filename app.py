@@ -182,6 +182,7 @@ def _build_optimize_response(ctc, rent_paid, city, nps_opted, current_extracted,
             extraction_ran=extraction_ran, extraction_ai_backed=extraction_ai_backed,
             explanation_ai_backed=explanation["ai_backed"], compliance_ai_backed=compliance["ai_backed"],
             negotiation_ran=negotiation_ran, negotiation_ai_backed=negotiation_ai_backed,
+            compliance_ran=len(compliance["flags"]) > 0,
         ),
     }
 
