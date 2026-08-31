@@ -233,6 +233,43 @@ showing a steady-state baseline alongside the incremental figure — needs a
 persisted employee roster this build deliberately doesn't have; it's the
 first item on the roadmap in `README.md`, not a silent limitation.
 
+**Batch mode skips the AI-generated explanation entirely — measured, not
+assumed, to cost nothing.** `explain_result(..., skip_ai=True)` in
+`/api/optimize-batch` goes straight to the deterministic explanation
+without a live API call. This was found via load-testing, not design
+review: with the AI layer on, a 20-row batch didn't complete inside 60
+seconds, entirely because of one sequential, blocking Claude call per row.
+Before "fixing" it, checked whether the explanation text was used anywhere
+— `batch-results-table.tsx` renders only row/CTC/regime/saving/guardrail
+columns, so it was computed and discarded on every row, in every batch.
+Skipping it dropped a 500-row batch from not completing at all to ~34
+seconds (~69ms/row). The single-candidate flow, where the explanation is
+actually shown, is untouched — see `README.md`'s "what broke" section for
+the full before/after.
+
+## Open product questions (unresolved on purpose, not glossed over)
+
+These aren't roadmap items with a known next step — they're decisions that
+haven't been made yet, and pretending otherwise would be its own kind of
+overclaiming.
+
+**Who actually operates this, day to day?** HR, a payroll admin, an
+individual employee reviewing their own offer, or an API Razorpay's own
+systems call internally are all plausible, and each implies a different
+permission model, a different UI, and a different answer to who's even
+allowed to see a given number. This document describes what the system
+computes; it doesn't yet answer who's using it or what they're allowed to
+see.
+
+**Does grosslo become the system of record, or does it sync with one that
+already exists?** Every real company already runs payroll through
+something — RazorpayX Payroll itself, or another vendor. Whether grosslo
+assumes ownership of compensation data or ingests from and stays in sync
+with an existing system is a foundational architecture decision, and it's
+entangled with the persistence and multi-tenancy questions in the roadmap
+above, not separable from them — this can't be answered as three separate
+features added one at a time.
+
 ## What's genuinely AI-native
 
 - **Offer-letter extraction** — pulling structured CTC/basic/HRA/LTA/PF
@@ -251,7 +288,7 @@ first item on the roadmap in `README.md`, not a silent limitation.
 
 ## Test coverage
 
-49 tests in `tests/test_finos.py`, passing with or without
+51 tests in `tests/test_finos.py`, passing with or without
 `ANTHROPIC_API_KEY` set (every AI-layer function has a deterministic
 fallback, so the full suite exercises real logic either way): the marginal
 relief calculation against the government's own worked example, the

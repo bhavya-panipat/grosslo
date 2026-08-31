@@ -183,13 +183,28 @@ def _deterministic_explain(optimizer_result: dict, rent_paid: float, city: str) 
     )
 
 
-def explain_result(optimizer_result: dict, rent_paid: float, city: str) -> dict:
+def explain_result(optimizer_result: dict, rent_paid: float, city: str, skip_ai: bool = False) -> dict:
     """
     Generate a plain-language explanation of the optimizer's recommendation.
     Returns {"explanation": str, "ai_backed": bool, "guard_triggered": bool}.
     guard_triggered=True means the LLM output contained a number not present
     in the input data, and we fell back to the deterministic explanation.
+
+    skip_ai=True goes straight to the deterministic explanation without
+    ever calling the live API — for batch mode, where per-row prose is
+    generated but never rendered anywhere in the batch UI (checked:
+    batch-results-table.tsx shows only CTC/regime/saving/guardrail columns).
+    Measured live: with skip_ai unset, a 20-row batch took over 60 seconds
+    because of one sequential blocking API call per row; with it set, the
+    same batch completed in ~0.1s. Not a design tradeoff — the explanation
+    text this was generating was pure waste, computed and then discarded.
     """
+    if skip_ai:
+        return {
+            "explanation": _deterministic_explain(optimizer_result, rent_paid, city),
+            "ai_backed": False,
+            "guard_triggered": False,
+        }
     rec = optimizer_result["recommended"]
     payload = {
         "ctc": optimizer_result["ctc"],

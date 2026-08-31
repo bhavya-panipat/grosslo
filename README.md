@@ -93,7 +93,7 @@ grosslo invented, only one the compliance engine already decided.
 
 Backend:
 ```bash
-python3 -m unittest discover -s tests   # 49 tests, all pass with or without an API key
+python3 -m unittest discover -s tests   # 51 tests, all pass with or without an API key
 python3 app.py 8000                     # serves the API at http://127.0.0.1:8000
 ```
 
@@ -167,6 +167,13 @@ guess at what the new number would be.
   sources or capital gains.
 - The RazorpayX export generates a schema-verified payload only — no live
   call to RazorpayX is made anywhere in this codebase.
+- **No privacy or security posture beyond "don't persist anything
+  sensitive," stated plainly rather than left silent.** No encryption at
+  rest (there's nothing at rest to encrypt yet), no data-retention or
+  deletion policy, no access control beyond who can reach the local
+  `/api/audit-log` endpoint. This matters more than most limitations here
+  because this tool handles real compensation and bank-account data — it's
+  named explicitly so it's not mistaken for an oversight nobody noticed.
 - **The treasury forecast (`payroll_breakdown.treasury_forecast`) has no
   concept of history or an existing payroll baseline** — there's no database
   anywhere in this app, so the "capital required" figure is a literal sum
@@ -182,20 +189,47 @@ This was built to demonstrate the core mechanism correctly, not to be
 production-complete — these are the specific, known next steps, not vague
 future plans:
 
-- **Persisted employee roster** — a real database so the treasury forecast
-  can show a company's steady-state payroll baseline, not just the
-  incremental capital for whichever CSV was uploaded in a given session.
+- **Persistence — and the decisions that come bundled with it, not
+  sequentially after it.** Going from this build's fully stateless
+  request/response model to one that remembers a company's roster over
+  time is a genuine re-architecture, not an incremental feature. Three
+  things have to be designed together, not added one at a time: a real
+  database so the treasury forecast can show a company's steady-state
+  payroll baseline (not just the incremental capital for whichever CSV was
+  uploaded); **multi-tenant isolation**, so company A's payroll data is
+  never reachable from company B's request the moment more than one
+  company's data exists in the same system; and a **system-of-record
+  decision** — does grosslo become the source of truth for a company's
+  compensation data, or does it ingest from and stay in sync with
+  RazorpayX Payroll or whatever HRIS a company already runs. None of these
+  three is answered yet, and none of them can be answered independently of
+  the other two.
 - **Live RazorpayX dispatch, gated behind real OAuth and a human-approval
   step** — today the export stops at generating a correct payload on
   purpose; going further requires real credentials and an audit trail
   before any actual payout is safe to trigger automatically.
 - **Ecosystem-partner integration** — distributed to companies already on
   RazorpayX rather than as a standalone tool competing for signups.
-- **Wider compliance rule coverage** — the current 6 rules and the tax
-  engine's scope (no surcharge, single income source, resident individuals
-  only) are deliberately narrow; real enterprise payroll needs more edge
-  cases covered, ideally reviewed by a practicing CA before being trusted
-  at that scale.
+- **Wider compliance and tax coverage, named specifically rather than left
+  as a direction.** The current 6 rules and the tax engine's scope (no
+  surcharge, single income source, resident individuals only) don't yet
+  cover the messier reality of real payroll: mid-year joiners and leavers
+  with pro-rated CTC, multiple income sources, prior-employer TDS
+  certificates, bonuses and variable pay, and ESOP taxation. Each of these
+  needs its own scoping work, ideally reviewed by a practicing CA before
+  being trusted at real enterprise scale — the same discipline that caught
+  the 271C citation error above.
+- **Closing the loop on the audit mode.** Compliance & Savings Audit
+  currently stops at detection — "here's ₹1.5L in excess EPFO
+  contribution," "here's ₹62K in unclaimed savings" — with no path from
+  finding a problem to actually fixing it. A real remediation flow
+  (generating a corrected structure and, eventually, the payout to match
+  it) is the natural next step and isn't built yet.
+- **Who actually operates this, day to day — an open product question,
+  not yet a design decision.** HR, a payroll admin, an individual employee,
+  or an API Razorpay's own systems call internally are all plausible, and
+  each implies a different permission model and a different UI. This
+  build doesn't answer it yet.
 
 ## What broke during development (and what that caught)
 
@@ -230,16 +264,31 @@ future plans:
   exercises the fallback path directly, not the guard logic that sits in
   front of a real LLM response. Fixed by adding the changed value to the
   guard's allow-list when it's numeric.
+- `/api/optimize-batch` had never been load-tested. With a live API key, a
+  20-row batch didn't complete inside 60 seconds, and a 500-row batch
+  didn't complete inside 2 minutes. Measured, not assumed: isolating the
+  same 20-row batch with the AI layer off completed in 0.11 seconds — the
+  entire cost was one sequential, blocking Claude API call per row to
+  generate that row's prose explanation. Checked whether that explanation
+  was actually used anywhere: `batch-results-table.tsx` renders only
+  row/CTC/regime/saving/guardrail columns — the explanation text was
+  computed and then discarded on every single row, in every batch, before
+  this was found. Fixed by skipping that AI call in batch mode specifically
+  (`explain_result(..., skip_ai=True)`); the single-candidate flow, where
+  the explanation is actually shown, is untouched. The same 20-row batch
+  now completes in under 4 seconds; a 500-row batch completes in ~34
+  seconds (~69ms/row) instead of not completing at all.
 
 ## Test coverage
 
-49 tests across `tests/test_finos.py`, covering the marginal relief
+51 tests across `tests/test_finos.py`, covering the marginal relief
 calculation (validated against the government's own worked example), the
 old-vs-new regime crossover, HRA metro vs non-metro, the PF statutory-ceiling
-toggle, extraction's mismatch-detection logic, the explainer's numeric guard,
-each compliance rule's trigger condition, and the conversational query
-layer's hypothetical-recalculation path. All pass with no
-`ANTHROPIC_API_KEY` set, exercising every deterministic fallback.
+toggle, extraction's mismatch-detection logic, the explainer's numeric guard
+(including that batch mode's `skip_ai` path stays deterministic), each
+compliance rule's trigger condition, and the conversational query layer's
+hypothetical-recalculation path. All pass with no `ANTHROPIC_API_KEY` set,
+exercising every deterministic fallback.
 
 **The live LLM-backed path has been tested end-to-end against the real
 Claude API**, not just its deterministic fallback: extraction, explanation,

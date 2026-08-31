@@ -118,6 +118,20 @@ class TestAiLayerExplainer(unittest.TestCase):
         explanation = explain_result(opt_result, rent_paid=1_400_000, city="metro")
         self.assertIn("explanation", explanation)
 
+    def test_explainer_skip_ai_never_ai_backed(self):
+        # Batch mode passes skip_ai=True — found via load-testing that a
+        # 20-row batch didn't complete in 60s because of one sequential
+        # live API call per row, for explanation text the batch UI never
+        # even renders. This asserts the fast path stays deterministic
+        # (and therefore fast) regardless of whether a real API key is
+        # configured — the whole point of skip_ai is to never touch the
+        # network, not just to usually avoid it.
+        opt_result = optimize(ctc=1_800_000, rent_paid=540_000, city="metro", nps_opted=True)
+        explanation = explain_result(opt_result, rent_paid=540_000, city="metro", skip_ai=True)
+        self.assertFalse(explanation["ai_backed"])
+        self.assertFalse(explanation["guard_triggered"])
+        self.assertIn(str(int(opt_result["ctc"])), explanation["explanation"].replace(",", ""))
+
 
 class TestAiLayerCompliance(unittest.TestCase):
     def test_clean_structure_no_flags(self):

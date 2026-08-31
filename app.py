@@ -109,13 +109,18 @@ def readme():
     return send_from_directory(".", "README.md", mimetype="text/markdown")
 
 
-def _build_optimize_response(ctc, rent_paid, city, nps_opted, current_extracted, extraction_ai_backed):
+def _build_optimize_response(ctc, rent_paid, city, nps_opted, current_extracted, extraction_ai_backed,
+                              skip_explanation_ai=False):
     """
     The full optimize+compliance+negotiation+metrics pipeline for one
     candidate, extracted out of api_optimize() so /api/optimize-batch can
     reuse it per-row without duplicating this logic. Pure extract-function
     refactor — behavior is byte-for-byte identical to what api_optimize()
     used to do inline; only the call site changed.
+
+    skip_explanation_ai=True is passed by the batch route only — see
+    explain_result()'s docstring for why (measured, not assumed: this was
+    the entire cause of a 500-row batch not completing in 2 minutes).
 
     Returns (response_dict, raw_result) — raw_result is optimize()'s own
     return value, with real SalaryStructure objects (not yet flattened to
@@ -143,7 +148,7 @@ def _build_optimize_response(ctc, rent_paid, city, nps_opted, current_extracted,
         current_structure = _build_current_structure(current_extracted, ctc, result["recommended"].regime)
 
     # Attach explanation for the recommended structure
-    explanation = explain_result(result, rent_paid, city)
+    explanation = explain_result(result, rent_paid, city, skip_ai=skip_explanation_ai)
     response["explanation"] = explanation
 
     # Compliance checks the AS-OFFERED structure when we have one (the real
@@ -256,6 +261,7 @@ def api_optimize_batch():
         response, raw_result = _build_optimize_response(
             ctc, rent_paid, city, nps_opted,
             row.get("current_structure"), bool(row.get("extraction_ai_backed", False)),
+            skip_explanation_ai=True,
         )
         response["row_index"] = i
 
