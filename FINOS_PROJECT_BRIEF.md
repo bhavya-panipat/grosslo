@@ -171,6 +171,19 @@ return it, the same as every other route in this app. There is no database
 and no server-side file write in this codebase. Parsed CSV rows live only in
 browser memory for the session tab.
 
+**The treasury forecast is a total over the current request's structures,
+not a delta against a company's real payroll.** This follows directly from
+the statelessness above: `payroll_breakdown.treasury_forecast()` has no
+history to compute a delta against, so "capital required" is a literal sum
+over whatever structure(s) are in the request — one candidate's figures in
+the single flow, or the sum across a New Hire Batch CSV's rows in the batch
+flow. That's an accurate number for what it is, but it is not a company's
+full recurring payroll capital, and the UI label says so explicitly rather
+than leaving that inference to the viewer. Closing that gap for real —
+showing a steady-state baseline alongside the incremental figure — needs a
+persisted employee roster this build deliberately doesn't have; it's the
+first item on the roadmap in `README.md`, not a silent limitation.
+
 ## What's genuinely AI-native
 
 - **Offer-letter extraction** — pulling structured CTC/basic/HRA/LTA/PF
