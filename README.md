@@ -159,6 +159,35 @@ guess at what the new number would be.
   sources or capital gains.
 - The RazorpayX export generates a schema-verified payload only — no live
   call to RazorpayX is made anywhere in this codebase.
+- **The treasury forecast (`payroll_breakdown.treasury_forecast`) has no
+  concept of history or an existing payroll baseline** — there's no database
+  anywhere in this app, so the "capital required" figure is a literal sum
+  over whatever structure(s) are in the current request, not a delta against
+  a company's actual recurring payroll. The UI label says this explicitly
+  ("capital required for these employees... not your full existing
+  payroll") so it isn't mistaken for more than it is. See Roadmap below for
+  what closing this gap actually requires.
+
+## Roadmap toward a real product (explicitly out of scope for this submission)
+
+This was built to demonstrate the core mechanism correctly, not to be
+production-complete — these are the specific, known next steps, not vague
+future plans:
+
+- **Persisted employee roster** — a real database so the treasury forecast
+  can show a company's steady-state payroll baseline, not just the
+  incremental capital for whichever CSV was uploaded in a given session.
+- **Live RazorpayX dispatch, gated behind real OAuth and a human-approval
+  step** — today the export stops at generating a correct payload on
+  purpose; going further requires real credentials and an audit trail
+  before any actual payout is safe to trigger automatically.
+- **Ecosystem-partner integration** — distributed to companies already on
+  RazorpayX rather than as a standalone tool competing for signups.
+- **Wider compliance rule coverage** — the current 6 rules and the tax
+  engine's scope (no surcharge, single income source, resident individuals
+  only) are deliberately narrow; real enterprise payroll needs more edge
+  cases covered, ideally reviewed by a practicing CA before being trusted
+  at that scale.
 
 ## What broke during development (and what that caught)
 

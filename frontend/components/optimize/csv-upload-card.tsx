@@ -10,10 +10,19 @@ type Props = {
   onRowsParsed: (rows: Record<string, string>[]) => void;
 };
 
-const NEW_HIRE_COLUMNS =
-  "name, ctc, rent_paid, city, nps_opted, band_min, band_max, bank_account_number, ifsc, email";
-const AUDIT_COLUMNS =
-  "name, ctc, basic, hra, lta, special_allowance, employer_pf, employer_nps, nps_opted, rent_paid, city, band_min, band_max";
+const NEW_HIRE_COLUMNS = [
+  "name", "ctc", "rent_paid", "city", "nps_opted", "band_min", "band_max",
+  "bank_account_number", "ifsc", "email",
+];
+const AUDIT_COLUMNS = [
+  "name", "ctc", "basic", "hra", "lta", "special_allowance", "employer_pf",
+  "employer_nps", "nps_opted", "rent_paid", "city", "band_min", "band_max",
+];
+
+const MODE_LABEL: Record<Props["mode"], string> = {
+  "new-hire": "New Hire Batch",
+  audit: "Compliance & Savings Audit",
+};
 
 export default function CsvUploadCard({ mode, onRowsParsed }: Props) {
   const [fileName, setFileName] = useState<string | null>(null);
@@ -22,7 +31,8 @@ export default function CsvUploadCard({ mode, onRowsParsed }: Props) {
   const [parsing, setParsing] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const expectedColumns = mode === "new-hire" ? NEW_HIRE_COLUMNS : AUDIT_COLUMNS;
+  const expectedColumnList = mode === "new-hire" ? NEW_HIRE_COLUMNS : AUDIT_COLUMNS;
+  const expectedColumns = expectedColumnList.join(", ");
 
   const handleFile = (file: File) => {
     setParsing(true);
@@ -40,6 +50,21 @@ export default function CsvUploadCard({ mode, onRowsParsed }: Props) {
         }
         if (results.data.length === 0) {
           setError("No rows found in this file.");
+          setRowCount(null);
+          return;
+        }
+        // Catches the most common mistake — uploading the CSV for the other
+        // mode (e.g. an audit file, which shares several column names with
+        // a new-hire file, into New Hire Batch). Without this check the
+        // request would still fire with silently-defaulted/missing fields
+        // and look like the product is broken rather than the file being
+        // wrong for this mode.
+        const foundColumns = results.meta.fields ?? [];
+        const missing = expectedColumnList.filter((c) => !foundColumns.includes(c));
+        if (missing.length > 0) {
+          setError(
+            `This doesn't look like a ${MODE_LABEL[mode]} file — missing column${missing.length === 1 ? "" : "s"}: ${missing.join(", ")}. Check you're in the right mode above, or fix the CSV's header row.`,
+          );
           setRowCount(null);
           return;
         }

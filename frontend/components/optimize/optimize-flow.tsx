@@ -153,11 +153,19 @@ export default function OptimizeFlow() {
 
   return (
     <section className="mx-auto max-w-6xl px-6 pb-28 pt-32 md:px-10">
-      <div className="mb-10">
-        <p className="font-mono text-xs uppercase tracking-[0.2em] text-gold-bright">{"> OPTIMIZE"}</p>
-        <h1 className="mt-3 font-display text-3xl font-semibold text-white sm:text-4xl">
-          Structure a CTC, check compliance, export to payroll.
-        </h1>
+      <div className="mb-10 flex items-start justify-between gap-4">
+        <div>
+          <p className="font-mono text-xs uppercase tracking-[0.2em] text-gold-bright">{"> OPTIMIZE"}</p>
+          <h1 className="mt-3 font-display text-3xl font-semibold text-white sm:text-4xl">
+            Structure a CTC, check compliance, export to payroll.
+          </h1>
+        </div>
+        <a
+          href="/optimize/batch"
+          className="mt-1 hidden shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-white/10 px-4 py-2 text-sm text-neutral-300 transition-colors hover:border-white/20 hover:bg-white/[0.04] hover:text-white sm:inline-flex"
+        >
+          Have a batch? →
+        </a>
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">

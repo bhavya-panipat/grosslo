@@ -235,12 +235,14 @@ export default function RazorpayXExportModal({ form, batchRows, onClose }: Props
                 ))}
               </div>
               <div className="rounded-xl border border-gold/20 bg-gold/[0.05] p-3 text-center">
-                <p className="text-xs text-neutral-500">Total capital outlay required</p>
+                <p className="text-xs text-neutral-500">Capital required for these employees</p>
                 <p className="mt-1 font-display text-lg font-semibold text-gold-bright">
                   ₹{Math.round(result.treasury_forecast.total_capital_outlay).toLocaleString("en-IN")}
                 </p>
                 <p className="mt-0.5 text-xs text-neutral-600">
-                  Fund {result.treasury_forecast.funding_deadline_hours_before_payroll}h before payroll runs
+                  Fund {result.treasury_forecast.funding_deadline_hours_before_payroll}h before payroll runs —
+                  this covers only the {result.payouts.length === 1 ? "employee" : `${result.payouts.length} employees`} shown
+                  here, not your full existing payroll
                 </p>
               </div>
 

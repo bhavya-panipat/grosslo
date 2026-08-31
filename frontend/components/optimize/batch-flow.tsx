@@ -112,11 +112,19 @@ export default function BatchFlow() {
 
   return (
     <section className="mx-auto max-w-6xl px-6 pb-28 pt-32 md:px-10">
-      <div className="mb-10">
-        <p className="font-mono text-xs uppercase tracking-[0.2em] text-gold-bright">{"> BATCH"}</p>
-        <h1 className="mt-3 font-display text-3xl font-semibold text-white sm:text-4xl">
-          Process many at once.
-        </h1>
+      <div className="mb-10 flex items-start justify-between gap-4">
+        <div>
+          <p className="font-mono text-xs uppercase tracking-[0.2em] text-gold-bright">{"> BATCH"}</p>
+          <h1 className="mt-3 font-display text-3xl font-semibold text-white sm:text-4xl">
+            Process many at once.
+          </h1>
+        </div>
+        <a
+          href="/optimize"
+          className="mt-1 hidden shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-white/10 px-4 py-2 text-sm text-neutral-300 transition-colors hover:border-white/20 hover:bg-white/[0.04] hover:text-white sm:inline-flex"
+        >
+          ← Single candidate
+        </a>
       </div>
 
       <div className="mb-6 flex gap-1 rounded-full border border-white/10 bg-black/40 p-1 w-fit">
@@ -133,7 +141,7 @@ export default function BatchFlow() {
         ))}
       </div>
 
-      <CsvUploadCard mode={mode} onRowsParsed={handleRowsParsed} />
+      <CsvUploadCard key={mode} mode={mode} onRowsParsed={handleRowsParsed} />
 
       {loading && (
         <div className="mt-6 flex items-center gap-2 text-sm text-neutral-500">
