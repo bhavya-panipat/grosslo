@@ -1,6 +1,6 @@
 # grosslo — architecture brief
 
-Razorpay AI Buildathon 2026, Open / Agentic Business Banking track.
+Razorpay AI Buildathon 2026, AI Finance Controller track.
 
 This is the architecture document referenced from `README.md`. It exists to
 answer the questions a judge will actually ask: what does this do, what part
@@ -22,7 +22,12 @@ compensation structures that are already out of policy or leaving money on
 the table.
 
 It does not place any live payout — every RazorpayX interaction in this repo
-stops at generating a correctly-shaped payload.
+stops at generating a correctly-shaped payload. Stated precisely: this is
+the decision and compliance layer a real autonomous controller would need
+underneath it, not yet the acting system itself — no route in this codebase
+writes state, calls an external API, or moves money. "Controller" describes
+what this is built toward, not a write-authority this build currently
+holds.
 
 ## Why the architecture is deterministic-first
 
@@ -183,9 +188,20 @@ silently wrong.
 
 **No CSV data or bank details are persisted anywhere.** Both batch routes are
 stateless Flask handlers — they compute a response from the request body and
-return it, the same as every other route in this app. There is no database
-and no server-side file write in this codebase. Parsed CSV rows live only in
-browser memory for the session tab.
+return it, the same as every other route in this app. There is no database.
+Parsed CSV rows live only in browser memory for the session tab.
+
+**One server-side file write does exist, deliberately narrow: a local audit
+log.** `_append_audit_log()` in `app.py` appends one JSON line per
+money-adjacent decision (structure computed, compliance/guardrail verdict,
+whether a payout payload was generated) to a gitignored `audit_log.jsonl`
+on every call to `/api/optimize`, `/api/optimize-batch`, `/api/batch-audit`,
+and `/api/export-razorpayx` — a real, inspectable-after-the-fact record,
+not a claimed one. It never writes employee names, bank account numbers,
+IFSC codes, or emails, so the "no bank details persisted" claim above still
+holds exactly. This is a local append-only log for this submission, not a
+production audit system — no rotation, no access control, no
+tamper-evidence — and is stated as exactly that, not oversold as more.
 
 **The treasury forecast is a total over the current request's structures,
 not a delta against a company's real payroll.** This follows directly from

@@ -6,6 +6,8 @@ compliance endpoints. Run with: python3 app.py [port]
 import sys
 import subprocess
 import uuid
+import json
+from datetime import datetime, timezone
 from dotenv import load_dotenv
 
 load_dotenv()  # must run before ai_layer is imported — it reads ANTHROPIC_API_KEY at import time
@@ -19,6 +21,34 @@ from penalty_exposure import build_scenario_table
 from execution_trace import trace_optimize_stage, trace_guardrail_stage
 
 app = Flask(__name__, static_folder="static", static_url_path="")
+
+AUDIT_LOG_PATH = "audit_log.jsonl"
+
+
+def _append_audit_log(route: str, event: dict) -> None:
+    """
+    Appends one JSON line per money-adjacent decision (structure computed,
+    compliance/guardrail verdict, payload generated) to a local, gitignored
+    file — a real, inspectable-after-the-fact audit trail, not a claimed
+    one. Deliberately narrow: this logs the DECISION (regime, tax figures,
+    compliance/guardrail verdicts, whether a payout payload was generated)
+    and never employee PII or bank details, so "no bank details are
+    persisted anywhere" (see FINOS_PROJECT_BRIEF.md) stays true even though
+    a server-side file write now exists. This is a local append-only log
+    for this submission, not a production audit system — no rotation, no
+    access control, no tamper-evidence. Never let a logging failure break
+    the actual response, same degrade-gracefully pattern as
+    _get_commit_history().
+    """
+    try:
+        with open(AUDIT_LOG_PATH, "a") as f:
+            f.write(json.dumps({
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "route": route,
+                **event,
+            }) + "\n")
+    except OSError:
+        pass
 
 
 def _structure_to_dict(s):
@@ -180,6 +210,11 @@ def api_optimize():
         current_extracted, bool(data.get("extraction_ai_backed", False)),
     )
     response["execution_trace"] = trace_optimize_stage(response, extraction_ran=isinstance(current_extracted, dict))
+    _append_audit_log("/api/optimize", {
+        "ctc": ctc, "recommended_regime": response["recommended_regime"],
+        "annual_saving": response["annual_saving"],
+        "compliance_flags": [f["rule_id"] for f in response["compliance"]["flags"]],
+    })
     return jsonify(response)
 
 
@@ -238,6 +273,12 @@ def api_optimize_batch():
                 pass  # malformed band on this row just skips the guardrail check, doesn't fail the row
 
         results.append(response)
+        _append_audit_log("/api/optimize-batch", {
+            "row_index": i, "ctc": ctc, "recommended_regime": response["recommended_regime"],
+            "annual_saving": response["annual_saving"],
+            "compliance_flags": [f["rule_id"] for f in response["compliance"]["flags"]],
+            "guardrail_verdict": response.get("guardrail", {}).get("verdict"),
+        })
 
     return jsonify({"rows": results})
 
@@ -321,6 +362,11 @@ def api_batch_audit():
             "excess_contribution": excess_contribution,
             "guardrail": guardrail,
             "treasury_forecast": forecast,
+        })
+        _append_audit_log("/api/batch-audit", {
+            "row_index": i, "current_regime": current_best["regime"],
+            "unclaimed_savings": unclaimed_savings, "excess_contribution": excess_contribution,
+            "guardrail_verdict": guardrail.get("verdict"),
         })
 
     return jsonify({
@@ -477,6 +523,12 @@ def api_export_razorpayx():
             for employee in employees
         ]
 
+    _append_audit_log("/api/export-razorpayx", {
+        "ctc": ctc, "band_min": band_min, "band_max": band_max,
+        "guardrail_verdict": guardrail.get("verdict"),
+        "payout_payloads_generated": len(employees) if employees is not None else 0,
+        "total_capital_outlay": forecast["total_capital_outlay"],
+    })
     return jsonify(response)
 
 
