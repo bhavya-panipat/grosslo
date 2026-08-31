@@ -227,6 +227,11 @@ extraction mismatch detection, the explainer's numeric guard, each of the 6
 compliance rules' trigger conditions, and the query layer's hypothetical
 re-run path.
 
-Not yet exercised: the live LLM-backed path end-to-end against the real
-Claude API (the fallback tests cover behavior, not live-API latency/format
-edge cases) — see `README.md`'s known-limitations section.
+The live LLM-backed path has also been exercised end-to-end against the
+real Claude API (extraction, explanation, compliance phrasing, query
+classification, and the hypothetical-recalc query path) — this is separate
+from the 49 automated tests above, which only run against the deterministic
+fallback. That live pass caught one real bug: the hypothetical-recalc
+guard's allow-list was missing the changed value itself, so a valid answer
+that naturally restated it was being silently rejected. Fixed, documented
+in `README.md`'s "what broke during development" section.
