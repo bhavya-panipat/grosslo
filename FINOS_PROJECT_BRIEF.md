@@ -110,6 +110,7 @@ Router), React 19, TypeScript, Tailwind, Framer Motion, React Three Fiber —
 | `POST /api/extract` | offer-letter text → structured fields |
 | `POST /api/query` | conversational follow-up, including live "what if" re-runs of the deterministic engine |
 | `POST /api/export-razorpayx` | guardrail check + RazorpayX payload generation |
+| `GET /api/audit-log` | read-only view of the local audit trail (`?limit=`) — inspect live what's actually been logged |
 | `GET /health` | reports whether `ANTHROPIC_API_KEY` is set (`ai_backed`) so degraded mode is visible, not silent |
 
 `/api/optimize` and `/api/optimize-batch` share one internal helper so the
@@ -202,6 +203,9 @@ IFSC codes, or emails, so the "no bank details persisted" claim above still
 holds exactly. This is a local append-only log for this submission, not a
 production audit system — no rotation, no access control, no
 tamper-evidence — and is stated as exactly that, not oversold as more.
+`GET /api/audit-log` (optional `?limit=`) reads it back — the audit trail
+is something a reviewer can inspect live, not just a claim to take on
+trust.
 
 **The treasury forecast is a total over the current request's structures,
 not a delta against a company's real payroll.** This follows directly from

@@ -575,6 +575,29 @@ def api_commit_history():
     return jsonify(_get_commit_history())
 
 
+@app.route("/api/audit-log")
+def api_audit_log():
+    """
+    Read-only view of the local audit trail _append_audit_log() writes on
+    every money-adjacent decision. Exists so the audit trail is something a
+    reviewer can actually inspect live (curl this route, or GET it in a
+    browser), not just a claim about a file on disk. Same degrade-gracefully
+    pattern as _get_commit_history(): an empty/missing log file is a valid,
+    non-error state (nothing has run yet), not a crash.
+    """
+    limit = min(int(request.args.get("limit", 50)), 500)
+    entries = []
+    try:
+        with open(AUDIT_LOG_PATH) as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    entries.append(json.loads(line))
+    except (OSError, json.JSONDecodeError):
+        pass
+    return jsonify({"entries": entries[-limit:], "total_logged": len(entries)})
+
+
 @app.route("/health")
 def health():
     from ai_layer import _client
