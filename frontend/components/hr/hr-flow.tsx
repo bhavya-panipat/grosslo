@@ -91,7 +91,11 @@ export default function HrFlow() {
         const rows = results.data
           .filter((r) => r.ctc)
           .map((r) => ({
-            employee_name: r.employee_name || undefined,
+            // Accepts both employee_name and name — the New Hire Batch
+            // CSVs used elsewhere in this project (e.g. /optimize/batch)
+            // use `name`, and requiring a different column here just for
+            // this page would be an inconsistency nobody asked for.
+            employee_name: r.employee_name || r.name || undefined,
             ctc: Number(r.ctc),
             rent_paid: r.rent_paid ? Number(r.rent_paid) : 0,
             city: r.city === "non_metro" ? "non_metro" : "metro",
@@ -203,7 +207,7 @@ export default function HrFlow() {
         <CardShell>
           <h3 className="font-display text-lg font-semibold text-white">Batch CSV</h3>
           <p className="mt-1 text-sm text-neutral-500">
-            Columns: <span className="font-mono text-xs text-neutral-400">employee_name, ctc, rent_paid, city, nps_opted</span>
+            Columns: <span className="font-mono text-xs text-neutral-400">name (or employee_name), ctc, rent_paid, city, nps_opted</span>
           </p>
           <label className="mt-4 flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-white/15 bg-black/30 px-6 py-8 text-center transition-colors hover:border-gold-bright/40 hover:bg-white/[0.02]">
             <Upload className="h-5 w-5 text-neutral-500" />

@@ -57,6 +57,34 @@ class ReviewQueueTestCase(unittest.TestCase):
             os.remove(TEST_DB)
 
 
+class TestSchemaSelfHeals(ReviewQueueTestCase):
+    def test_deleting_db_file_mid_session_does_not_crash_next_call(self):
+        # Reproduces a real bug: an earlier version only created tables in
+        # init_db() at import time. Deleting the db file while the server
+        # was still running (without restarting the process) left every
+        # subsequent request hitting "no such table" — sqlite3.connect()
+        # silently creates a new, empty, table-less file for a missing
+        # path rather than recreating the schema. This asserts the fix:
+        # every _conn() ensures the schema exists, so a deleted file
+        # self-heals on the very next call instead of 500ing.
+        computed = _optimize_response_for(ctc=1_800_000)
+        review_queue.create_submission("single", [{
+            "employee_name": "Zoe", "ctc": 1_800_000,
+            "input": {"ctc": 1_800_000, "rent_paid": 0, "city": "metro", "nps_opted": False, "current_structure": None},
+            "computed": computed,
+        }])
+        os.remove(TEST_DB)  # simulates the exact operational mistake that caused the real bug
+        # Must not raise sqlite3.OperationalError — the next call recreates
+        # the schema on its own, exactly like a fresh app startup would.
+        result = review_queue.create_submission("single", [{
+            "employee_name": "Yusuf", "ctc": 2_000_000,
+            "input": {"ctc": 2_000_000, "rent_paid": 0, "city": "metro", "nps_opted": False, "current_structure": None},
+            "computed": _optimize_response_for(ctc=2_000_000),
+        }])
+        submission = review_queue.get_submission(result["submission_id"])
+        self.assertEqual(submission["rows"][0]["employee_name"], "Yusuf")
+
+
 class TestMakerChecker(ReviewQueueTestCase):
     def test_submission_persists_and_is_retrievable(self):
         computed = _optimize_response_for(ctc=1_800_000, rent_paid=400_000)

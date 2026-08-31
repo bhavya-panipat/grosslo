@@ -54,11 +54,53 @@ def _dedupe_hash(employee_name: str | None, ctc: float) -> str:
     return hashlib.sha256(key.encode()).hexdigest()
 
 
+def _ensure_schema(conn: sqlite3.Connection) -> None:
+    """
+    CREATE TABLE IF NOT EXISTS is cheap and idempotent — called on every
+    connection, not just once at app startup. Found the hard way: an
+    earlier version only ran this from init_db() at import time, so
+    deleting DB_PATH out from under a still-running server (a cleanup
+    command run without restarting the process) left every subsequent
+    request hitting "no such table" — sqlite3.connect() happily creates a
+    new, empty, table-less file for a missing path, it doesn't recreate
+    the schema. Self-healing on every connection means a missing or
+    externally-deleted db file is never a hard crash, here or in whatever
+    happens to this file after this submission.
+    """
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS submissions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at TEXT NOT NULL,
+            source TEXT NOT NULL,
+            submitted_by TEXT NOT NULL DEFAULT 'hr'
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS submission_rows (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            submission_id INTEGER NOT NULL REFERENCES submissions(id),
+            row_index INTEGER NOT NULL,
+            employee_name TEXT,
+            ctc REAL NOT NULL,
+            dedupe_hash TEXT NOT NULL,
+            input_json TEXT NOT NULL,
+            computed_json TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            reason TEXT,
+            decided_at TEXT,
+            decided_by TEXT
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_rows_submission ON submission_rows(submission_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_rows_dedupe ON submission_rows(dedupe_hash)")
+
+
 @contextmanager
 def _conn():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    _ensure_schema(conn)
     try:
         yield conn
         conn.commit()
@@ -67,34 +109,14 @@ def _conn():
 
 
 def init_db() -> None:
-    """Creates tables if they don't exist. Safe to call on every app startup."""
-    with _conn() as conn:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS submissions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                created_at TEXT NOT NULL,
-                source TEXT NOT NULL,
-                submitted_by TEXT NOT NULL DEFAULT 'hr'
-            )
-        """)
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS submission_rows (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                submission_id INTEGER NOT NULL REFERENCES submissions(id),
-                row_index INTEGER NOT NULL,
-                employee_name TEXT,
-                ctc REAL NOT NULL,
-                dedupe_hash TEXT NOT NULL,
-                input_json TEXT NOT NULL,
-                computed_json TEXT NOT NULL,
-                status TEXT NOT NULL DEFAULT 'pending',
-                reason TEXT,
-                decided_at TEXT,
-                decided_by TEXT
-            )
-        """)
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_rows_submission ON submission_rows(submission_id)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_rows_dedupe ON submission_rows(dedupe_hash)")
+    """
+    Kept as an explicit, named call for app.py's startup and for tests
+    that want the schema to exist before doing anything else — but every
+    _conn() now ensures the schema itself too, so this is a convenience,
+    not the only place it happens.
+    """
+    with _conn():
+        pass
 
 
 def _row_to_dict(row: sqlite3.Row) -> dict:
