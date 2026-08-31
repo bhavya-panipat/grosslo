@@ -60,8 +60,8 @@ export default function Hero() {
             grosslo is an AI-assisted compensation controller for HR and
             finance teams — it structures CTC into a compliant split, checks
             it against your approved bands and statutory ceilings, forecasts
-            the capital you need, and exports a ready-to-dispatch RazorpayX
-            payout. No invented figures, ever.
+            the capital you need, and generates a RazorpayX-ready payout
+            payload — no live dispatch, by design. No invented figures, ever.
           </motion.p>
 
           <motion.div variants={item} className="mt-10 flex flex-wrap items-center gap-3">
