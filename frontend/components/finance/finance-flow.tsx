@@ -193,10 +193,14 @@ function RowCard({
   row,
   onDecided,
   onExportCompleted,
+  selected,
+  onToggleSelect,
 }: {
   row: SubmissionRow;
   onDecided: () => void;
   onExportCompleted?: () => void;
+  selected?: boolean;
+  onToggleSelect?: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [rejecting, setRejecting] = useState(false);
@@ -229,16 +233,27 @@ function RowCard({
   return (
     <CardShell className="p-4">
       <div className="flex items-center justify-between gap-3">
-        <div>
-          <p className="font-medium text-neutral-200">{row.employee_name || `Row ${row.row_index + 1}`}</p>
-          <p className="text-xs text-neutral-500">
-            {inr(row.ctc)} · {recommendedRegime} regime · tax {inr(recommended.tax_breakdown.total_tax)}
-            {flags.length > 0 && (
-              <span className="ml-2 text-gold-bright">
-                {flags.length} compliance flag{flags.length === 1 ? "" : "s"}
-              </span>
-            )}
-          </p>
+        <div className="flex items-center gap-3">
+          {onToggleSelect && (
+            <input
+              type="checkbox"
+              checked={Boolean(selected)}
+              onChange={onToggleSelect}
+              aria-label={`Select ${row.employee_name || `row ${row.row_index + 1}`}`}
+              className="h-4 w-4 shrink-0 rounded border-white/20 bg-black/40 accent-gold-bright"
+            />
+          )}
+          <div>
+            <p className="font-medium text-neutral-200">{row.employee_name || `Row ${row.row_index + 1}`}</p>
+            <p className="text-xs text-neutral-500">
+              {inr(row.ctc)} · {recommendedRegime} regime · tax {inr(recommended.tax_breakdown.total_tax)}
+              {flags.length > 0 && (
+                <span className="ml-2 text-gold-bright">
+                  {flags.length} compliance flag{flags.length === 1 ? "" : "s"}
+                </span>
+              )}
+            </p>
+          </div>
         </div>
         <button
           onClick={() => setExpanded((v) => !v)}
@@ -337,9 +352,88 @@ function RowCard({
   );
 }
 
+// Approve/reject selected pending rows in one click — still one decide
+// call per row under the hood (there's no bulk-decide endpoint, and there
+// doesn't need to be one: idempotent per-row calls fired in parallel are
+// exactly as safe as clicking each button individually, just faster to
+// trigger). This batches the ACTION of confirming decisions someone has
+// already reviewed — it never decides anything itself.
+function BulkActionBar({
+  count,
+  busy,
+  onApproveAll,
+  onRejectAll,
+}: {
+  count: number;
+  busy: boolean;
+  onApproveAll: () => void;
+  onRejectAll: (reason: string) => void;
+}) {
+  const [rejecting, setRejecting] = useState(false);
+  const [reason, setReason] = useState("");
+
+  return (
+    <div className="sticky top-20 z-10 flex flex-col gap-2 rounded-xl border border-gold/20 bg-surface-raised/95 p-3 shadow-inner-edge backdrop-blur-md">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm text-neutral-300">{count} row{count === 1 ? "" : "s"} selected</p>
+        {!rejecting ? (
+          <div className="flex gap-2">
+            <button
+              onClick={onApproveAll}
+              disabled={busy}
+              className="inline-flex items-center gap-1.5 rounded-full bg-white px-4 py-1.5 text-sm font-medium text-black transition-transform hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+              Approve all {count}
+            </button>
+            <button
+              onClick={() => setRejecting(true)}
+              disabled={busy}
+              className="inline-flex items-center gap-1.5 rounded-full border border-white/10 px-4 py-1.5 text-sm text-neutral-300 hover:border-red-400/40 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <XCircle className="h-4 w-4" /> Reject all {count}
+            </button>
+          </div>
+        ) : (
+          <div className="flex flex-1 items-center gap-2">
+            <input
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Reason applied to all selected rows (required)"
+              className="flex-1 rounded-lg border border-white/10 bg-black/40 px-2.5 py-1.5 text-sm text-neutral-200 focus:border-red-400/50 focus:outline-none"
+              autoFocus
+            />
+            <button
+              onClick={() => onRejectAll(reason.trim())}
+              disabled={!reason.trim() || busy}
+              className="shrink-0 rounded-full bg-red-400/90 px-4 py-1.5 text-sm font-medium text-black disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Confirm
+            </button>
+            <button
+              onClick={() => setRejecting(false)}
+              className="shrink-0 rounded-full border border-white/10 px-4 py-1.5 text-sm text-neutral-400 hover:text-white"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+      </div>
+      {rejecting && (
+        <p className="text-[11px] text-neutral-500">
+          One reason, applied to every selected row — if these rows need different explanations,
+          reject them individually instead.
+        </p>
+      )}
+    </div>
+  );
+}
+
 export default function FinanceFlow() {
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+  const [bulkDeciding, setBulkDeciding] = useState(false);
   // Rows whose export has been simulated-dispatched/uploaded — hidden from
   // the approved list below so it doesn't fill up with fully-actioned rows.
   // Client-side only, on purpose: there's nowhere in the backend that
@@ -374,6 +468,41 @@ export default function FinanceFlow() {
     .flatMap((s) => s.rows.filter((r) => r.status === "approved"))
     .filter((r) => !completedKeys.has(`${r.submission_id}-${r.row_index}`));
 
+  const keyOf = (r: SubmissionRow) => `${r.submission_id}-${r.row_index}`;
+  const toggleSelected = (key: string) => {
+    setSelectedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+  const allPendingSelected = pendingRows.length > 0 && pendingRows.every((r) => selectedKeys.has(keyOf(r)));
+  const toggleSelectAll = () => {
+    setSelectedKeys(allPendingSelected ? new Set() : new Set(pendingRows.map(keyOf)));
+  };
+
+  const bulkDecide = async (decision: "approve" | "reject", reason?: string) => {
+    const targets = pendingRows.filter((r) => selectedKeys.has(keyOf(r)));
+    if (targets.length === 0) return;
+    setBulkDeciding(true);
+    try {
+      await Promise.all(
+        targets.map((r) =>
+          fetch(`/api/submissions/${r.submission_id}/rows/${r.row_index}/decide`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ decision, reason: decision === "reject" ? reason : undefined }),
+          }),
+        ),
+      );
+    } finally {
+      setSelectedKeys(new Set());
+      setBulkDeciding(false);
+      refresh();
+    }
+  };
+
   return (
     <section className="mx-auto max-w-4xl px-6 pb-28 pt-32 md:px-10">
       <div className="mb-10">
@@ -392,9 +521,38 @@ export default function FinanceFlow() {
         <p className="text-sm text-neutral-600">Nothing pending review right now.</p>
       )}
 
+      {pendingRows.length > 1 && (
+        <label className="mb-3 flex w-fit items-center gap-2 text-xs text-neutral-500 hover:text-neutral-300">
+          <input
+            type="checkbox"
+            checked={allPendingSelected}
+            onChange={toggleSelectAll}
+            className="h-3.5 w-3.5 rounded border-white/20 bg-black/40 accent-gold-bright"
+          />
+          Select all {pendingRows.length} pending
+        </label>
+      )}
+
+      {selectedKeys.size > 0 && (
+        <div className="mb-3">
+          <BulkActionBar
+            count={selectedKeys.size}
+            busy={bulkDeciding}
+            onApproveAll={() => bulkDecide("approve")}
+            onRejectAll={(reason) => bulkDecide("reject", reason)}
+          />
+        </div>
+      )}
+
       <div className="flex flex-col gap-3">
         {pendingRows.map((row) => (
-          <RowCard key={`${row.submission_id}-${row.row_index}`} row={row} onDecided={refresh} />
+          <RowCard
+            key={`${row.submission_id}-${row.row_index}`}
+            row={row}
+            onDecided={refresh}
+            selected={selectedKeys.has(keyOf(row))}
+            onToggleSelect={() => toggleSelected(keyOf(row))}
+          />
         ))}
       </div>
 

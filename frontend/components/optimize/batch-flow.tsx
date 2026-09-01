@@ -4,10 +4,11 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Loader2 } from "lucide-react";
 import CsvUploadCard from "@/components/optimize/csv-upload-card";
+import { Send } from "lucide-react";
 import { AuditBatchTable, type CorrectionStatus } from "@/components/optimize/batch-results-table";
 import AuditSummaryCard from "@/components/optimize/audit-summary-card";
 import PenaltyScenarioTable from "@/components/optimize/penalty-scenario-table";
-import type { BatchAuditResponse } from "@/lib/api-types";
+import type { BatchAuditResponse, CreateSubmissionResponse } from "@/lib/api-types";
 
 function toNum(v: string | undefined): number | undefined {
   if (v === undefined || v.trim() === "") return undefined;
@@ -65,6 +66,25 @@ export default function BatchFlow() {
     }
   };
 
+  // Shared by both the single-row and bulk submit paths below, so a batch
+  // submission isn't a second, divergent way of building the same payload.
+  const buildCorrectionRow = (raw: Record<string, string>) => ({
+    employee_name: raw.name,
+    ctc: toNum(raw.ctc),
+    rent_paid: toNum(raw.rent_paid) ?? 0,
+    city: raw.city || "metro",
+    nps_opted: toBool(raw.nps_opted),
+    current_structure: {
+      basic: toNum(raw.basic) ?? 0,
+      hra: toNum(raw.hra) ?? 0,
+      lta: toNum(raw.lta) ?? 0,
+      special_allowance: toNum(raw.special_allowance) ?? 0,
+      employer_pf: toNum(raw.employer_pf) ?? 0,
+      employer_nps: toNum(raw.employer_nps) ?? 0,
+      nps_opted: toBool(raw.nps_opted),
+    },
+  });
+
   // Closes the audit loop: a flagged row (excess EPFO contribution,
   // unclaimed regime-switch savings) is submitted for Finance review the
   // same way HR's own submissions are — same endpoint, same diff-with-
@@ -81,30 +101,67 @@ export default function BatchFlow() {
       const res = await fetch("/api/submissions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          source: "single",
-          row: {
-            employee_name: raw.name,
-            ctc: toNum(raw.ctc),
-            rent_paid: toNum(raw.rent_paid) ?? 0,
-            city: raw.city || "metro",
-            nps_opted: toBool(raw.nps_opted),
-            current_structure: {
-              basic: toNum(raw.basic) ?? 0,
-              hra: toNum(raw.hra) ?? 0,
-              lta: toNum(raw.lta) ?? 0,
-              special_allowance: toNum(raw.special_allowance) ?? 0,
-              employer_pf: toNum(raw.employer_pf) ?? 0,
-              employer_nps: toNum(raw.employer_nps) ?? 0,
-              nps_opted: toBool(raw.nps_opted),
-            },
-          },
-        }),
+        body: JSON.stringify({ source: "single", row: buildCorrectionRow(raw) }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setCorrectionStatus((prev) => ({ ...prev, [rowIndex]: "submitted" }));
     } catch {
       setCorrectionStatus((prev) => ({ ...prev, [rowIndex]: "error" }));
+    }
+  };
+
+  // One click, one batch submission — reuses the exact same
+  // buildCorrectionRow() + /api/submissions endpoint as a single click
+  // does, just with N rows in one request instead of N separate ones.
+  // This only batches the ACTION of sending already-flagged rows to
+  // Finance; every row still gets its own individual approve/reject
+  // decision once it lands in the queue — nothing here skips review.
+  const flaggedIndices = (auditResult?.rows ?? [])
+    .filter((r) => !r.error && ((r.unclaimed_savings ?? 0) > 0 || (r.excess_contribution ?? 0) > 0))
+    .map((r) => r.row_index)
+    .filter((i) => (correctionStatus[i] ?? "idle") === "idle" || correctionStatus[i] === "error");
+
+  const [bulkSubmitting, setBulkSubmitting] = useState(false);
+
+  const handleSubmitAllFlagged = async () => {
+    const indices = flaggedIndices;
+    if (indices.length === 0 || !rawRows) return;
+    setBulkSubmitting(true);
+    setCorrectionStatus((prev) => {
+      const next = { ...prev };
+      indices.forEach((i) => { next[i] = "submitting"; });
+      return next;
+    });
+    try {
+      const res = await fetch("/api/submissions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source: "batch",
+          rows: indices.map((i) => buildCorrectionRow(rawRows[i])),
+        }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const result: CreateSubmissionResponse = await res.json();
+      // row_errors/duplicates from the response are indexed within THIS
+      // batch request (0..N-1), not by the original audit row_index — map
+      // back through `indices` to know which real row each one was.
+      const erroredBatchPositions = new Set(result.row_errors.map((e) => e.row_index));
+      setCorrectionStatus((prev) => {
+        const next = { ...prev };
+        indices.forEach((originalIndex, batchPosition) => {
+          next[originalIndex] = erroredBatchPositions.has(batchPosition) ? "error" : "submitted";
+        });
+        return next;
+      });
+    } catch {
+      setCorrectionStatus((prev) => {
+        const next = { ...prev };
+        indices.forEach((i) => { next[i] = "error"; });
+        return next;
+      });
+    } finally {
+      setBulkSubmitting(false);
     }
   };
 
@@ -161,6 +218,21 @@ export default function BatchFlow() {
               totalExcessContribution={auditResult.summary.total_excess_contribution}
               totalUnclaimedSavings={auditResult.summary.total_unclaimed_savings}
             />
+            {flaggedIndices.length > 0 && (
+              <div className="flex items-center justify-between rounded-xl border border-gold/20 bg-gold/[0.04] px-5 py-3">
+                <p className="text-sm text-neutral-300">
+                  {flaggedIndices.length} flagged row{flaggedIndices.length === 1 ? "" : "s"} not yet sent to Finance.
+                </p>
+                <button
+                  onClick={handleSubmitAllFlagged}
+                  disabled={bulkSubmitting}
+                  className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-medium text-black shadow-bevel transition-transform duration-150 hover:scale-[1.02] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {bulkSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                  Submit all {flaggedIndices.length} for review
+                </button>
+              </div>
+            )}
             <AuditBatchTable
               rows={auditResult.rows}
               correctionStatus={correctionStatus}
