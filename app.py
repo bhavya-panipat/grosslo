@@ -239,6 +239,11 @@ def api_batch_audit():
     unclaimed_savings. evaluate_band_guardrail() and treasury_forecast()
     run on the same as-is structure. Every figure traces to an existing,
     already-tested function — no new tax/compliance logic here.
+
+    summary also reports clean_count/flagged_count and a breakdown by
+    exception type (epfo_cap_exceeded_count, regime_mismatch_count) — not
+    just the two currency totals — so a batch narration can point at an
+    actual on-screen count instead of a number nobody watching can verify.
     """
     data = request.get_json(force=True)
     rows = data.get("rows")
@@ -250,6 +255,10 @@ def api_batch_audit():
     total_unclaimed_savings = 0.0
     sum_monthly_epf = 0.0
     sum_monthly_tds = 0.0
+    clean_count = 0
+    epfo_cap_exceeded_count = 0
+    regime_mismatch_count = 0
+    valid_row_count = 0
 
     for i, row in enumerate(rows):
         if not isinstance(row, dict):
@@ -293,11 +302,24 @@ def api_batch_audit():
         ), 2)
         guardrail = evaluate_band_guardrail(structure, current_best["regime"], band_min, band_max)
         forecast = treasury_forecast(structure, current_best["tax_breakdown"])
+        # A genuinely different signal from unclaimed_savings > 0: this fires
+        # only when the structure is filed under the WRONG regime entirely,
+        # not when the regime is right but the basic/HRA/PF split within it
+        # is suboptimal — the two are separate exception categories, not the
+        # same thing counted twice.
+        regime_mismatch = current_best["regime"] != optimal["recommended"].regime
 
         total_excess_contribution += excess_contribution
         total_unclaimed_savings += unclaimed_savings
         sum_monthly_epf += forecast["epfo_challan_annual"] / 12
         sum_monthly_tds += current_best["tax_breakdown"]["total_tax"] / 12
+        valid_row_count += 1
+        if excess_contribution > 0:
+            epfo_cap_exceeded_count += 1
+        if regime_mismatch:
+            regime_mismatch_count += 1
+        if excess_contribution == 0 and unclaimed_savings == 0:
+            clean_count += 1
 
         results.append({
             "row_index": i,
@@ -306,6 +328,7 @@ def api_batch_audit():
             "current_tax": current_best["tax_breakdown"]["total_tax"],
             "unclaimed_savings": unclaimed_savings,
             "excess_contribution": excess_contribution,
+            "regime_mismatch": regime_mismatch,
             "guardrail": guardrail,
             "treasury_forecast": forecast,
         })
@@ -318,6 +341,11 @@ def api_batch_audit():
     return jsonify({
         "rows": results,
         "summary": {
+            "total_rows": valid_row_count,
+            "clean_count": clean_count,
+            "flagged_count": valid_row_count - clean_count,
+            "epfo_cap_exceeded_count": epfo_cap_exceeded_count,
+            "regime_mismatch_count": regime_mismatch_count,
             "total_excess_contribution": round(total_excess_contribution, 2),
             "total_unclaimed_savings": round(total_unclaimed_savings, 2),
         },

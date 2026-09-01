@@ -368,5 +368,67 @@ class TestOptimizeBatchRouteRemoved(unittest.TestCase):
         self.assertEqual(rules, [])
 
 
+class TestBatchAuditExceptionBreakdown(unittest.TestCase):
+    """
+    /api/batch-audit's summary used to report only two currency totals —
+    no count of clean vs. flagged rows, and no breakdown by exception type.
+    That meant a batch-demo narration like "54 clean, 6 flagged — 4 over
+    the EPFO cap, 2 in the wrong regime" cited numbers nothing on screen
+    could back up. These are real, verified rows: the regime-mismatch case
+    was found by brute-force search over random structures and its exact
+    current-vs-optimal regimes double-checked directly against
+    optimizer.py before being hardcoded here.
+    """
+
+    def setUp(self):
+        self.client = flask_app.app.test_client()
+
+    def test_clean_flagged_and_exception_counts(self):
+        rows = [
+            {  # clean: this is optimize()'s own recommended structure for this
+               # exact CTC/rent, so it's within the EPFO cap, in the right
+               # regime, and has zero unclaimed savings by construction.
+                "name": "Clean Row", "ctc": 1_800_000, "basic": 900_000, "hra": 0, "lta": 0,
+                "special_allowance": 792_000, "employer_pf": 108_000, "employer_nps": 0,
+                "nps_opted": False, "rent_paid": 0, "city": "metro",
+                "band_min": 1_700_000, "band_max": 1_900_000,
+            },
+            {  # excess EPFO contribution: employer_pf + employer_nps > 750,000 ceiling
+                "name": "Over EPFO Cap", "ctc": 4_000_000, "basic": 1_800_000, "hra": 900_000,
+                "lta": 100_000, "special_allowance": 300_000, "employer_pf": 900_000,
+                "employer_nps": 0, "nps_opted": False, "rent_paid": 500_000, "city": "metro",
+                "band_min": 3_800_000, "band_max": 4_200_000,
+            },
+            {  # regime mismatch: current structure is best off under 'new', true optimum for this CTC is 'old'
+                "name": "Wrong Regime", "ctc": 6_000_000, "basic": 1_600_000, "hra": 1_000_000,
+                "lta": 50_000, "special_allowance": 3_310_000, "employer_pf": 40_000,
+                "employer_nps": 0, "nps_opted": False, "rent_paid": 800_000, "city": "metro",
+                "band_min": 5_800_000, "band_max": 6_200_000,
+            },
+        ]
+        resp = self.client.post("/api/batch-audit", json={"rows": rows})
+        self.assertEqual(resp.status_code, 200)
+        summary = resp.get_json()["summary"]
+
+        self.assertEqual(summary["total_rows"], 3)
+        self.assertEqual(summary["clean_count"], 1)
+        self.assertEqual(summary["flagged_count"], 2)
+        self.assertEqual(summary["epfo_cap_exceeded_count"], 1)
+        self.assertEqual(summary["regime_mismatch_count"], 1)
+
+        result_rows = resp.get_json()["rows"]
+        wrong_regime_row = next(r for r in result_rows if r["name"] == "Wrong Regime")
+        self.assertTrue(wrong_regime_row["regime_mismatch"])
+        self.assertEqual(wrong_regime_row["current_regime"], "new")
+
+        over_cap_row = next(r for r in result_rows if r["name"] == "Over EPFO Cap")
+        self.assertGreater(over_cap_row["excess_contribution"], 0)
+        self.assertFalse(over_cap_row["regime_mismatch"])
+
+        clean_row = next(r for r in result_rows if r["name"] == "Clean Row")
+        self.assertEqual(clean_row["excess_contribution"], 0)
+        self.assertFalse(clean_row["regime_mismatch"])
+
+
 if __name__ == "__main__":
     unittest.main()

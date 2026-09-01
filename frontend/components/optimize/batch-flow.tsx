@@ -153,6 +153,11 @@ export default function BatchFlow() {
             className="mt-8 flex flex-col gap-6"
           >
             <AuditSummaryCard
+              totalRows={auditResult.summary.total_rows}
+              cleanCount={auditResult.summary.clean_count}
+              flaggedCount={auditResult.summary.flagged_count}
+              epfoCapExceededCount={auditResult.summary.epfo_cap_exceeded_count}
+              regimeMismatchCount={auditResult.summary.regime_mismatch_count}
               totalExcessContribution={auditResult.summary.total_excess_contribution}
               totalUnclaimedSavings={auditResult.summary.total_unclaimed_savings}
             />

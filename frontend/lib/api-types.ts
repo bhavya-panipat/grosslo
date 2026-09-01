@@ -214,6 +214,7 @@ export type BatchAuditRow = {
   current_tax?: number;
   unclaimed_savings?: number;
   excess_contribution?: number;
+  regime_mismatch?: boolean;
   guardrail?: GuardrailResponse;
   treasury_forecast?: TreasuryForecast;
   error?: string;
@@ -222,6 +223,11 @@ export type BatchAuditRow = {
 export type BatchAuditResponse = {
   rows: BatchAuditRow[];
   summary: {
+    total_rows: number;
+    clean_count: number;
+    flagged_count: number;
+    epfo_cap_exceeded_count: number;
+    regime_mismatch_count: number;
     total_excess_contribution: number;
     total_unclaimed_savings: number;
   };
