@@ -103,16 +103,25 @@ infrastructure:
   confirm" UX without pretending an API call happened where only a file
   upload actually would.
 
-**What this deliberately is not:** real authentication (`/hr` and
-`/finance` are a role toggle, not identity verification — anyone who can
-reach the app can reach both), a production database (SQLite, a single
-gitignored file, explicitly not the "real database" the roadmap describes
-for a steady-state company roster), a second-approver escalation tier, or
-a notification system for pending reviews. All four are reasonable ideas
-in isolation; none of them belong on top of an approval layer already
-honestly labeled as a demo simplification — making that layer *look* more
-sophisticated than the authentication underneath it can actually support
-would undermine the exact honesty this section is trying to model.
+**What this deliberately is not:** real authentication. `/hr` and
+`/finance` each sit behind their own simulated access-code gate
+(`role-gate.tsx`) — `HR2026` and `FINANCE2026`, unlocking one has no
+effect on the other — but it's a client-only UX gate, not identity
+verification: there's no server-side session or account behind it, the
+code ships in the same client bundle anyone downloads, and it's shown on
+the gate screen itself rather than hidden, on purpose, so it's never
+mistaken for something it isn't. Anyone who reaches the app can reach both
+roles the moment they read the code shown on screen — this simulates what
+role-gated access would *feel* like from inside the demo, it doesn't
+provide it. Also deliberately absent: a production database (SQLite, a
+single gitignored file, explicitly not the "real database" the roadmap
+describes for a steady-state company roster), a second-approver escalation
+tier, or a notification system for pending reviews. All three are
+reasonable ideas in isolation; none of them belong on top of an approval
+layer already honestly labeled as a demo simplification — making that
+layer *look* more sophisticated than the authentication underneath it can
+actually support would undermine the exact honesty this section is trying
+to model.
 
 ### Redundancy fix: one path for structuring a new hire, not two
 
@@ -298,10 +307,13 @@ guess at what the new number would be.
   - **No encryption at rest.** Both files are plain SQLite/JSONL on disk.
   - **No data-retention or deletion policy.** Data lives as long as the
     demo session/database file does, with no expiry or purge mechanism.
-  - **No access control beyond the demo role-toggle** on `/hr` and
-    `/finance` — see "Maker-checker review, demo-scoped" below. It is a
-    UI convenience, not authentication; anyone who can reach the app can
-    reach both roles.
+  - **No real access control — `/hr` and `/finance`'s access-code gate is
+    a UX simulation, not authentication.** Each page checks a hardcoded
+    demo code against `sessionStorage`, client-side only; there's no
+    server-side session, no account, and the code itself is shown on the
+    gate screen rather than hidden. See "Maker-checker review, demo-scoped"
+    below. Anyone who reaches the app can reach both roles the moment they
+    read the code shown on screen.
   - **The review queue does store employee PII, including bank details —
     named explicitly, not glossed over.** Employee name and CTC were
     always stored (needed for the dedupe check); as of the redundancy fix
