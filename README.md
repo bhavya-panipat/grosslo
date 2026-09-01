@@ -83,16 +83,25 @@ infrastructure:
   double-click on Approve doesn't write a second audit-log entry either —
   the status transition only fires once, by construction, not because of
   a special case bolted on for double-clicks.
-- **Bulk Salary Revision export** (`POST /api/export-salary-revision`)
+- **Bulk Salary Revision export** (`POST
+  /api/submissions/<id>/rows/<row_index>/export`, approved rows only)
   closes the audit loop the rest of the way: takes a flagged employee's
   current + corrected structure (already computed by the audit, invented
   nowhere here) and generates a real multi-sheet XLSX — modeled on
   RazorpayX Payroll's own documented two-sheet Salary Revision format
   (Default Structure, Custom Structure), plus a Read Me sheet. **The exact
   column headers were not verified against a live RazorpayX account** —
-  the file says so explicitly, in its own Read Me sheet and in the API
+  the file says so explicitly, in its own Read Me sheet and in the
   response's `X-Template-Honesty-Label` header, so this is never mistaken
-  for a confirmed, ready-to-upload template.
+  for a confirmed, ready-to-upload template. After download, `/finance`
+  shows a **"Simulate upload to RazorpayX Payroll"** confirmation
+  button — deliberately *not* a fake API-call preview like new hire's
+  Composite Payout payload gets: Bulk Salary Revision is a RazorpayX
+  Payroll dashboard file-upload feature, not a documented JSON API, so
+  simulating an API call for it would mean inventing a schema nothing
+  has verified. The confirmation step mirrors new hire's "review, then
+  confirm" UX without pretending an API call happened where only a file
+  upload actually would.
 
 **What this deliberately is not:** real authentication (`/hr` and
 `/finance` are a role toggle, not identity verification — anyone who can

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { CheckCircle2, XCircle, ChevronDown, ChevronUp, Download, Copy, Loader2 } from "lucide-react";
+import { CheckCircle2, XCircle, ChevronDown, ChevronUp, Download, Upload, Copy, Loader2 } from "lucide-react";
 import CardShell from "@/components/card-shell";
 import type { Submission, SubmissionRow, DecideRowResponse, ExportApprovedRowResponse } from "@/lib/api-types";
 
@@ -46,14 +46,22 @@ function DiffPanel({ row }: { row: SubmissionRow }) {
 }
 
 // Approved rows only. Branches on what the row actually was: a correction
-// (current_structure present) downloads an XLSX file directly; a new hire
-// gets back a RazorpayX payout payload as JSON, shown inline like the
-// single-candidate export modal does, rather than opened in a second UI.
+// (current_structure present) downloads an XLSX file, then offers a
+// "Simulate upload" confirmation step; a new hire gets back a RazorpayX
+// payout payload as JSON with a "Simulate dispatch" step. The two aren't
+// symmetric underneath, on purpose: RazorpayX's Bulk Salary Revision is a
+// dashboard file-upload feature, not a documented JSON API the way
+// Composite Payout is, so simulating a fake API call for it would mean
+// inventing a schema nothing has verified — the upload-confirmation step
+// mirrors new hire's "review, then confirm" UX without pretending an API
+// call happened where only a file upload actually would.
 function ExportPanel({ row }: { row: SubmissionRow }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [payload, setPayload] = useState<ExportApprovedRowResponse | null>(null);
   const [downloaded, setDownloaded] = useState(false);
+  const [honestyLabel, setHonestyLabel] = useState<string | null>(null);
+  const [uploaded, setUploaded] = useState(false);
   const [copied, setCopied] = useState(false);
   const isCorrection = Boolean(row.input.current_structure);
 
@@ -67,6 +75,7 @@ function ExportPanel({ row }: { row: SubmissionRow }) {
       const contentType = res.headers.get("content-type") || "";
       if (contentType.includes("spreadsheet")) {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        setHonestyLabel(res.headers.get("X-Template-Honesty-Label"));
         const blob = await res.blob();
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
@@ -97,21 +106,43 @@ function ExportPanel({ row }: { row: SubmissionRow }) {
 
   return (
     <div className="mt-3 border-t border-white/[0.06] pt-3">
-      {!payload && (
+      {!payload && !(isCorrection && downloaded) && (
         <button
           onClick={handleExport}
-          disabled={loading || downloaded}
+          disabled={loading}
           className="inline-flex items-center gap-1.5 rounded-full border border-gold/30 bg-gold/[0.06] px-3.5 py-1.5 text-xs font-medium text-gold-bright transition-colors hover:bg-gold/[0.12] disabled:cursor-not-allowed disabled:opacity-50"
         >
           {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
-          {downloaded
-            ? "Downloaded"
-            : isCorrection
-              ? "Export Salary Revision XLSX"
-              : "Export RazorpayX payout"}
+          {isCorrection ? "Export Salary Revision XLSX" : "Export RazorpayX payout"}
         </button>
       )}
       {error && <p className="mt-1.5 text-xs text-red-400/80">{error}</p>}
+      {isCorrection && downloaded && (
+        <div className="space-y-2">
+          <p className="text-xs text-neutral-500">
+            <span className="text-neutral-300">grosslo_salary_revision.xlsx</span> downloaded — the
+            real file RazorpayX Payroll's Bulk Salary Revision accepts. That feature is a dashboard
+            file upload, not an API grosslo can call, so there's nothing further to send — "simulate"
+            here means confirming the decision, the same as new hire's simulated dispatch does.
+          </p>
+          {honestyLabel && <p className="text-[11px] text-neutral-600">{honestyLabel}</p>}
+          <button
+            onClick={() => setUploaded(true)}
+            disabled={uploaded}
+            className="inline-flex items-center gap-2 rounded-full border border-white/10 px-4 py-1.5 text-xs font-medium text-neutral-200 transition-colors hover:border-white/20 hover:bg-white/[0.04] disabled:cursor-not-allowed"
+          >
+            {uploaded ? (
+              <>
+                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" /> Uploaded (simulated)
+              </>
+            ) : (
+              <>
+                <Upload className="h-3.5 w-3.5" /> Simulate upload to RazorpayX Payroll
+              </>
+            )}
+          </button>
+        </div>
+      )}
       {payload && (
         <div className="space-y-2">
           <div className="flex items-center justify-between">
