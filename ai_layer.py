@@ -808,6 +808,12 @@ def answer_query(question: str, context: dict, ctc: float, rent_paid: float,
         if isinstance(new_kwargs[param], (int, float)) and not isinstance(new_kwargs[param], bool):
             allowed.add(round(new_kwargs[param], 2))
 
+        # Declared here, not inside the try block, so the real computed
+        # value survives into the fallback return below — a real bug this
+        # exact structure: without this, guard_triggered was computed
+        # correctly but then discarded, and the fallback path always
+        # reported False even when the guard had genuinely just fired.
+        guard_triggered = False
         if _client is not None:
             try:
                 response = _client.messages.create(
@@ -830,7 +836,7 @@ def answer_query(question: str, context: dict, ctc: float, rent_paid: float,
             f"would be ₹{new_tax:,.0f} ({new_result['recommended'].regime} regime), "
             f"₹{abs(diff):,.0f} {direction} than the original ₹{old_tax:,.0f}."
         )
-        return {"answer": fallback, "ai_backed": False, "recalculated": True, "guard_triggered": False}
+        return {"answer": fallback, "ai_backed": False, "recalculated": True, "guard_triggered": guard_triggered}
 
     # Explanatory path — ground the answer in a real recomputed old-vs-new
     # diff rather than just the thin {recommended_regime, recommended_tax,
@@ -860,6 +866,10 @@ def answer_query(question: str, context: dict, ctc: float, rent_paid: float,
     for v in grounding.values():
         if isinstance(v, (int, float)):
             allowed.add(round(v, 2))
+    # Same fix as the hypothetical-recalc branch above: declared outside the
+    # try block so a genuine guard trigger survives into the fallback return
+    # instead of being silently discarded as False.
+    guard_triggered = False
     if _client is not None:
         try:
             response = _client.messages.create(
@@ -877,5 +887,5 @@ def answer_query(question: str, context: dict, ctc: float, rent_paid: float,
 
     return {
         "answer": _deterministic_query_fallback(question, context),
-        "ai_backed": False, "recalculated": False, "guard_triggered": False,
+        "ai_backed": False, "recalculated": False, "guard_triggered": guard_triggered,
     }

@@ -13,7 +13,7 @@ from optimizer import (
     theoretical_minimum_tax, naive_baseline_tax, optimization_value_pct,
 )
 from ai_layer import extract_from_text, explain_result, flag_compliance, negotiate, _check_rules, compliance_pct, ai_coverage_pct, answer_query
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 from app import _parse_commit_dates
 
 
@@ -454,6 +454,60 @@ class TestConversationalQueryLayer(unittest.TestCase):
             r = answer_query("what if something invalid?", self.context,
                               ctc=1_800_000, rent_paid=400_000, city="metro", nps_opted=True)
         self.assertFalse(r["recalculated"])
+
+    def test_hypothetical_guard_rejects_untraceable_number_and_reports_itself(self):
+        # Real bug, found while wiring the guard's rejection state into the
+        # UI, not by inspection: guard_triggered was computed correctly
+        # inside the try block but the fallback return two branches down
+        # always hardcoded False, so a genuine guard trigger was silently
+        # reported as if nothing had happened. Fixed in ai_layer.py by
+        # declaring guard_triggered outside the try block. This test mocks
+        # only the external Claude call (a fabricated bad response
+        # containing an unrelated large number) — the guard logic itself,
+        # the fallback text, and the True/False it reports are all real.
+        fake_response = Mock()
+        fake_response.content = [Mock(text="Your new tax would be roughly ₹5,42,000 after this change.")]
+        with patch("ai_layer._classify_query", return_value={"type": "hypothetical", "param": "rent_paid", "value": 800_000}), \
+             patch("ai_layer._client", Mock(messages=Mock(create=Mock(return_value=fake_response)))):
+            r = answer_query("what if my rent were 8 lakh?", self.context,
+                              ctc=1_800_000, rent_paid=400_000, city="metro", nps_opted=True)
+        real = optimize(ctc=1_800_000, rent_paid=800_000, city="metro", nps_opted=True)
+        real_tax = real["recommended"].tax_breakdown["total_tax"]
+        # 542000 is nowhere near the real recalculated tax, so the guard
+        # must reject it and report that it did.
+        self.assertNotAlmostEqual(real_tax, 542_000, delta=1)
+        self.assertTrue(r["guard_triggered"])
+        self.assertFalse(r["ai_backed"])
+        self.assertTrue(r["recalculated"])
+        self.assertIn(f"{real_tax:,.0f}", r["answer"])  # served the verified fallback, not the fake AI text
+        self.assertNotIn("5,42,000", r["answer"])
+
+    def test_hypothetical_guard_passes_a_traceable_number(self):
+        # The other half of the same behavior: a live response that only
+        # states numbers already traceable to the real recalculation must
+        # NOT trip the guard.
+        with patch("ai_layer._classify_query", return_value={"type": "hypothetical", "param": "rent_paid", "value": 800_000}):
+            real = optimize(ctc=1_800_000, rent_paid=800_000, city="metro", nps_opted=True)
+            real_tax = real["recommended"].tax_breakdown["total_tax"]
+            fake_response = Mock()
+            fake_response.content = [Mock(text=f"Your new total tax would be ₹{real_tax:,.0f} under the new regime.")]
+            with patch("ai_layer._client", Mock(messages=Mock(create=Mock(return_value=fake_response)))):
+                r = answer_query("what if my rent were 8 lakh?", self.context,
+                                  ctc=1_800_000, rent_paid=400_000, city="metro", nps_opted=True)
+        self.assertFalse(r["guard_triggered"])
+        self.assertTrue(r["ai_backed"])
+
+    def test_explanatory_guard_rejects_untraceable_number_and_reports_itself(self):
+        # Same fix, same discipline, for the query layer's other path (a
+        # "why" question rather than a "what if" one).
+        fake_response = Mock()
+        fake_response.content = [Mock(text="This is because your effective rate works out to about 4,17,000.")]
+        with patch("ai_layer._client", Mock(messages=Mock(create=Mock(return_value=fake_response)))):
+            r = answer_query("why did the new regime win?", self.context,
+                              ctc=1_800_000, rent_paid=400_000, city="metro", nps_opted=True)
+        self.assertTrue(r["guard_triggered"])
+        self.assertFalse(r["ai_backed"])
+        self.assertIn("88,140", r["answer"])  # verified fallback, grounded in the real context number
 
 
 if __name__ == "__main__":

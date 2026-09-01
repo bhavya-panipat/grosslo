@@ -1,12 +1,18 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2, MessageCircle, Send, Sparkles, Zap } from "lucide-react";
+import { Loader2, MessageCircle, Send, Sparkles, Zap, ShieldAlert } from "lucide-react";
 import CardShell from "@/components/card-shell";
 import type { QueryContext, QueryResponse } from "@/lib/api-types";
 import type { FormState } from "@/components/optimize/manual-entry-card";
 
-type Message = { question: string; answer: string; aiBacked: boolean };
+// guardTriggered is a genuinely different state from aiBacked=false: the
+// latter can just mean no ANTHROPIC_API_KEY is configured, while the former
+// means a real Claude response came back, stated a number that couldn't be
+// traced to the deterministic engine's own output, and was thrown away in
+// favor of the verified fallback below. Conflating the two into one "not
+// AI-backed" icon would hide the one safety behavior worth actually seeing.
+type Message = { question: string; answer: string; aiBacked: boolean; guardTriggered: boolean };
 
 export default function QueryPanel({
   form,
@@ -41,18 +47,23 @@ export default function QueryPanel({
       if (!res.ok) {
         setMessages((prev) => [
           ...prev,
-          { question: q, answer: result.error ?? "That question couldn't be answered — try rephrasing it.", aiBacked: false },
+          { question: q, answer: result.error ?? "That question couldn't be answered — try rephrasing it.", aiBacked: false, guardTriggered: false },
         ]);
         return;
       }
       setMessages((prev) => [
         ...prev,
-        { question: q, answer: result.answer ?? "No answer available.", aiBacked: result.ai_backed },
+        {
+          question: q,
+          answer: result.answer ?? "No answer available.",
+          aiBacked: result.ai_backed,
+          guardTriggered: Boolean(result.guard_triggered),
+        },
       ]);
     } catch {
       setMessages((prev) => [
         ...prev,
-        { question: q, answer: "Couldn't reach the query service — try again in a moment.", aiBacked: false },
+        { question: q, answer: "Couldn't reach the query service — try again in a moment.", aiBacked: false, guardTriggered: false },
       ]);
     } finally {
       setLoading(false);
@@ -71,8 +82,20 @@ export default function QueryPanel({
           {messages.map((m, i) => (
             <div key={i} className="space-y-1.5">
               <p className="text-sm font-medium text-neutral-200">{m.question}</p>
+              {m.guardTriggered && (
+                <div className="flex items-start gap-2 rounded-lg border border-red-400/25 bg-red-400/[0.06] p-2.5 text-xs text-red-300">
+                  <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  <span>
+                    Numeric guard triggered — Claude&rsquo;s response stated a figure that couldn&rsquo;t be
+                    traced back to the deterministic engine&rsquo;s own output, so it was rejected. Showing
+                    the verified fallback below instead.
+                  </span>
+                </div>
+              )}
               <div className="flex items-start gap-2 rounded-lg border border-white/[0.06] bg-black/30 p-3 text-sm text-neutral-400">
-                {m.aiBacked ? (
+                {m.guardTriggered ? (
+                  <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-400" />
+                ) : m.aiBacked ? (
                   <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0 text-gold-bright" />
                 ) : (
                   <Zap className="mt-0.5 h-3.5 w-3.5 shrink-0 text-neutral-500" />
