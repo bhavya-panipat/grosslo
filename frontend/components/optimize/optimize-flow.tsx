@@ -60,6 +60,11 @@ export default function OptimizeFlow() {
     setCurrentStructure((prev) => ({ ...(prev ?? { basic: 0 }), ...patch }));
   };
 
+  const handleClearExtraction = () => {
+    setCurrentStructure(null);
+    setExtraction(null);
+  };
+
   const handleOptimize = () => {
     if (!form.ctc) return;
     setOptimizeStatus("loading");
@@ -173,6 +178,7 @@ export default function OptimizeFlow() {
           structure={currentStructure}
           onExtract={handleExtract}
           onStructureChange={handleStructureChange}
+          onClear={handleClearExtraction}
         />
         <ManualEntryCard
           form={form}

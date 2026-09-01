@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { AlertTriangle, FileText, Loader2 } from "lucide-react";
+import { AlertTriangle, FileText, Loader2, X } from "lucide-react";
 import CardShell from "@/components/card-shell";
 import type { CurrentStructurePayload, ExtractResponse } from "@/lib/api-types";
 
@@ -9,6 +9,7 @@ type Props = {
   structure: CurrentStructurePayload | null;
   onExtract: (result: ExtractResponse) => void;
   onStructureChange: (patch: Partial<CurrentStructurePayload>) => void;
+  onClear: () => void;
 };
 
 const FIELDS: { key: keyof CurrentStructurePayload; label: string }[] = [
@@ -18,11 +19,23 @@ const FIELDS: { key: keyof CurrentStructurePayload; label: string }[] = [
   { key: "employer_pf", label: "Employer PF" },
 ];
 
-export default function OfferLetterCard({ structure, onExtract, onStructureChange }: Props) {
+export default function OfferLetterCard({ structure, onExtract, onStructureChange, onClear }: Props) {
   const [text, setText] = useState("");
   const [loading, setLoading] = useState(false);
   const [mismatchWarning, setMismatchWarning] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // The pasted text is local to this card, but the extracted structure is
+  // owned by the parent (it feeds the optimize request) — clearing the
+  // textarea by hand never touched it, so the extracted numbers stayed on
+  // screen after the letter they came from was gone. This resets both
+  // together, plus this card's own leftover warning/error state.
+  const handleClear = () => {
+    setText("");
+    setMismatchWarning(null);
+    setError(null);
+    onClear();
+  };
 
   const handleExtract = async () => {
     if (!text.trim()) return;
@@ -63,14 +76,25 @@ export default function OfferLetterCard({ structure, onExtract, onStructureChang
         className="mt-4 w-full resize-none rounded-xl border border-white/10 bg-black/40 p-3 text-sm text-neutral-200 placeholder:text-neutral-600 focus:border-gold-bright/50 focus:outline-none"
       />
 
-      <button
-        onClick={handleExtract}
-        disabled={!text.trim() || loading}
-        className="mt-3 inline-flex items-center justify-center gap-2 self-start rounded-full border border-white/10 px-4 py-2 text-sm font-medium text-neutral-200 transition-colors hover:border-white/20 hover:bg-white/[0.04] disabled:cursor-not-allowed disabled:opacity-40"
-      >
-        {loading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-        Extract fields
-      </button>
+      <div className="mt-3 flex items-center gap-2">
+        <button
+          onClick={handleExtract}
+          disabled={!text.trim() || loading}
+          className="inline-flex items-center justify-center gap-2 self-start rounded-full border border-white/10 px-4 py-2 text-sm font-medium text-neutral-200 transition-colors hover:border-white/20 hover:bg-white/[0.04] disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {loading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+          Extract fields
+        </button>
+        {structure && (
+          <button
+            onClick={handleClear}
+            className="inline-flex items-center justify-center gap-1.5 self-start rounded-full px-3 py-2 text-sm text-neutral-500 transition-colors hover:text-white"
+          >
+            <X className="h-3.5 w-3.5" />
+            Clear
+          </button>
+        )}
+      </div>
 
       {error && <p className="mt-3 text-xs text-red-400/80">{error}</p>}
       {mismatchWarning && (
