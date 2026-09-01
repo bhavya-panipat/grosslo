@@ -110,7 +110,7 @@ app.py                                RazorpayX Composite Payout payload
 
 Backend: Flask, stdlib + `anthropic` SDK only. Frontend: Next.js 15 (App
 Router), React 19, TypeScript, Tailwind, Framer Motion, React Three Fiber —
-5 routes (`/`, `/optimize`, `/optimize/batch`, `/hr`, `/finance`), 34
+5 routes (`/`, `/optimize`, `/optimize/batch`, `/hr`, `/finance`), 35
 components.
 
 ### Backend routes
@@ -228,6 +228,19 @@ kind of data the security posture section below is about — unencrypted,
 no access control, demo-scale only — not a claim that no PII is stored.
 The audit log remains the one place that genuinely excludes it by
 construction (see below).
+
+**`/hr` and `/finance` sit behind a simulated access-code gate
+(`role-gate.tsx`), not real authentication.** Each page checks its own
+hardcoded demo code (`HR2026` / `FINANCE2026`) against `sessionStorage`,
+client-side only — no server session, no account, and the code is shown
+on the gate screen itself rather than hidden, the same way this app's
+demo bank details are always obviously fake rather than plausible-looking.
+This replaced a documentation claim, not a working feature — the docs
+used to reference a "demo role-toggle" on these pages that was never
+actually built; this gate is the first thing that's actually there.
+Anyone who reaches the app can reach both roles the moment they read the
+code shown on screen — it simulates what role-gated access would feel
+like from inside the demo, it doesn't provide it.
 
 **One server-side file write does exist, deliberately narrow: a local audit
 log.** `_append_audit_log()` in `app.py` appends one JSON line per
