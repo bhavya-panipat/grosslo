@@ -299,10 +299,13 @@ guess at what the new number would be.
   rather than the full claimed amount, since real LTA exemption depends on
   actual travel, valid bills, and a twice-per-4-year block limit this tool
   can't know in advance.
-- **Basic salary is constrained to 40–50% of CTC.** The floor is market
-  convention; the ceiling stops an unconstrained tax-minimizing search from
-  pushing basic upward indefinitely, which produced structures no real
-  company would implement in early testing.
+- **Basic salary is constrained to 50–60% of CTC.** The floor is now
+  statutory, not convention — the Code on Wages 2025 requires Basic + DA to
+  be at least 50% of remuneration, and this tool has no DA field (see
+  "Regulatory currency" below for the full fix). The ceiling stops an
+  unconstrained tax-minimizing search from pushing basic upward
+  indefinitely, which produced structures no real company would implement
+  in early testing.
 - **Employee-side PF is not modeled in `tax_engine.py`** (only the
   employer's cost-to-company contribution is). `payroll_breakdown.py`
   introduces employee PF as a new, explicit assumption (12% of basic,
@@ -359,9 +362,10 @@ guess at what the new number would be.
     claim is unaffected by this change.
 
   Named explicitly as a pre-production gap, not an oversight — the same
-  discipline already applied to the LTA-utilization estimate, the 40%
-  basic floor, and the no-live-dispatch boundary elsewhere in this
-  document. **Real security infrastructure was deliberately not built for
+  discipline already applied to the LTA-utilization estimate, the
+  Basic-salary statutory floor, and the no-live-dispatch boundary
+  elsewhere in this document. **Real security infrastructure was
+  deliberately not built for
   this submission** — the honest statement is the correct move here; a
   rushed implementation before Sept 5 would be worse than admitting the
   gap plainly.
@@ -423,21 +427,41 @@ as the citations above:**
   replacement, since a fabricated new number would be a worse error than
   an old-but-real one.
 
-**Flagged, not fixed — a real decision, not a citation:**
+**A real correctness gap, found, decided on, and fixed — not a citation:**
 - **The Code on Wages 2025** (one of the four labour codes, effective
   21 November 2025, no grace period) requires basic pay + dearness
   allowance to be **at least 50%** of total remuneration; falling short
   triggers automatic reclassification of the excess allowances as "wages"
-  for PF and gratuity purposes. `optimizer.py`'s `BASIC_PCT_MIN = 0.40`
-  currently lets the search space recommend structures as low as 40%
-  basic — below that new legal floor. This is a real, verified
-  correctness gap, not a stale citation, and it lives in a file this
-  project has treated as protected all along. It's named here rather than
-  silently patched, because raising the floor to 50% would collapse the
-  new-regime optimizer's entire search space to a single point (there's
-  nothing left to search once `BASIC_PCT_MIN == BASIC_PCT_MAX`), which
-  changes what "optimization" means for that regime and needs a real
-  decision, not a one-line constant edit.
+  for PF and gratuity purposes. `optimizer.py`'s `BASIC_PCT_MIN` was
+  `0.40`, letting the search space recommend structures as low as 40%
+  basic — below that legal floor, for every structure this tool
+  recommended since 21 November 2025. This was a real, verified
+  correctness gap, not a stale citation, in a file this project has
+  treated as protected all along — first flagged here rather than
+  silently patched, then fixed as its own deliberate change once the
+  decision was made explicitly rather than assumed:
+  - `BASIC_PCT_MIN` raised to `0.50` (the statutory floor) and
+    `BASIC_PCT_MAX` raised to `0.60` (the same 10-point band width the old
+    40–50% range had, repositioned above the floor instead of collapsing
+    the search space to a single point at exactly 0.50).
+  - Rule R1 (`compliance_rules.md`, `ai_layer.py`) updated to match: the
+    trigger threshold moved from "under 35% of CTC" to "under 50%," and
+    the severity from Medium to High, since this is now real penalty
+    exposure, not a soft market-convention flag.
+  - The law technically allows a lower stated Basic if the excess
+    allowances are legally reclassified as wages for PF/gratuity purposes
+    instead — that mechanism was deliberately **not** built. This tool
+    gives automated advice to people who aren't compliance officers;
+    relying on "the paperwork says one thing, the law recalculates it as
+    another" is exactly the fragile, audit-risk-prone pattern an advisory
+    tool should steer people away from, not optimize into, and every
+    real-world compliance source checked recommends the direct fix
+    (raise Basic to ≥50%) over relying on the reclassification safety
+    net — that's where actual HR/payroll practice has converged. The law
+    is also ~9 months old with rules still being finalized state by
+    state; modeling the reclassification mechanism precisely would be
+    real legal-logic risk this project shouldn't take on under a 4-day
+    deadline.
 
 ## Roadmap toward a real product (explicitly out of scope for this submission)
 
@@ -503,7 +527,9 @@ future plans:
 - The optimizer's `basic_pct` search initially had no upper bound. A pure
   tax-minimizing search with no ceiling pushes basic toward unrealistic
   levels, since more basic mathematically shelters more income via employer
-  PF/NPS. A 50% ceiling was added as an explicit, documented tradeoff.
+  PF/NPS. A 50% ceiling was added as an explicit, documented tradeoff. (The
+  band itself moved later — see "Regulatory currency" above — but the
+  reasoning for having a ceiling at all, stated here, is unchanged.)
 - While building the delayed-remittance penalty scenario, an initial draft
   included a Section 271C figure paired with the deposit-delay case this
   feature models. Independent verification against the actual Supreme Court

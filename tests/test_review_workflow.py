@@ -148,8 +148,10 @@ class TestDiffView(ReviewQueueTestCase):
             # invented approximation.
             self.assertEqual(change["before"], current_structure[change["field"]])
             self.assertEqual(change["after"], recommended_structure[change["field"]])
-        # R1 fired (basic < 35% of CTC) -> the basic change must be
-        # attributed to it, not to a generic "tax optimization" catch-all.
+        # R1 fired (basic 500,000 / 1,800,000 = 27.8% of CTC, well under
+        # the 50% statutory floor either way this threshold has been set)
+        # -> the basic change must be attributed to it, not to a generic
+        # "tax optimization" catch-all.
         basic_change = next(c for c in diff["field_changes"] if c["field"] == "basic")
         self.assertEqual(basic_change["reason"], "R1 compliance fix")
 
@@ -388,8 +390,12 @@ class TestBatchAuditExceptionBreakdown(unittest.TestCase):
             {  # clean: this is optimize()'s own recommended structure for this
                # exact CTC/rent, so it's within the EPFO cap, in the right
                # regime, and has zero unclaimed savings by construction.
-                "name": "Clean Row", "ctc": 1_800_000, "basic": 900_000, "hra": 0, "lta": 0,
-                "special_allowance": 792_000, "employer_pf": 108_000, "employer_nps": 0,
+               # Re-derived for the Code on Wages 2025 fix — the optimizer's
+               # basic band moved from 40-50% to the statutory 50-60%, so its
+               # actual recommendation for this CTC is now 60% basic
+               # (1,080,000/1,800,000), not the old 50% (900,000) figure.
+                "name": "Clean Row", "ctc": 1_800_000, "basic": 1_080_000, "hra": 0, "lta": 0,
+                "special_allowance": 590_400, "employer_pf": 129_600, "employer_nps": 0,
                 "nps_opted": False, "rent_paid": 0, "city": "metro",
                 "band_min": 1_700_000, "band_max": 1_900_000,
             },

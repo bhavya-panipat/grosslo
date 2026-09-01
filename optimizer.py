@@ -1,15 +1,26 @@
 """
 FinOS Optimizer — exhaustive grid search over feasible salary structures.
 
-DESIGN DECISIONS (flag these in docs/demo, they are assumptions not statute):
-- Basic salary is constrained to [40%, 50%] of CTC. Floor = market convention
-  (keeps PF/gratuity/increment math sane). Ceiling = added because an
-  unconstrained tax-minimizing search pushes basic upward indefinitely —
-  employer PF isn't taxable to the employee and 80CCD(2) NPS deduction scales
-  with basic, so more basic mathematically shelters more of the CTC. A
-  company would never structure basic at, say, 90% of CTC. The ceiling keeps
-  the output realistic, at the cost of not being the true unconstrained
-  mathematical optimum. This tradeoff should be stated explicitly if asked.
+DESIGN DECISIONS (flag these in docs/demo — one of these is statute, not assumption):
+- Basic salary is constrained to [50%, 60%] of CTC. Floor = STATUTORY, not a
+  convention: the Code on Wages 2025 (effective 21 November 2025, no grace
+  period) requires Basic + DA to be at least 50% of total remuneration, and
+  this product has no separate DA field — it's scoped to private-sector
+  salaried employees, where DA (a public-sector/PSU construct) doesn't
+  apply, so Basic alone is the relevant component. A structure recommended
+  below 50% basic since that date carries real penalty exposure, not just a
+  market-convention miss. Verified against multiple independent sources on
+  2026-09-01, not recalled from training data — see README.md's
+  "Regulatory currency" section for the full verification and the sources.
+  Ceiling = raised to 60% (the same 10-point width the old 40-50% band had,
+  repositioned above the new floor) specifically so the search space stays
+  genuinely 10 points wide instead of collapsing to a single point at
+  exactly 0.50 — an unconstrained tax-minimizing search still pushes basic
+  upward indefinitely if left uncapped (employer PF isn't taxable to the
+  employee and the Section 124 NPS deduction, formerly 80CCD(2), scales with
+  basic, so more basic mathematically shelters more of the CTC), so the
+  ceiling is still doing real work, just repositioned. This tradeoff should
+  be stated explicitly if asked.
 - New regime: HRA and LTA receive NO exemption at all, so they're taxed
   identically to special allowance. The optimizer therefore does NOT search
   their split under new regime — only basic_pct matters. This is a provable
@@ -28,9 +39,18 @@ from tax_engine import (
     derive_pf, derive_nps, SalaryStructure, Regime, CityTier,
 )
 
-BASIC_PCT_MIN = 0.40   # confirmed floor
-BASIC_PCT_MAX = 0.50   # ASSUMPTION: added ceiling, see module docstring
-BASIC_PCT_STEP = 0.025  # -> 5 points: 40, 42.5, 45, 47.5, 50
+BASIC_PCT_MIN = 0.50   # STATUTORY FLOOR — Code on Wages 2025 (effective
+                        # 21 Nov 2025), Basic+DA must be >=50% of total
+                        # remuneration. This is a legal requirement, not
+                        # a market convention. No DA field in this
+                        # product's data model — Basic alone is the
+                        # relevant component for a private-sector tool.
+BASIC_PCT_MAX = 0.60   # Ceiling raised by the same 10-point width the
+                        # original 40-50% band had, repositioned above
+                        # the new statutory floor — preserves genuine
+                        # search space instead of collapsing to one
+                        # point at exactly 0.50.
+BASIC_PCT_STEP = 0.025  # -> 5 points: 50, 52.5, 55, 57.5, 60
 
 HRA_FRACTION_STEP = 0.05   # of "remaining after basic/PF/NPS/LTA" routed to HRA
 LTA_MAX_PCT_OF_CTC = 0.10  # ASSUMPTION: realistic company LTA policy ceiling
@@ -128,7 +148,7 @@ def optimize_new_regime(ctc: float, nps_opted: bool, basic_pct_range: list = Non
 
     basic_pct_range: override the search range — used ONLY by
     theoretical_minimum_tax() for a reference-only calculation. Normal
-    calls leave this as None and get the realistic 40-50% band.
+    calls leave this as None and get the statutory 50-60% band.
     """
     best = None
     for basic_pct in (basic_pct_range or _basic_pct_range()):
@@ -190,18 +210,21 @@ def theoretical_minimum_tax(ctc: float, rent_paid: float, city: CityTier,
                              nps_opted: bool) -> float:
     """
     Reference-only calculation: the true unconstrained mathematical minimum
-    tax achievable if basic salary weren't limited to the realistic 40-50%
-    market-convention band. NEVER shown to the user as a recommendation or
-    an actionable structure — the actual optimize() function still enforces
-    the realistic constraint for anything the user is told to do. This
-    exists solely to power the "Tax Efficiency" reference metric (radar
-    chart, sensitivity chart's third dashed line): how close the realistic
-    recommendation gets to the absolute floor, not what to do to reach it.
+    tax achievable if basic salary weren't limited to the statutory 50-60%
+    band. NEVER shown to the user as a recommendation or an actionable
+    structure — the actual optimize() function still enforces the real
+    constraint for anything the user is told to do. This exists solely to
+    power the "Tax Efficiency" reference metric (radar chart, sensitivity
+    chart's third dashed line): how close the realistic recommendation gets
+    to the absolute floor, not what to do to reach it.
 
+    The relaxed constraint here is now a legal one (the Code on Wages 50%
+    floor), not a market convention — the wording below reflects that;
+    update any UI copy showing this number to match, if it hasn't already.
     UI copy showing this number MUST make clear it is a reference floor,
     not a real structure — see the agreed caption: "The lowest
-    mathematically possible tax if basic salary weren't limited to
-    realistic market conventions — a reference point, not a structure any
+    mathematically possible tax if basic salary weren't limited to the
+    statutory Basic-salary floor — a reference point, not a structure any
     real company would offer."
     """
     wide_range = _basic_pct_range(pct_min=0.01, pct_max=0.99, pct_step=0.02)
@@ -221,6 +244,15 @@ def naive_baseline_tax(ctc: float, rent_paid: float, city: CityTier) -> float:
     defensible reference point, unlike an unconstrained mathematical floor
     that can degenerate to zero and make a correct recommendation look
     like it scored badly.
+
+    The 0.50 here is deliberately its own literal, not a reference to
+    BASIC_PCT_MIN — it represents a distinct concept ("the common flat-50%
+    convention an HR team defaults to without optimizing") that only
+    coincidentally shares a value with the statutory floor as of this
+    writing. Coupling them would be wrong the day either concept's number
+    changes independently; a test asserts they currently agree instead
+    (see TestBasicPctStatutoryFloor), so a future desync is caught rather
+    than silently inherited.
     """
     naive_structure = build_structure(
         ctc=ctc, basic_pct=0.50, hra_pct_of_remaining=0.0,

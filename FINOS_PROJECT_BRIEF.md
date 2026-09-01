@@ -253,12 +253,23 @@ row, in parallel, from the frontend. Both only batch the *action* of
 sending something already reviewed — every row still gets its own
 individually persisted, individually logged decision.
 
-**Basic salary is capped at 50% of CTC in the optimizer**, not left
-unconstrained. An early build iteration without this ceiling pushed basic
-upward indefinitely, because more basic mathematically shelters more income
-via employer PF/NPS — mathematically optimal, but not a structure any real
-company would offer. The 40–50% band matches market convention instead of
-the pure tax-minimizing optimum, an explicit, documented tradeoff.
+**Basic salary is constrained to a 50–60% band in the optimizer, and only
+the ceiling is a tradeoff — the floor is statute.** An early build
+iteration had no ceiling at all, which pushed basic upward indefinitely,
+because more basic mathematically shelters more income via employer PF and
+the Section 124 NPS deduction (formerly 80CCD(2)) — mathematically optimal,
+but not a structure any real company would offer; the 60% ceiling exists to
+keep the output realistic, an explicit, documented tradeoff. The 50% floor
+is a different kind of constraint entirely: the Code on Wages 2025
+(effective 21 November 2025) requires Basic + DA to be at least 50% of
+total remuneration, and this build has no separate DA field (scoped to
+private-sector employees, where DA doesn't apply) — so Basic alone carries
+that legal floor. The band was originally 40–50%, with 40% treated as a
+soft market convention; that was wrong the moment the wage code took
+effect, since it let the optimizer recommend structures that were, from
+that date, non-compliant. Fixed after a live gap-analysis pass, verified
+against multiple independent sources rather than recalled — see
+README.md's "Regulatory currency" section for the full verification.
 
 **Employee-side PF and the delayed-remittance penalty math live outside
 `tax_engine.py`, in `payroll_breakdown.py` and `penalty_exposure.py`,

@@ -145,8 +145,8 @@ def _build_optimize_response(ctc, rent_paid, city, nps_opted, current_extracted,
     # Build the as-offered structure (if extraction supplied one) BEFORE
     # compliance checking — compliance must check what was actually offered,
     # not the optimizer's own recommendation. Checking the recommendation
-    # is nearly circular: the optimizer enforces a 40-50% basic band by
-    # construction, so rules like R1 (basic < 35% of CTC) can structurally
+    # is nearly circular: the optimizer enforces a 50-60% basic band by
+    # construction, so rules like R1 (basic < 50% of CTC) can structurally
     # never fire against it. Real compliance risk lives in the offer itself.
     current_structure = None
     if isinstance(current_extracted, dict):

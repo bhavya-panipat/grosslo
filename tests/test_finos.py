@@ -11,6 +11,7 @@ from tax_engine import (
 from optimizer import (
     optimize, best_regime_for_given_structure, sensitivity_sweep,
     theoretical_minimum_tax, naive_baseline_tax, optimization_value_pct,
+    BASIC_PCT_MIN, BASIC_PCT_MAX,
 )
 from ai_layer import extract_from_text, explain_result, flag_compliance, negotiate, _check_rules, compliance_pct, ai_coverage_pct, answer_query
 from unittest.mock import patch, Mock
@@ -201,9 +202,14 @@ class TestNegotiationCopilot(unittest.TestCase):
             nps_opted=False,
         )
         neg, _, _ = self._run(1_800_000, 400_000, "metro", current)
-        # basic differs (45% vs recommended 40-50% band starting higher),
-        # and NPS is off in the current structure but the recommendation
-        # opts in — both should be flagged.
+        # current basic is 450,000 / 1,800,000 = 25% of CTC, well below the
+        # optimizer's own 50-60% recommended band, and NPS is off in the
+        # current structure but the recommendation opts in — both should
+        # be flagged. This "current" structure is a user-supplied input to
+        # the negotiation copilot, not the optimizer's own search output,
+        # so it isn't constrained by BASIC_PCT_MIN/MAX at all — the 25%
+        # value is unaffected by the statutory-floor fix and needs no
+        # change here beyond this comment's own arithmetic being correct.
         self.assertIn("NPS enrollment (80CCD2)", neg["changed_levers"])
 
     def test_already_optimal_structure_yields_no_ask(self):
@@ -266,10 +272,19 @@ class TestComplianceChecksOfferedStructure(unittest.TestCase):
     """
     Regression test for a real bug caught during manual testing: compliance
     was checking the OPTIMIZER'S OWN recommended structure, which enforces
-    a 40-50% basic band by construction — so R1 (basic < 35% of CTC) could
+    a 50-60% basic band by construction — so R1 (basic < 50% of CTC) could
     never fire against it. That's nearly circular: checking the tool's
     output against rules the tool was built to satisfy. Compliance must
     check the as-offered structure when one exists.
+
+    Worth stating plainly: after the Code on Wages fix, R1's threshold
+    (50%) and the optimizer's own floor (BASIC_PCT_MIN = 0.50) are now the
+    exact same number, with zero margin between them — before the fix
+    there was a 5-point buffer (35% vs 40%) that would have silently
+    absorbed any floating-point rounding noise. test_optimizer_
+    recommended_structure_never_triggers_r1 below is what actually proves
+    the boundary still holds cleanly at that exact value, not just that
+    the logic reads as though it should.
     """
     def test_low_basic_offer_triggers_r1_against_as_offered_structure(self):
         offered = SalaryStructure(
@@ -283,11 +298,106 @@ class TestComplianceChecksOfferedStructure(unittest.TestCase):
 
     def test_optimizer_recommended_structure_never_triggers_r1(self):
         # Documents WHY checking the recommendation alone is insufficient —
-        # the optimizer's own 40% floor means R1 can't fire against its output.
-        result = optimize(ctc=2_400_000, rent_paid=400_000, city="metro", nps_opted=True)
-        flags = _check_rules(result["recommended"].structure, rent_paid=400_000)
-        rule_ids = [f["rule_id"] for f in flags]
-        self.assertNotIn("R1", rule_ids)
+        # the optimizer's own 50% floor means R1 can't fire against its
+        # output, now with zero numeric margin between R1's threshold and
+        # BASIC_PCT_MIN (both exactly 0.50) — this is the real, live check
+        # that a recommended structure landing exactly at the floor
+        # doesn't trip R1 on floating-point rounding noise, not an
+        # assumption carried forward from when there was a 5-point buffer.
+        for ctc in [800_000, 1_800_000, 2_400_000, 4_000_000, 6_000_000]:
+            result = optimize(ctc=ctc, rent_paid=400_000, city="metro", nps_opted=True)
+            flags = _check_rules(result["recommended"].structure, rent_paid=400_000)
+            rule_ids = [f["rule_id"] for f in flags]
+            self.assertNotIn("R1", rule_ids, f"R1 incorrectly fired at CTC={ctc}")
+
+
+class TestBasicPctStatutoryFloor(unittest.TestCase):
+    """
+    Code on Wages 2025 fix (effective 21 Nov 2025, verified live 2026-09-01
+    — see README.md's "Regulatory currency" section): BASIC_PCT_MIN raised
+    from 0.40 to 0.50 (the statutory floor), BASIC_PCT_MAX raised from 0.50
+    to 0.60 (same 10-point band width, repositioned above the floor so the
+    search space doesn't collapse to one point). These tests prove the
+    fix's actual behavior, not just that the constants changed.
+    """
+
+    def test_constants_are_the_statutory_band_not_the_old_one(self):
+        self.assertEqual(BASIC_PCT_MIN, 0.50)
+        self.assertEqual(BASIC_PCT_MAX, 0.60)
+
+    def test_search_space_is_genuinely_ten_points_wide_not_collapsed(self):
+        # The whole point of raising the ceiling alongside the floor: if
+        # this ever regressed to BASIC_PCT_MIN == BASIC_PCT_MAX, the
+        # optimizer would still run without error but would have nothing
+        # left to search. First, the grid itself must be genuinely 5
+        # distinct points spanning 0.50 to 0.60.
+        from optimizer import _basic_pct_range, optimize_new_regime
+        grid = _basic_pct_range()
+        self.assertEqual(len(grid), 5, f"expected 5 grid points (50/52.5/55/57.5/60), got {grid}")
+        self.assertEqual(grid[0], 0.50)
+        self.assertEqual(grid[-1], 0.60)
+        self.assertEqual(len(set(grid)), 5, "grid points are not all distinct")
+
+        # Second, and more important: prove the search actually EXPLORES
+        # more than one point and that the points matter, not just that the
+        # bounds constants are set correctly. Pinning the search to a
+        # single-point range at each end of the band and confirming the
+        # resulting tax differs proves both endpoints are real, reachable,
+        # distinct outcomes — not that the default call merely iterates
+        # without effect.
+        low_end = optimize_new_regime(ctc=4_000_000, nps_opted=True, basic_pct_range=[0.50])
+        high_end = optimize_new_regime(ctc=4_000_000, nps_opted=True, basic_pct_range=[0.60])
+        self.assertNotEqual(
+            low_end.tax_breakdown["total_tax"], high_end.tax_breakdown["total_tax"],
+            "0.50 and 0.60 basic_pct produced identical tax — search space isn't doing real work",
+        )
+        # And the unconstrained default call must actually land on the
+        # higher-basic point, since more basic shelters more via PF/NPS
+        # under the new regime — confirming the full grid is walked, not
+        # just its first element.
+        default_result = optimize_new_regime(ctc=4_000_000, nps_opted=True)
+        self.assertEqual(default_result.basic_pct, grid[-1])
+
+    def test_r1_fires_below_floor_and_not_at_or_above_it(self):
+        # 45% — below the statutory floor, must trigger, High severity.
+        below = SalaryStructure(
+            ctc=2_000_000, basic=900_000, hra=400_000, lta=0,
+            special_allowance=2_000_000 - 900_000 - 400_000 - 108_000,
+            employer_pf=108_000, employer_nps=0, nps_opted=False,
+        )
+        flags_below = _check_rules(below, rent_paid=300_000)
+        r1_below = next((f for f in flags_below if f["rule_id"] == "R1"), None)
+        self.assertIsNotNone(r1_below, "R1 must fire at 45% basic (900,000/2,000,000)")
+        self.assertEqual(r1_below["severity"], "High")
+        self.assertIn("Code on Wages", r1_below["rationale"])
+
+        # Exactly 50% — at the floor, must NOT trigger ("at least 50%" is compliant).
+        at_floor = SalaryStructure(
+            ctc=2_000_000, basic=1_000_000, hra=400_000, lta=0,
+            special_allowance=2_000_000 - 1_000_000 - 400_000 - 120_000,
+            employer_pf=120_000, employer_nps=0, nps_opted=False,
+        )
+        flags_at_floor = _check_rules(at_floor, rent_paid=300_000)
+        rule_ids_at_floor = [f["rule_id"] for f in flags_at_floor]
+        self.assertNotIn("R1", rule_ids_at_floor, "R1 must NOT fire at exactly 50% basic")
+
+    def test_naive_baseline_matches_statutory_floor_but_is_its_own_literal(self):
+        # naive_baseline_tax() hardcodes 0.50 independently of BASIC_PCT_MIN
+        # (see its own docstring for why they're deliberately not coupled in
+        # source) — this is the explicit assertion the user asked for, so a
+        # future change to either number is caught here instead of silently
+        # desyncing the two concepts it happens to currently share a value
+        # with.
+        self.assertEqual(BASIC_PCT_MIN, 0.50)
+        naive = naive_baseline_tax(ctc=1_800_000, rent_paid=400_000, city="metro")
+        from optimizer import build_structure, taxable_income_for_structure, compute_tax
+        expected_structure = build_structure(
+            ctc=1_800_000, basic_pct=BASIC_PCT_MIN, hra_pct_of_remaining=0.0,
+            lta=0.0, regime="new", nps_opted=False,
+        )
+        expected_taxable = taxable_income_for_structure(expected_structure, "new", rent_paid=0, city="metro")
+        expected = compute_tax(expected_taxable, "new")["total_tax"]
+        self.assertEqual(naive, expected)
 
 
 class TestTheoreticalMinimumAndOptimizationValue(unittest.TestCase):

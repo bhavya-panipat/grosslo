@@ -286,10 +286,10 @@ def _check_rules(structure, rent_paid: float) -> list[dict]:
     ctc = structure.ctc
     basic_pct = structure.basic / ctc if ctc else 0
 
-    if basic_pct < 0.35:
+    if basic_pct < 0.50:
         flags.append({
-            "rule_id": "R1", "severity": "Medium",
-            "rationale": "Basic salary is below common market convention (under 35% of CTC), which may indicate an attempt to minimize statutory PF/gratuity obligations.",
+            "rule_id": "R1", "severity": "High",
+            "rationale": "Basic salary is below 50% of CTC, violating the Code on Wages 2025 requirement that Basic + DA be at least 50% of total remuneration (no DA field in this tool — Basic alone is the relevant component for a private-sector structure). This triggers automatic reclassification of the excess allowances as \"wages\" for PF and gratuity purposes, not just a market-convention miss.",
         })
     if ctc > 600_000 and structure.employer_pf == 0:
         flags.append({
