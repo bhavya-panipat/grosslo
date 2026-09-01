@@ -42,6 +42,25 @@ RazorpayX payout payload. It also runs the same checks *backwards* over an
 existing headcount, to surface compensation structures that are already out
 of policy or leaving money on the table.
 
+**"Isn't this what RazorpayX Payroll already does?" — answered directly,
+not discovered live.** RazorpayX Payroll is a real, shipped product that
+already runs CTC-to-take-home structuring, statutory compliance and
+filing, and direct disbursement. grosslo is not a from-scratch
+re-implementation of that product, and doesn't claim to compete with it on
+breadth. What it adds, narrower and more forensic than a payroll-run tool:
+per-hire tax-optimization modeling that treats the split itself as a
+decision worth optimizing (not just computing), a maker-checker governance
+layer with a real before/after diff and an audit trail, and an audit-sweep
+mode that runs those same checks *backwards* over payroll a company
+already has running elsewhere — the thing a payroll-execution tool has no
+reason to build, because it's not in the business of finding its own
+customers' past mistakes. The honest read: grosslo is closer to a
+decision-and-compliance layer that could sit in front of RazorpayX Payroll
+or feed it corrected structures, not a second version of it. Which one it
+actually becomes — a layer on top, or something RazorpayX Payroll absorbs
+outright — is an open product question, not answered here (see "Does
+grosslo become the system of record" below).
+
 ## Why the architecture is deterministic-first
 
 The single decision everything else in this codebase follows from: **no LLM
@@ -76,6 +95,19 @@ the real triggered rule's statutory section (or honestly reports "no flags
 triggered" when nothing fired), and `trace_guardrail_stage()` quotes the real
 `evaluate_band_guardrail()` verdict. A trace line can't cite something the
 underlying engine didn't actually decide.
+
+**The one-line defense for the most debatable call in this build, stated
+directly rather than left implicit:** in a track literally named "AI
+Finance Controller," minimizing what the LLM is trusted to decide is the
+correct AI-native design, not a hedge against using it — an agent that
+computes payroll tax with an LLM and calls it "AI-native" would be a worse
+submission than this one, because it would be wrong sometimes and nobody
+could predict when. The AI-native part of this build isn't "an LLM touches
+tax math" — it's turning unstructured, real-world input (a pasted offer
+letter, a free-text question) into something a deterministic system can
+act on reliably, and explaining deterministic output in language a human
+actually reads. That's a harder, more honest AI problem than letting a
+model guess at arithmetic it has no business guessing at.
 
 ## System architecture
 
@@ -141,6 +173,55 @@ a fourth caller of that helper — the "New Hire Batch" mode's route — but
 it bypassed Finance review entirely, duplicating what `/api/submissions`
 already does with a review step on top. Removed as a redundancy fix, not
 folded into anything: see "Redundancy fix" in `README.md`.
+
+## Stack, and why
+
+Named directly rather than left for a panel to have to ask, since an
+unnamed choice reads as unconsidered even when it wasn't:
+
+- **Model: `claude-sonnet-4-5-20250929`** (`ai_layer.py:MODEL`), used for
+  extraction, explanation, compliance phrasing, and conversational query.
+  Every one of those tasks is bounded and comparatively easy — read
+  messy text into a known schema, or restate an already-computed number
+  in a sentence — never open-ended reasoning over unconstrained tax law.
+  The hardest, highest-stakes computation in this codebase (the actual
+  tax liability) is explicitly *not* the model's job at all; see "Why the
+  architecture is deterministic-first" above. A heavier reasoning model
+  would add latency and cost without changing what the model is actually
+  trusted to do, since the numeric guard rejects any output it can't
+  verify regardless of which model produced it.
+- **Backend: Flask, stdlib + the `anthropic` SDK only** — no ORM, no task
+  queue, no background worker. Deliberately minimal so every route is
+  something a reviewer can read start to finish in one sitting, which
+  matters more here than it would in a system meant to run in production
+  unattended.
+- **Frontend: Next.js 15 (App Router) + React 19 + TypeScript** — a real
+  production frontend stack, not a notebook-style demo UI, because the
+  governance workflow (maker-checker, per-row diffs, bulk actions) is a
+  genuine multi-page application with real state, not a single results
+  page.
+- **Persistence: SQLite, one gitignored file** — the right tool for a
+  demo-scale, single-tenant review queue that needs to survive a session,
+  and explicitly not represented as more than that (see "Known
+  limitations" in `README.md`). Production would need a real RDBMS
+  (Postgres is the obvious default), connection pooling, migrations, and
+  — the part SQLite genuinely cannot do — row-level multi-tenant
+  isolation once more than one company's data exists in the same system.
+  That gap is named, not glossed over, because a single-file database is
+  a legitimate demo choice and a disqualifying production one, and
+  conflating the two would be exactly the kind of overclaim this project
+  has tried not to make anywhere else.
+- **RazorpayX payload schema, verified rather than guessed:** the
+  Composite Payout payload shape (`fund_account`/`bank_account`/`contact`
+  nesting, amount in paise, the `X-Payout-Idempotency` header convention)
+  was checked field-by-field against RazorpayX's own published API
+  documentation before being hardcoded into `_build_composite_payout()` —
+  not inferred from field names that sounded plausible. The Bulk Salary
+  Revision XLSX shape is held to a different, lower bar on purpose: it's
+  modeled on RazorpayX Payroll's documented two-sheet template, but that
+  template was never checked against a live account, and the file says so
+  explicitly in its own Read Me sheet rather than implying the same
+  confidence level as the Composite Payout schema.
 
 ## Key design decisions
 

@@ -16,6 +16,16 @@ it, and exports a schema-accurate RazorpayX Composite Payout payload — for one
 candidate at a time or a whole CSV batch. Every step is logged as a real
 execution trace, not a black box: what ran, what it found, and why.
 
+**Isn't this what RazorpayX Payroll already does?** RazorpayX Payroll is a
+real, shipped product with CTC structuring, statutory filing, and direct
+disbursement already built. grosslo doesn't re-implement that — it's
+narrower and more forensic: per-hire tax-optimization modeling, a
+maker-checker governance layer with a real audit trail, and an audit-sweep
+mode that runs the same checks *backwards* over payroll a company already
+runs elsewhere, which a payroll-execution product has no reason to build.
+See "Isn't this what RazorpayX Payroll already does?" in
+`FINOS_PROJECT_BRIEF.md` for the full answer, not just the summary.
+
 ## What it actually does
 
 - **Structure**: given a CTC (or a pasted, messy offer letter), computes the
