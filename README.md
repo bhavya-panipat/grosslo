@@ -38,7 +38,12 @@ execution trace, not a black box: what ran, what it found, and why.
   fix" below). `/optimize/batch` is a separate, audit-only CSV flow: point
   the same guardrail checks at *existing* employee structures, surface
   unclaimed regime-switch savings and excess EPFO contributions across the
-  whole set, and send any flagged row to Finance the same way.
+  whole set, and send any flagged row to Finance the same way. The summary
+  isn't just two currency totals — it reports clean vs. flagged counts and
+  a real exception breakdown (over the EPFO cap vs. filed under the wrong
+  regime entirely for that structure, a genuinely different signal from
+  "unclaimed savings"), so a batch narration has actual on-screen counts to
+  point at instead of a number nobody watching can verify.
 - **Trace**: a live-looking execution log on every result — parse → compliance
   pass → math solver → policy gate — where every line is built from a field
   the underlying computation actually returned, never a scripted placeholder.
@@ -83,6 +88,18 @@ infrastructure:
   double-click on Approve doesn't write a second audit-log entry either —
   the status transition only fires once, by construction, not because of
   a special case bolted on for double-clicks.
+- **Bulk actions batch the click, never the judgment.** A "Submit all N
+  for review" button on the audit page sends every flagged row in one
+  `/api/submissions` batch call instead of N separate ones — the endpoint
+  already accepted a batch array, this just uses it. On `/finance`, row
+  checkboxes plus "select all pending" open a bulk action bar that
+  approves or rejects every selected row in one click; rejection still
+  requires a reason, one shared reason applied to the whole selection,
+  with the UI saying plainly to reject rows individually if they need
+  different explanations. There's no bulk-decide endpoint and no need for
+  one — this fires the same idempotent per-row `/decide` call once per
+  selected row, in parallel, so every row still gets its own individually
+  logged decision. Nothing here lets anything but a person decide.
 - **Bulk Salary Revision export** (`POST
   /api/submissions/<id>/rows/<row_index>/export`, approved rows only)
   closes the audit loop the rest of the way: takes a flagged employee's
@@ -224,7 +241,7 @@ grosslo invented, only one the compliance engine already decided.
 
 Backend:
 ```bash
-python3 -m unittest discover -s tests   # 69 tests, all pass with or without an API key
+python3 -m unittest discover -s tests   # 73 tests, all pass with or without an API key
 python3 app.py 8000                     # serves the API at http://127.0.0.1:8000
 ```
 
@@ -429,6 +446,20 @@ future plans:
   exercises the fallback path directly, not the guard logic that sits in
   front of a real LLM response. Fixed by adding the changed value to the
   guard's allow-list when it's numeric.
+- A second, different bug in the same numeric guard, found while wiring
+  its rejection state into the UI for the first time, not by inspection:
+  in both branches of `answer_query()`, `guard_triggered` was computed
+  correctly inside the try block, but the fallback return two lines down
+  always hardcoded `"guard_triggered": False` — discarding the real
+  computed value whenever the guard had actually just fired. A genuine
+  live rejection would have silently reported itself as "nothing
+  happened." `explain_result()` and `negotiate()` never had this bug, only
+  the query layer's two paths did. Fixed by declaring `guard_triggered`
+  outside the try block in both places. New tests mock only the external
+  Claude call (a fabricated response stating an untraceable number) — the
+  guard logic, the fallback text, and the True/False it reports are all
+  real; this is the guard's rejection branch getting automated coverage
+  for the first time, not just the pass-through branch.
 - `/api/optimize-batch` had never been load-tested. With a live API key, a
   20-row batch didn't complete inside 60 seconds, and a 500-row batch
   didn't complete inside 2 minutes. Measured, not assumed: isolating the
@@ -462,13 +493,15 @@ future plans:
 
 ## Test coverage
 
-69 tests total — 51 in `tests/test_finos.py` covering the marginal relief
+73 tests total — 54 in `tests/test_finos.py` covering the marginal relief
 calculation (validated against the government's own worked example), the
 old-vs-new regime crossover, HRA metro vs non-metro, the PF statutory-ceiling
 toggle, extraction's mismatch-detection logic, the explainer's numeric guard
-(including that batch mode's `skip_ai` path stays deterministic), each
+(including that batch mode's `skip_ai` path stays deterministic and that the
+conversational query layer's guard genuinely rejects an untraceable number
+and reports that it did, not just that it passes a traceable one), each
 compliance rule's trigger condition, and the conversational query layer's
-hypothetical-recalculation path; plus 18 in `tests/test_review_workflow.py`
+hypothetical-recalculation path; plus 19 in `tests/test_review_workflow.py`
 covering the maker-checker flow end to end — submission persistence,
 approval writes the correct simulated-not-dispatched status, rejection
 requires and stores a reason, the diff view's before/after values match a
@@ -476,12 +509,14 @@ real optimizer run exactly (no invented attribution text), mixed-batch
 rows are decided independently, duplicate submissions are flagged rather
 than reprocessed, a double-approve doesn't double-write, the salary-
 revision export's XLSX contains the real corrected values with the
-honesty label present, and — from the redundancy fix — that an approved
-row's export is actually gated on approval, a new-hire export contains
-the real bank details supplied at submission (and fails clearly without
-them), a correction export returns a real XLSX, the guardrail actually
-runs when a submission carries a band, and `/api/optimize-batch` is
-verifiably gone from the route map, not just unused. All pass with no
+honesty label present, an approved row's export is actually gated on
+approval, a new-hire export contains the real bank details supplied at
+submission (and fails clearly without them), a correction export returns a
+real XLSX, the guardrail actually runs when a submission carries a band,
+`/api/optimize-batch` is verifiably gone from the route map, and the batch
+audit's clean/flagged/exception counts match a hand-verified mix of rows
+(including a real regime-mismatch case found by brute-force search over
+the optimizer, not asserted from assumption). All pass with no
 `ANTHROPIC_API_KEY` set, exercising every deterministic fallback.
 
 **The live LLM-backed path has been tested end-to-end against the real

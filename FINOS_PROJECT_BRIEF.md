@@ -150,6 +150,28 @@ matters.** `EPFO_AGGREGATE_CEILING = 750_000` is defined once in
 excess-contribution calculation — not two independently-maintained
 thresholds that could silently drift apart.
 
+**`/api/batch-audit`'s exception counts are two genuinely different
+signals, not one number split two ways.** `epfo_cap_exceeded_count` and
+`regime_mismatch_count` can both fire on the same row — a structure can be
+over the EPFO ceiling *and* filed under the wrong regime at once — so the
+summary doesn't claim they sum to `flagged_count`, and the UI says so
+explicitly rather than rounding the arithmetic to look tidier. Regime
+mismatch specifically means the as-offered structure is best off under
+regime X for itself, but the true CTC-level optimum is regime Y — a
+different failure mode from `unclaimed_savings > 0` alone, which can fire
+even when the regime is already correct and only the basic/HRA/PF split
+within it is suboptimal.
+
+**Bulk actions reuse existing endpoints rather than adding new ones.**
+"Submit all N flagged" on the audit page collects every flagged row and
+sends them as a single `/api/submissions` batch call — the same endpoint
+and payload shape a single click already used, just with more rows. Bulk
+approve/reject on `/finance` has no dedicated batch-decide route at all:
+it fires the existing idempotent per-row `/decide` call once per selected
+row, in parallel, from the frontend. Both only batch the *action* of
+sending something already reviewed — every row still gets its own
+individually persisted, individually logged decision.
+
 **Basic salary is capped at 50% of CTC in the optimizer**, not left
 unconstrained. An early build iteration without this ceiling pushed basic
 upward indefinitely, because more basic mathematically shelters more income
@@ -356,23 +378,28 @@ features added one at a time.
 
 ## Test coverage
 
-69 tests total, passing with or without `ANTHROPIC_API_KEY` set (every
+73 tests total, passing with or without `ANTHROPIC_API_KEY` set (every
 AI-layer function has a deterministic fallback, so the full suite
-exercises real logic either way): 51 in `tests/test_finos.py` — the
+exercises real logic either way): 54 in `tests/test_finos.py` — the
 marginal relief calculation against the government's own worked example,
 the old-vs-new regime crossover, HRA metro/non-metro, the PF statutory
 ceiling, extraction mismatch detection, the explainer's numeric guard,
-each of the 6 compliance rules' trigger conditions, and the query layer's
-hypothetical re-run path — plus 18 in `tests/test_review_workflow.py`
+each of the 6 compliance rules' trigger conditions, the query layer's
+hypothetical re-run path, and — mocking only the external Claude call,
+never the guard logic itself — the numeric guard's rejection branch
+actually rejecting an untraceable number and reporting that it did, not
+just passing a traceable one — plus 19 in `tests/test_review_workflow.py`
 covering the maker-checker flow: submission persistence, correctly-worded
 simulated approval, mandatory rejection reasons, the diff view matching
 real optimizer output exactly, independent row-level decisions on a mixed
 batch, duplicate-submission detection, double-approve protection, the
-salary-revision export's real values plus honesty label, and — added with
-the redundancy fix — approval-gated export, a new-hire export's real bank
-details (and its clean failure without them), a correction export's real
-XLSX, the guardrail actually firing on a banded submission, and
-`/api/optimize-batch` being genuinely absent from the route map.
+salary-revision export's real values plus honesty label, approval-gated
+export, a new-hire export's real bank details (and its clean failure
+without them), a correction export's real XLSX, the guardrail actually
+firing on a banded submission, `/api/optimize-batch` being genuinely
+absent from the route map, and the batch audit's clean/flagged/exception
+counts matching a hand-verified mix, including a real regime-mismatch case
+found by brute-force search over the optimizer rather than asserted.
 
 The live LLM-backed path has also been exercised end-to-end against the
 real Claude API (extraction, explanation, compliance phrasing, query
