@@ -428,8 +428,11 @@ def evaluate_band_guardrail(structure: SalaryStructure, regime: str,
     RazorpayX payout export: is the CTC within the approved compensation
     band, is the aggregate employer PF+NPS under the same Rs 7.5L ceiling
     Rule R5 already flags, and is employer NPS within the regime-specific
-    Section 80CCD(2) cap (14% of basic under the new regime, 10% under the
-    old — NOT a flat 10%, per tax_engine.py's own NPS_80CCD2_CAP_PCT).
+    Section 124 cap — formerly Section 80CCD(2) under the 1961 Act, renamed
+    under the Income-tax Act 2025 effective 1 April 2026, rate unchanged
+    (14% of basic under the new regime, 10% under the old — NOT a flat 10%,
+    per tax_engine.py's own NPS_80CCD2_CAP_PCT, whose name is kept as-is
+    since it's an internal constant, not user-facing text).
 
     Same pattern as flag_compliance: rule matching is always deterministic;
     the LLM, when available, only rephrases already-failing checks into
@@ -475,15 +478,15 @@ def evaluate_band_guardrail(structure: SalaryStructure, regime: str,
     nps_ok = structure.employer_nps <= nps_cap
     checks.append({
         "id": "80ccd2_cap",
-        "label": f"Section 80CCD(2) employer NPS cap ({regime} regime, {cap_pct:.0%} of basic)",
+        "label": f"Section 124 employer NPS cap ({regime} regime, {cap_pct:.0%} of basic)",
         "passed": nps_ok,
         "rationale": (
             f"Employer NPS of Rs {structure.employer_nps:,.0f} is within the "
-            f"Section 80CCD(2) cap of {cap_pct:.0%} of basic (Rs {nps_cap:,.0f}) "
+            f"Section 124 cap (formerly 80CCD(2)) of {cap_pct:.0%} of basic (Rs {nps_cap:,.0f}) "
             f"for the {regime} regime."
             if nps_ok else
             f"Employer NPS of Rs {structure.employer_nps:,.0f} exceeds the "
-            f"Section 80CCD(2) cap of {cap_pct:.0%} of basic "
+            f"Section 124 cap (formerly 80CCD(2)) of {cap_pct:.0%} of basic "
             f"(Rs {nps_cap:,.0f}) for the {regime} regime."
         ),
     })
@@ -714,9 +717,9 @@ markdown.
 
 If you reference a specific statutory basis, cite ONLY a section listed in \
 the context's "applicable_sections" array, using its exact wording (e.g. \
-"Section 10(13A)"), and only when it's actually relevant to the question. \
-Do not cite any section not present in that list, and do not cite one at \
-all if the list is empty or none apply."""
+"Section 392 (formerly Section 192)"), and only when it's actually relevant \
+to the question. Do not cite any section not present in that list, and do \
+not cite one at all if the list is empty or none apply."""
 
 QUERY_HYPOTHETICAL_SYSTEM_PROMPT = """Answer the user's 'what if' question \
 using ONLY the before/after numbers given to you in the context JSON — \
@@ -852,12 +855,20 @@ def answer_query(question: str, context: dict, ctc: float, rent_paid: float,
         grounding["tax_difference"] = round(
             old_best.tax_breakdown["total_tax"] - new_best.tax_breakdown["total_tax"], 2
         )
+        # Citations verified against the Income-tax Act 2025 (effective
+        # 1 April 2026) via live research, not recalled from training data —
+        # the 1961-Act numbers are kept alongside the new ones since they're
+        # still the recognizable, searched-for terms. Section 17(2)(vii)
+        # elsewhere in this codebase (the >Rs 7.5L perquisite rule) is NOT
+        # included in that verification: no confirmed 2025-Act mapping was
+        # found for it, so it's left as the 1961-Act citation with the gap
+        # noted, not silently treated as equally current.
         applicable_sections = []
         if old_best.structure.hra > 0 or new_best.structure.hra > 0:
-            applicable_sections.append("Section 10(13A)")
-        applicable_sections.append("Section 192")
+            applicable_sections.append("Section 11, read with Schedule II (formerly Section 10(13A))")
+        applicable_sections.append("Section 392 (formerly Section 192)")
         if old_best.structure.employer_nps > 0 or new_best.structure.employer_nps > 0:
-            applicable_sections.append("Section 80CCD(2)")
+            applicable_sections.append("Section 124 (formerly Section 80CCD(2))")
         grounding["applicable_sections"] = applicable_sections
     except Exception:
         grounding["applicable_sections"] = []  # fall back to the thin context if recompute fails

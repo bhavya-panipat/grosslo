@@ -10,7 +10,9 @@ codebase that doesn't get touched.
 
 SCOPE / KNOWN LIMITATIONS (state these explicitly, same as tax_engine.py does):
 - monthly_tds_schedule() distributes the annual tax liability evenly across
-  12 months. Real Section 192 withholding involves employer discretion and
+  12 months. Real Section 392 withholding (Section 192 under the pre-2026
+  Income-tax Act 1961; same mechanism, renumbered under the Income-tax Act
+  2025 effective 1 April 2026) involves employer discretion and
   quarter-based re-estimation as the year progresses — this models the
   simplified even-distribution case only.
 - Employee-side PF is NOT modeled anywhere in tax_engine.py (SalaryStructure

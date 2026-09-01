@@ -55,7 +55,7 @@ def trace_optimize_stage(response: dict, extraction_ran: bool) -> list[dict]:
 def trace_guardrail_stage(guardrail: dict) -> dict:
     """One stage, built from evaluate_band_guardrail()'s own real verdict/checks."""
     if guardrail["verdict"] == "pass":
-        message = "All policy checks passed — band, EPFO ceiling, Section 80CCD(2) NPS cap."
+        message = "All policy checks passed — band, EPFO ceiling, Section 124 NPS cap (formerly 80CCD(2))."
     else:
         failing = "; ".join(c["message"] for c in guardrail["checks"] if not c["passed"])
         message = f"Policy gate flagged — {failing}"

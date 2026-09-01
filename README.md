@@ -35,7 +35,8 @@ See "Isn't this what RazorpayX Payroll already does?" in
 - **Check**: every structure is run against a fixed compliance rule set
   (`compliance_rules.md`, six rules) and a payroll guardrail (approved
   compensation band, the ₹7.5L aggregate EPFO contribution ceiling, the
-  regime-specific Section 80CCD(2) employer-NPS cap).
+  regime-specific Section 124 employer-NPS cap, formerly Section 80CCD(2)
+  under the 1961 Act — see "Regulatory currency" below).
 - **Forecast**: net take-home, TDS escrow, and EPFO challan are summed into a
   single capital-outlay number, with a funding lead time — what treasury needs
   to have ready before payroll runs.
@@ -372,6 +373,71 @@ guess at what the new number would be.
   ("capital required for these employees... not your full existing
   payroll") so it isn't mistaken for more than it is. See Roadmap below for
   what closing this gap actually requires.
+
+## Regulatory currency — verified live on 2026-09-01, not assumed
+
+India's payroll law changed substantially for FY 2026-27, and a codebase
+that hardcodes statutory citations doesn't stay current on its own. This
+section states exactly what was checked, against what, and what's still
+open — the same "verify the source, don't trust recall" discipline that
+caught the 271C citation error elsewhere in this document, applied to law
+that changed after this build's own knowledge was formed, not just to a
+citation that was wrong from the start.
+
+**Confirmed current via live search, sources checked, not recalled:**
+- The Income-tax Act 2025 replaced the Income-tax Act 1961 effective
+  1 April 2026. Salary TDS moved from **Section 192 to Section 392**; the
+  annual TDS certificate moved from **Form 16 to Form 130**.
+- HRA's 50%-exemption metro-city list expanded from 4 cities to
+  **8 — Delhi, Mumbai, Kolkata, Chennai, plus Bengaluru, Hyderabad, Pune,
+  and Ahmedabad** — effective 1 April 2026. This build never hardcoded a
+  city-name list anywhere (`city` is an abstract `"metro"`/`"non_metro"`
+  flag the user selects) — so this law change doesn't correspond to a code
+  defect here, only to a stale section citation (below).
+- Section 10(13A) (HRA exemption) moved to **Section 11, read with
+  Schedule II**. Section 80CCD(2) (employer NPS deduction) moved to
+  **Section 124, read with Schedule XV** — the 10%/14% old-vs-new-regime
+  rate split itself is unchanged and was already correct in
+  `tax_engine.py`'s `NPS_80CCD2_CAP_PCT`.
+- **Fixed in code**: every user-facing citation of the old section numbers
+  (392/11+Schedule II/124) across `ai_layer.py`, `execution_trace.py`,
+  `payroll_breakdown.py`, and this document — the old number is kept
+  alongside the new one ("Section 124, formerly 80CCD(2)") since it's
+  still the more recognizable, more-searched-for term, not because the old
+  number is still correct on its own.
+
+**Checked and found NOT to need a citation change:**
+- Sections 7Q and 14B (`penalty_exposure.py`'s EPF interest/damages) are
+  under the EPF & Miscellaneous Provisions Act 1952 — a different statute
+  from the Income-tax Act entirely, unaffected by this renumbering.
+
+**Checked, and genuinely unresolved — not silently left looking as current
+as the citations above:**
+- **Section 17(2)(vii)** (the >₹7.5L aggregate PF+NPS perquisite rule
+  behind Rule R5 and the payroll guardrail) and **Section 201(1A)** (TDS
+  late-deposit interest, in `penalty_exposure.py`) are both still cited
+  under their 1961-Act numbers. Two real search attempts each found no
+  confirmed 2025-Act mapping for either — the underlying provisions and
+  rates are real and current, only the exact new section/schedule number
+  is unverified. Left as the 1961-Act citation rather than guessing a
+  replacement, since a fabricated new number would be a worse error than
+  an old-but-real one.
+
+**Flagged, not fixed — a real decision, not a citation:**
+- **The Code on Wages 2025** (one of the four labour codes, effective
+  21 November 2025, no grace period) requires basic pay + dearness
+  allowance to be **at least 50%** of total remuneration; falling short
+  triggers automatic reclassification of the excess allowances as "wages"
+  for PF and gratuity purposes. `optimizer.py`'s `BASIC_PCT_MIN = 0.40`
+  currently lets the search space recommend structures as low as 40%
+  basic — below that new legal floor. This is a real, verified
+  correctness gap, not a stale citation, and it lives in a file this
+  project has treated as protected all along. It's named here rather than
+  silently patched, because raising the floor to 50% would collapse the
+  new-regime optimizer's entire search space to a single point (there's
+  nothing left to search once `BASIC_PCT_MIN == BASIC_PCT_MAX`), which
+  changes what "optimization" means for that regime and needs a real
+  decision, not a one-line constant edit.
 
 ## Roadmap toward a real product (explicitly out of scope for this submission)
 
