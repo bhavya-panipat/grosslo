@@ -159,6 +159,32 @@ class TestDiffView(ReviewQueueTestCase):
         self.assertFalse(diff["has_prior_offer"])
         self.assertEqual(diff["field_changes"], [])
 
+    def test_epfo_ceiling_correction_shows_employer_pf_change(self):
+        # Real bug, found live via the audit-mode "Submit correction" flow,
+        # not by inspection: build_diff() originally reused
+        # ai_layer.py's _diff_levers(), which only checks
+        # basic/HRA/LTA/NPS-enrollment because it was built for the
+        # negotiation copilot's candidate-facing framing. It never checks
+        # employer_pf or employer_nps — so an R5 (EPFO aggregate ceiling)
+        # correction, where the actual fix is almost entirely a drop in
+        # employer_pf, showed "no meaningful change" and silently missed
+        # the one field that mattered. This is that exact scenario.
+        current_structure = {
+            "basic": 1_800_000, "hra": 900_000, "lta": 100_000,
+            "special_allowance": 300_000, "employer_pf": 900_000, "employer_nps": 0,
+        }
+        computed = _optimize_response_for(ctc=4_000_000, rent_paid=500_000, current_structure=current_structure)
+        self.assertTrue(any(f["rule_id"] == "R5" for f in computed["compliance"]["flags"]))
+
+        input_row = {"ctc": 4_000_000, "rent_paid": 500_000, "city": "metro", "current_structure": current_structure}
+        diff = build_diff(input_row, computed)
+
+        pf_change = next((c for c in diff["field_changes"] if c["field"] == "employer_pf"), None)
+        self.assertIsNotNone(pf_change, "employer_pf change must appear in the diff when R5 fired")
+        self.assertEqual(pf_change["before"], 900_000)
+        self.assertEqual(pf_change["reason"], "R5 compliance fix")
+        self.assertLess(pf_change["after"], 750_000)  # the actual fix: brought back under the EPFO ceiling
+
 
 class TestPartialApproval(ReviewQueueTestCase):
     def test_mixed_batch_rows_decided_independently(self):

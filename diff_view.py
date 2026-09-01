@@ -9,6 +9,17 @@ shown by this module can't be traced to one of those two sources, that's a
 bug, not a feature: the whole point of this file is that a diff is an
 explanation over data the system already produced, not a new opinion about
 what the offer should be.
+
+Does its OWN field-by-field comparison rather than reusing
+ai_layer.py's _diff_levers()/negotiate() — found live, not by inspection,
+that _diff_levers() only checks basic/HRA/LTA/NPS-enrollment, because it
+was built for the negotiation copilot's candidate-facing "what would you
+negotiate" framing. It never checks employer_pf or employer_nps, which
+means the exact scenario this feature exists for — an R5 EPFO-ceiling
+correction, where the real fix is almost entirely in employer_pf — showed
+"no meaningful change" while silently missing the one field that actually
+moved. Reusing that function would have inherited a blind spot scoped for
+a different feature's purpose; this file owns its own comparison instead.
 """
 
 from optimizer import best_regime_for_given_structure
@@ -27,12 +38,10 @@ FIELD_TO_RULES = {
     "special_allowance": ["R6"],
 }
 
-LEVER_TO_FIELD = {
-    "basic salary": "basic",
-    "HRA": "hra",
-    "LTA": "lta",
-    "NPS enrollment (80CCD2)": "nps_opted",
-}
+# All structure fields worth showing a before/after for, and the threshold
+# convention (1% of CTC) matches _diff_levers()'s own — kept consistent on
+# purpose, just applied completely instead of partially.
+COMPARABLE_FIELDS = ["basic", "hra", "lta", "special_allowance", "employer_pf", "employer_nps"]
 
 
 def build_diff(input_row: dict, computed: dict) -> dict:
@@ -45,7 +54,7 @@ def build_diff(input_row: dict, computed: dict) -> dict:
              "field_changes": [{"field", "before", "after", "reason"}]}.
     """
     current_structure = input_row.get("current_structure")
-    if not current_structure or "negotiation" not in computed:
+    if not current_structure:
         return {
             "has_prior_offer": False,
             "note": "New structure — no prior offer to compare against.",
@@ -53,20 +62,18 @@ def build_diff(input_row: dict, computed: dict) -> dict:
             "field_changes": [],
         }
 
+    ctc = input_row["ctc"]
+    threshold = 0.01 * ctc
     recommended_regime = computed["recommended_regime"]
     recommended_structure = computed[f"{recommended_regime}_regime_best"]["structure"]
     flags = computed.get("compliance", {}).get("flags", [])
     triggered_rule_ids = {f["rule_id"] for f in flags}
-    changed_levers = computed["negotiation"].get("changed_levers", [])
 
     field_changes = []
-    for lever in changed_levers:
-        field = LEVER_TO_FIELD.get(lever)
-        if field is None or field == "nps_opted":
-            continue  # NPS enrollment is a boolean flip, shown separately below, not a before/after number
-        before_val = current_structure.get(field)
-        after_val = recommended_structure.get(field)
-        if before_val is None or after_val is None:
+    for field in COMPARABLE_FIELDS:
+        before_val = current_structure.get(field, 0) or 0
+        after_val = recommended_structure.get(field, 0) or 0
+        if abs(before_val - after_val) <= threshold:
             continue
         matching_rules = [r for r in FIELD_TO_RULES.get(field, []) if r in triggered_rule_ids]
         reason = f"{matching_rules[0]} compliance fix" if matching_rules else "tax optimization"
@@ -74,12 +81,11 @@ def build_diff(input_row: dict, computed: dict) -> dict:
             "field": field, "before": before_val, "after": after_val, "reason": reason,
         })
 
-    if "NPS enrollment (80CCD2)" in changed_levers:
+    before_nps = bool(current_structure.get("nps_opted", False))
+    after_nps = bool(recommended_structure.get("nps_opted", False))
+    if before_nps != after_nps:
         field_changes.append({
-            "field": "nps_opted",
-            "before": bool(current_structure.get("nps_opted", False)),
-            "after": bool(recommended_structure.get("nps_opted", False)),
-            "reason": "tax optimization",
+            "field": "nps_opted", "before": before_nps, "after": after_nps, "reason": "tax optimization",
         })
 
     # Regime comparison: reuses the existing, already-tested

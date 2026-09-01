@@ -4,7 +4,7 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Loader2 } from "lucide-react";
 import CsvUploadCard from "@/components/optimize/csv-upload-card";
-import { NewHireBatchTable, AuditBatchTable } from "@/components/optimize/batch-results-table";
+import { NewHireBatchTable, AuditBatchTable, type CorrectionStatus } from "@/components/optimize/batch-results-table";
 import AuditSummaryCard from "@/components/optimize/audit-summary-card";
 import PenaltyScenarioTable from "@/components/optimize/penalty-scenario-table";
 import RazorpayXExportModal, { type BatchExportRow } from "@/components/optimize/razorpayx-export-modal";
@@ -31,6 +31,7 @@ export default function BatchFlow() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
+  const [correctionStatus, setCorrectionStatus] = useState<Record<number, CorrectionStatus>>({});
 
   const switchMode = (next: Mode) => {
     setMode(next);
@@ -38,10 +39,12 @@ export default function BatchFlow() {
     setNewHireResult(null);
     setAuditResult(null);
     setError(null);
+    setCorrectionStatus({});
   };
 
   const handleRowsParsed = async (rows: Record<string, string>[]) => {
     setRawRows(rows);
+    setCorrectionStatus({});
     setNewHireResult(null);
     setAuditResult(null);
     setError(null);
@@ -95,6 +98,49 @@ export default function BatchFlow() {
       setError("Couldn't reach the backend — confirm the Flask server is running.");
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Closes the audit loop: a flagged row (excess EPFO contribution,
+  // unclaimed regime-switch savings) is submitted for Finance review the
+  // same way a new hire is — same endpoint, same diff-with-attribution,
+  // same approve/reject. current_structure is the row's AS-IS structure
+  // from the uploaded CSV, not the corrected one: the server recomputes
+  // the correction itself (same principle as everywhere else in this
+  // app — never trust a client-supplied tax figure), and Finance's diff
+  // view shows exactly what changed and why.
+  const handleSubmitCorrection = async (rowIndex: number) => {
+    const raw = (rawRows ?? [])[rowIndex];
+    if (!raw) return;
+    setCorrectionStatus((prev) => ({ ...prev, [rowIndex]: "submitting" }));
+    try {
+      const res = await fetch("/api/submissions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source: "single",
+          row: {
+            employee_name: raw.name,
+            ctc: toNum(raw.ctc),
+            rent_paid: toNum(raw.rent_paid) ?? 0,
+            city: raw.city || "metro",
+            nps_opted: toBool(raw.nps_opted),
+            current_structure: {
+              basic: toNum(raw.basic) ?? 0,
+              hra: toNum(raw.hra) ?? 0,
+              lta: toNum(raw.lta) ?? 0,
+              special_allowance: toNum(raw.special_allowance) ?? 0,
+              employer_pf: toNum(raw.employer_pf) ?? 0,
+              employer_nps: toNum(raw.employer_nps) ?? 0,
+              nps_opted: toBool(raw.nps_opted),
+            },
+          },
+        }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setCorrectionStatus((prev) => ({ ...prev, [rowIndex]: "submitted" }));
+    } catch {
+      setCorrectionStatus((prev) => ({ ...prev, [rowIndex]: "error" }));
     }
   };
 
@@ -187,7 +233,11 @@ export default function BatchFlow() {
               totalExcessContribution={auditResult.summary.total_excess_contribution}
               totalUnclaimedSavings={auditResult.summary.total_unclaimed_savings}
             />
-            <AuditBatchTable rows={auditResult.rows} />
+            <AuditBatchTable
+              rows={auditResult.rows}
+              correctionStatus={correctionStatus}
+              onSubmitCorrection={handleSubmitCorrection}
+            />
             <PenaltyScenarioTable scenario={auditResult.penalty_scenario} />
           </motion.div>
         )}
