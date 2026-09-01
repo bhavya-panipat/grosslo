@@ -26,7 +26,11 @@ export default function Nav() {
       <motion.nav
         initial={{ maxWidth: 880, paddingLeft: 14, paddingRight: 14 }}
         animate={{
-          maxWidth: scrolled ? 640 : 880,
+          // 640 was tuned before Audit/HR/Finance existed as nav links —
+          // with all 6 links + logo + actions, content needs ~727px at
+          // the compact padding below; 640 forced "Get started" to
+          // overflow the pill's right edge by ~69px. 760 actually fits.
+          maxWidth: scrolled ? 760 : 880,
           paddingLeft: scrolled ? 10 : 14,
           paddingRight: scrolled ? 10 : 14,
         }}
