@@ -55,13 +55,14 @@ function DiffPanel({ row }: { row: SubmissionRow }) {
 // inventing a schema nothing has verified — the upload-confirmation step
 // mirrors new hire's "review, then confirm" UX without pretending an API
 // call happened where only a file upload actually would.
-function ExportPanel({ row }: { row: SubmissionRow }) {
+function ExportPanel({ row, onCompleted }: { row: SubmissionRow; onCompleted: () => void }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [payload, setPayload] = useState<ExportApprovedRowResponse | null>(null);
   const [downloaded, setDownloaded] = useState(false);
   const [honestyLabel, setHonestyLabel] = useState<string | null>(null);
   const [uploaded, setUploaded] = useState(false);
+  const [dispatched, setDispatched] = useState(false);
   const [copied, setCopied] = useState(false);
   const isCorrection = Boolean(row.input.current_structure);
 
@@ -127,7 +128,10 @@ function ExportPanel({ row }: { row: SubmissionRow }) {
           </p>
           {honestyLabel && <p className="text-[11px] text-neutral-600">{honestyLabel}</p>}
           <button
-            onClick={() => setUploaded(true)}
+            onClick={() => {
+              setUploaded(true);
+              onCompleted();
+            }}
             disabled={uploaded}
             className="inline-flex items-center gap-2 rounded-full border border-white/10 px-4 py-1.5 text-xs font-medium text-neutral-200 transition-colors hover:border-white/20 hover:bg-white/[0.04] disabled:cursor-not-allowed"
           >
@@ -161,13 +165,39 @@ function ExportPanel({ row }: { row: SubmissionRow }) {
             Simulated only — no live call to RazorpayX. Capital required:{" "}
             ₹{Math.round(payload.treasury_forecast.total_capital_outlay).toLocaleString("en-IN")}
           </p>
+          <button
+            onClick={() => {
+              setDispatched(true);
+              onCompleted();
+            }}
+            disabled={dispatched}
+            className="inline-flex items-center gap-2 rounded-full border border-white/10 px-4 py-1.5 text-xs font-medium text-neutral-200 transition-colors hover:border-white/20 hover:bg-white/[0.04] disabled:cursor-not-allowed"
+          >
+            {dispatched ? (
+              <>
+                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" /> Dispatched (simulated)
+              </>
+            ) : (
+              <>
+                <Upload className="h-3.5 w-3.5" /> Simulate dispatch
+              </>
+            )}
+          </button>
         </div>
       )}
     </div>
   );
 }
 
-function RowCard({ row, onDecided }: { row: SubmissionRow; onDecided: () => void }) {
+function RowCard({
+  row,
+  onDecided,
+  onExportCompleted,
+}: {
+  row: SubmissionRow;
+  onDecided: () => void;
+  onExportCompleted?: () => void;
+}) {
   const [expanded, setExpanded] = useState(false);
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState("");
@@ -295,7 +325,7 @@ function RowCard({ row, onDecided }: { row: SubmissionRow; onDecided: () => void
           {row.status === "approved" ? (
             <>
               <span className="text-emerald-300">Approved — Payout SIMULATED, no live dispatch.</span>
-              <ExportPanel row={row} />
+              <ExportPanel row={row} onCompleted={() => onExportCompleted?.()} />
             </>
           ) : (
             <span className="text-red-300">Rejected: {row.reason}</span>
@@ -310,6 +340,14 @@ function RowCard({ row, onDecided }: { row: SubmissionRow; onDecided: () => void
 export default function FinanceFlow() {
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [loading, setLoading] = useState(true);
+  // Rows whose export has been simulated-dispatched/uploaded — hidden from
+  // the approved list below so it doesn't fill up with fully-actioned rows.
+  // Client-side only, on purpose: there's nowhere in the backend that
+  // tracks "dispatched," the same way there's nowhere that tracks a real
+  // payout — this mirrors that boundary instead of inventing new backend
+  // state just to persist a UI-only completion flag. A page refresh brings
+  // a row back, consistent with every other "simulated" state in this app.
+  const [completedKeys, setCompletedKeys] = useState<Set<string>>(new Set());
 
   const refresh = useCallback(() => {
     // Fetches every submission, not just pending ones — approved rows need
@@ -332,7 +370,9 @@ export default function FinanceFlow() {
   }, [refresh]);
 
   const pendingRows = submissions.flatMap((s) => s.rows.filter((r) => r.status === "pending"));
-  const approvedRows = submissions.flatMap((s) => s.rows.filter((r) => r.status === "approved"));
+  const approvedRows = submissions
+    .flatMap((s) => s.rows.filter((r) => r.status === "approved"))
+    .filter((r) => !completedKeys.has(`${r.submission_id}-${r.row_index}`));
 
   return (
     <section className="mx-auto max-w-4xl px-6 pb-28 pt-32 md:px-10">
@@ -363,7 +403,14 @@ export default function FinanceFlow() {
           <h3 className="font-display text-lg font-semibold text-white">Approved — ready to export</h3>
           <div className="mt-4 flex flex-col gap-3">
             {approvedRows.map((row) => (
-              <RowCard key={`${row.submission_id}-${row.row_index}`} row={row} onDecided={refresh} />
+              <RowCard
+                key={`${row.submission_id}-${row.row_index}`}
+                row={row}
+                onDecided={refresh}
+                onExportCompleted={() =>
+                  setCompletedKeys((prev) => new Set(prev).add(`${row.submission_id}-${row.row_index}`))
+                }
+              />
             ))}
           </div>
         </div>
