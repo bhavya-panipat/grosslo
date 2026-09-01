@@ -6,21 +6,16 @@ import { AlertTriangle, FileSpreadsheet, Upload } from "lucide-react";
 import CardShell from "@/components/card-shell";
 
 type Props = {
-  mode: "new-hire" | "audit";
+  mode: "audit";
   onRowsParsed: (rows: Record<string, string>[]) => void;
 };
 
-const NEW_HIRE_COLUMNS = [
-  "name", "ctc", "rent_paid", "city", "nps_opted", "band_min", "band_max",
-  "bank_account_number", "ifsc", "email",
-];
 const AUDIT_COLUMNS = [
   "name", "ctc", "basic", "hra", "lta", "special_allowance", "employer_pf",
   "employer_nps", "nps_opted", "rent_paid", "city", "band_min", "band_max",
 ];
 
 const MODE_LABEL: Record<Props["mode"], string> = {
-  "new-hire": "New Hire Batch",
   audit: "Compliance & Savings Audit",
 };
 
@@ -31,7 +26,7 @@ export default function CsvUploadCard({ mode, onRowsParsed }: Props) {
   const [parsing, setParsing] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const expectedColumnList = mode === "new-hire" ? NEW_HIRE_COLUMNS : AUDIT_COLUMNS;
+  const expectedColumnList = AUDIT_COLUMNS;
   const expectedColumns = expectedColumnList.join(", ");
 
   const handleFile = (file: File) => {
@@ -53,12 +48,10 @@ export default function CsvUploadCard({ mode, onRowsParsed }: Props) {
           setRowCount(null);
           return;
         }
-        // Catches the most common mistake — uploading the CSV for the other
-        // mode (e.g. an audit file, which shares several column names with
-        // a new-hire file, into New Hire Batch). Without this check the
+        // Catches a missing/misnamed column early — without this check the
         // request would still fire with silently-defaulted/missing fields
         // and look like the product is broken rather than the file being
-        // wrong for this mode.
+        // wrong.
         const foundColumns = results.meta.fields ?? [];
         const missing = expectedColumnList.filter((c) => !foundColumns.includes(c));
         if (missing.length > 0) {

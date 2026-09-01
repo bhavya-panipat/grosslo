@@ -28,6 +28,11 @@ export default function HrFlow() {
   const [rentPaid, setRentPaid] = useState("");
   const [city, setCity] = useState<"metro" | "non_metro">("metro");
   const [npsOpted, setNpsOpted] = useState(false);
+  const [bandMin, setBandMin] = useState("");
+  const [bandMax, setBandMax] = useState("");
+  const [bankAccountNumber, setBankAccountNumber] = useState("");
+  const [ifsc, setIfsc] = useState("");
+  const [email, setEmail] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [lastResult, setLastResult] = useState<CreateSubmissionResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -62,6 +67,11 @@ export default function HrFlow() {
           rent_paid: rentPaid ? Number(rentPaid) : 0,
           city,
           nps_opted: npsOpted,
+          band_min: bandMin ? Number(bandMin) : undefined,
+          band_max: bandMax ? Number(bandMax) : undefined,
+          bank_account_number: bankAccountNumber || undefined,
+          ifsc: ifsc || undefined,
+          email: email || undefined,
         },
       }),
     })
@@ -100,6 +110,14 @@ export default function HrFlow() {
             rent_paid: r.rent_paid ? Number(r.rent_paid) : 0,
             city: r.city === "non_metro" ? "non_metro" : "metro",
             nps_opted: ["true", "1", "yes"].includes((r.nps_opted || "").toLowerCase()),
+            // Optional — only needed for new hires that should be exportable
+            // straight to RazorpayX after Finance approves them. A row missing
+            // these still submits fine; it just won't have an export path later.
+            band_min: r.band_min ? Number(r.band_min) : undefined,
+            band_max: r.band_max ? Number(r.band_max) : undefined,
+            bank_account_number: r.bank_account_number || undefined,
+            ifsc: r.ifsc || undefined,
+            email: r.email || undefined,
           }));
         if (rows.length === 0) {
           setCsvError("No valid rows found — a ctc column is required.");
@@ -193,6 +211,60 @@ export default function HrFlow() {
               <span className="text-sm text-neutral-300">Opted into NPS</span>
             </label>
           </div>
+
+          <p className="col-span-2 mt-4 text-xs uppercase tracking-wide text-neutral-600">
+            Optional — needed only to export this offer to RazorpayX after approval
+          </p>
+          <div className="mt-2 grid grid-cols-2 gap-3">
+            <label className="flex flex-col gap-1">
+              <span className="text-xs text-neutral-500">Approved band min (₹)</span>
+              <input
+                type="number"
+                value={bandMin}
+                onChange={(e) => setBandMin(e.target.value)}
+                placeholder="1500000"
+                className="rounded-lg border border-white/10 bg-black/40 px-2.5 py-1.5 text-sm text-neutral-200 focus:border-gold-bright/50 focus:outline-none"
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-xs text-neutral-500">Approved band max (₹)</span>
+              <input
+                type="number"
+                value={bandMax}
+                onChange={(e) => setBandMax(e.target.value)}
+                placeholder="2000000"
+                className="rounded-lg border border-white/10 bg-black/40 px-2.5 py-1.5 text-sm text-neutral-200 focus:border-gold-bright/50 focus:outline-none"
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-xs text-neutral-500">Bank account number</span>
+              <input
+                value={bankAccountNumber}
+                onChange={(e) => setBankAccountNumber(e.target.value)}
+                placeholder="0000000000"
+                className="rounded-lg border border-white/10 bg-black/40 px-2.5 py-1.5 text-sm text-neutral-200 focus:border-gold-bright/50 focus:outline-none"
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-xs text-neutral-500">IFSC</span>
+              <input
+                value={ifsc}
+                onChange={(e) => setIfsc(e.target.value)}
+                placeholder="TEST0000000"
+                className="rounded-lg border border-white/10 bg-black/40 px-2.5 py-1.5 text-sm text-neutral-200 focus:border-gold-bright/50 focus:outline-none"
+              />
+            </label>
+            <label className="col-span-2 flex flex-col gap-1">
+              <span className="text-xs text-neutral-500">Email (optional)</span>
+              <input
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="ananya@company.com"
+                className="rounded-lg border border-white/10 bg-black/40 px-2.5 py-1.5 text-sm text-neutral-200 focus:border-gold-bright/50 focus:outline-none"
+              />
+            </label>
+          </div>
+
           <button
             onClick={handleSubmitSingle}
             disabled={!ctc || submitting}
@@ -207,7 +279,16 @@ export default function HrFlow() {
         <CardShell>
           <h3 className="font-display text-lg font-semibold text-white">Batch CSV</h3>
           <p className="mt-1 text-sm text-neutral-500">
-            Columns: <span className="font-mono text-xs text-neutral-400">name (or employee_name), ctc, rent_paid, city, nps_opted</span>
+            Columns:{" "}
+            <span className="font-mono text-xs text-neutral-400">
+              name (or employee_name), ctc, rent_paid, city, nps_opted
+            </span>
+          </p>
+          <p className="mt-1 text-sm text-neutral-500">
+            Optional (needed for RazorpayX export after approval):{" "}
+            <span className="font-mono text-xs text-neutral-400">
+              band_min, band_max, bank_account_number, ifsc, email
+            </span>
           </p>
           <label className="mt-4 flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-white/15 bg-black/30 px-6 py-8 text-center transition-colors hover:border-gold-bright/40 hover:bg-white/[0.02]">
             <Upload className="h-5 w-5 text-neutral-500" />

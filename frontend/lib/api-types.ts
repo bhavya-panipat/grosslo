@@ -61,6 +61,10 @@ export type OptimizeResponse = {
     ai_coverage_pct: number;
   };
   execution_trace?: TraceStage[];
+  // Present iff the submission carried a band_min/band_max — /api/submissions
+  // runs the same evaluate_band_guardrail() the single-candidate flow uses,
+  // not a separate check.
+  guardrail?: GuardrailResponse;
 };
 
 export type SensitivityPoint = {
@@ -187,17 +191,7 @@ export type ExportRazorpayXResponse = {
   execution_trace?: TraceStage[];
 };
 
-// Batch mode — /api/optimize-batch and /api/batch-audit
-
-export type OptimizeBatchRow = OptimizeResponse & {
-  row_index: number;
-  guardrail?: GuardrailResponse;
-  error?: string;
-};
-
-export type OptimizeBatchResponse = {
-  rows: OptimizeBatchRow[];
-};
+// Batch mode — /api/batch-audit
 
 export type PenaltyScenarioRow = {
   months_delayed: number;
@@ -267,6 +261,8 @@ export type SubmissionRow = {
   input: {
     ctc: number; rent_paid: number; city: string; nps_opted: boolean;
     current_structure: StructureDict | null; employee_name: string | null;
+    band_min?: number | null; band_max?: number | null;
+    bank_account_number?: string | null; ifsc?: string | null; email?: string | null;
   };
   computed: OptimizeResponse;
   diff?: SubmissionDiff;
@@ -292,4 +288,17 @@ export type DecideRowResponse = {
   status?: SubmissionRowStatus;
   current_status?: SubmissionRowStatus;
   message: string;
+};
+
+// POST /api/submissions/<id>/rows/<row_index>/export — only reachable once a
+// row is approved. Two shapes depending on what the row actually was:
+// a new hire (current_structure absent) gets a RazorpayX payout payload
+// back as JSON; a correction (current_structure present) gets an XLSX file
+// back instead, so this type only describes the JSON branch — the XLSX
+// branch is handled as a blob download, not parsed against this type.
+export type ExportApprovedRowResponse = {
+  guardrail?: GuardrailResponse | null;
+  idempotency_key_hint: string;
+  payouts: CompositeBankAccountPayout[];
+  treasury_forecast: TreasuryForecast;
 };

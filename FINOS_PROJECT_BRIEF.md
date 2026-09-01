@@ -110,31 +110,37 @@ app.py                                RazorpayX Composite Payout payload
 
 Backend: Flask, stdlib + `anthropic` SDK only. Frontend: Next.js 15 (App
 Router), React 19, TypeScript, Tailwind, Framer Motion, React Three Fiber —
-3 routes (`/`, `/optimize`, `/optimize/batch`), 32 components.
+5 routes (`/`, `/optimize`, `/optimize/batch`, `/hr`, `/finance`), 34
+components.
 
 ### Backend routes
 
 | Route | Purpose |
 |---|---|
 | `POST /api/optimize` | single-candidate structure + compliance + trace |
-| `POST /api/optimize-batch` | New Hire Batch — same pipeline, looped per CSV row |
 | `POST /api/batch-audit` | Compliance & Savings Audit — runs the guardrail and unclaimed-savings check against *existing* structures, not new offers |
 | `POST /api/sensitivity` | regime-crossover curve for the results chart |
 | `POST /api/extract` | offer-letter text → structured fields |
 | `POST /api/query` | conversational follow-up, including live "what if" re-runs of the deterministic engine |
 | `POST /api/export-razorpayx` | guardrail check + RazorpayX payload generation |
 | `GET /api/audit-log` | read-only view of the local audit trail (`?limit=`) — inspect live what's actually been logged |
-| `POST /api/submissions` | HR submits a single offer or CSV batch for Finance review |
+| `POST /api/submissions` | HR submits a single offer or CSV batch for Finance review — the sole path for structuring a new hire (see "Redundancy fix" below) |
 | `GET /api/submissions` | Finance's queue (`?status=pending\|approved\|rejected`) |
 | `GET /api/submissions/<id>` | one submission's detail, including the before/after diff per row |
 | `POST /api/submissions/<id>/rows/<row_index>/decide` | approve or reject one row — idempotent, never dispatches |
-| `POST /api/export-salary-revision` | Bulk Salary Revision XLSX for already-flagged employees — file only, no live upload |
+| `POST /api/submissions/<id>/rows/<row_index>/export` | approved-only: a correction row generates the Salary Revision XLSX, a new-hire row generates a RazorpayX payout payload from the bank details supplied at submission |
+| `POST /api/export-salary-revision` | standalone Bulk Salary Revision XLSX for an explicit employee list — file only, no live upload; still has no frontend caller (see "Redundancy fix") |
 | `GET /health` | reports whether `ANTHROPIC_API_KEY` is set (`ai_backed`) so degraded mode is visible, not silent |
 
-`/api/optimize` and `/api/optimize-batch` share one internal helper so the
-per-row batch path is not a second, divergent implementation of the same
-logic — it's the same function called in a loop, with row-level errors
-isolated so one bad CSV row doesn't fail the batch.
+`/api/optimize`, `/api/submissions`, and `/api/batch-audit` all share one
+internal helper (`_build_optimize_response`) so no route reimplements the
+optimize+compliance+negotiation+metrics pipeline — it's the same function
+called once per request or once per row, with row-level errors isolated
+so one bad CSV row doesn't fail a batch. `/api/optimize-batch` used to be
+a fourth caller of that helper — the "New Hire Batch" mode's route — but
+it bypassed Finance review entirely, duplicating what `/api/submissions`
+already does with a review step on top. Removed as a redundancy fix, not
+folded into anything: see "Redundancy fix" in `README.md`.
 
 ## Key design decisions
 
@@ -205,16 +211,29 @@ or savings number rather than a visibly broken pixel — a different risk
 profile from presentation-layer code, where a bug is visibly wrong instead of
 silently wrong.
 
-**No CSV data or bank details are persisted anywhere.** Both batch routes are
-stateless Flask handlers — they compute a response from the request body and
-return it, the same as every other route in this app. There is no database.
-Parsed CSV rows live only in browser memory for the session tab.
+**`/api/batch-audit` is still a fully stateless Flask handler** — it computes
+a response from the request body and returns it, the same as every route
+that isn't part of the review queue. Uploaded audit CSV rows live only in
+browser memory for the session tab; nothing about an existing employee's
+structure is written anywhere by that route.
+
+**`/api/submissions` is not stateless, and — since the redundancy fix — it
+persists bank details when HR supplies them, stated plainly rather than
+left implicit.** The review queue (`review_queue.db`, SQLite) always stored
+employee name and CTC (needed for the dedupe check); it now also stores
+`band_min`/`band_max`/`bank_account_number`/`ifsc`/`email` when present,
+because that's what lets an approved row generate a real RazorpayX payout
+payload later without re-entering everything by hand. This is exactly the
+kind of data the security posture section below is about — unencrypted,
+no access control, demo-scale only — not a claim that no PII is stored.
+The audit log remains the one place that genuinely excludes it by
+construction (see below).
 
 **One server-side file write does exist, deliberately narrow: a local audit
 log.** `_append_audit_log()` in `app.py` appends one JSON line per
 money-adjacent decision (structure computed, compliance/guardrail verdict,
 whether a payout payload was generated) to a gitignored `audit_log.jsonl`
-on every call to `/api/optimize`, `/api/optimize-batch`, `/api/batch-audit`,
+on every call to `/api/optimize`, `/api/submissions`, `/api/batch-audit`,
 and `/api/export-razorpayx` — a real, inspectable-after-the-fact record,
 not a claimed one. It never writes employee names, bank account numbers,
 IFSC codes, or emails, so the "no bank details persisted" claim above still
@@ -228,10 +247,15 @@ trust.
 **The treasury forecast is a total over the current request's structures,
 not a delta against a company's real payroll.** This follows directly from
 the statelessness above: `payroll_breakdown.treasury_forecast()` has no
-history to compute a delta against, so "capital required" is a literal sum
-over whatever structure(s) are in the request — one candidate's figures in
-the single flow, or the sum across a New Hire Batch CSV's rows in the batch
-flow. That's an accurate number for what it is, but it is not a company's
+history to compute a delta against, so "capital required" is a literal
+figure for whatever single structure is in the request — one candidate on
+`/optimize`, or one approved row's own forecast on the per-row export in
+`/finance`. (`/api/batch-audit` computes one per row too, for the CSV
+being audited; nothing currently aggregates a multi-employee capital
+figure in one call — the New Hire Batch export modal that once did this
+was removed with the redundancy fix, and nothing replaced that specific
+aggregation.) That's an accurate number for what it is, but it is not a
+company's
 full recurring payroll capital, and the UI label says so explicitly rather
 than leaving that inference to the viewer. Closing that gap for real —
 showing a steady-state baseline alongside the incremental figure — needs a
@@ -239,18 +263,22 @@ persisted employee roster this build deliberately doesn't have; it's the
 first item on the roadmap in `README.md`, not a silent limitation.
 
 **Batch mode skips the AI-generated explanation entirely — measured, not
-assumed, to cost nothing.** `explain_result(..., skip_ai=True)` in
-`/api/optimize-batch` goes straight to the deterministic explanation
-without a live API call. This was found via load-testing, not design
+assumed, to cost nothing.** `explain_result(..., skip_ai=True)` goes
+straight to the deterministic explanation without a live API call,
+whenever a request is batch-shaped: `/api/submissions` (batch source) and
+`/api/batch-audit` both pass `skip_explanation_ai=True`. This was found
+via load-testing the (since-removed) New Hire Batch route, not design
 review: with the AI layer on, a 20-row batch didn't complete inside 60
 seconds, entirely because of one sequential, blocking Claude call per row.
 Before "fixing" it, checked whether the explanation text was used anywhere
 — `batch-results-table.tsx` renders only row/CTC/regime/saving/guardrail
 columns, so it was computed and discarded on every row, in every batch.
 Skipping it dropped a 500-row batch from not completing at all to ~34
-seconds (~69ms/row). The single-candidate flow, where the explanation is
-actually shown, is untouched — see `README.md`'s "what broke" section for
-the full before/after.
+seconds (~69ms/row). The fix outlived the route it was found on — it
+carried forward into every batch-shaped path that came after. The
+single-candidate flow, where the explanation is actually shown, is
+untouched — see `README.md`'s "what broke" section for the full
+before/after.
 
 **The maker-checker review layer is three new, deliberately separate
 modules, not one bigger one.** `review_queue.py` (SQLite persistence and
@@ -315,19 +343,23 @@ features added one at a time.
 
 ## Test coverage
 
-61 tests total, passing with or without `ANTHROPIC_API_KEY` set (every
+69 tests total, passing with or without `ANTHROPIC_API_KEY` set (every
 AI-layer function has a deterministic fallback, so the full suite
 exercises real logic either way): 51 in `tests/test_finos.py` — the
 marginal relief calculation against the government's own worked example,
 the old-vs-new regime crossover, HRA metro/non-metro, the PF statutory
 ceiling, extraction mismatch detection, the explainer's numeric guard,
 each of the 6 compliance rules' trigger conditions, and the query layer's
-hypothetical re-run path — plus 10 in `tests/test_review_workflow.py`
+hypothetical re-run path — plus 18 in `tests/test_review_workflow.py`
 covering the maker-checker flow: submission persistence, correctly-worded
 simulated approval, mandatory rejection reasons, the diff view matching
 real optimizer output exactly, independent row-level decisions on a mixed
-batch, duplicate-submission detection, double-approve protection, and the
-salary-revision export's real values plus honesty label.
+batch, duplicate-submission detection, double-approve protection, the
+salary-revision export's real values plus honesty label, and — added with
+the redundancy fix — approval-gated export, a new-hire export's real bank
+details (and its clean failure without them), a correction export's real
+XLSX, the guardrail actually firing on a banded submission, and
+`/api/optimize-batch` being genuinely absent from the route map.
 
 The live LLM-backed path has also been exercised end-to-end against the
 real Claude API (extraction, explanation, compliance phrasing, query

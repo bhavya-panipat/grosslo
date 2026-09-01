@@ -6,7 +6,7 @@ import ComingSoonLink from "@/components/coming-soon-link";
 
 const NAV_LINKS = [
   { label: "Product", href: "/#product" },
-  { label: "Batch", href: "/optimize/batch" },
+  { label: "Audit", href: "/optimize/batch" },
   { label: "HR", href: "/hr" },
   { label: "Finance", href: "/finance" },
   { label: "Pricing", href: null },

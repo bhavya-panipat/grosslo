@@ -1,7 +1,7 @@
 "use client";
 
 import { CheckCircle2, XCircle, Send, Loader2 } from "lucide-react";
-import type { OptimizeBatchRow, BatchAuditRow } from "@/lib/api-types";
+import type { BatchAuditRow } from "@/lib/api-types";
 
 const inr = (v: number) => `₹${Math.round(v).toLocaleString("en-IN")}`;
 
@@ -17,41 +17,6 @@ function VerdictBadge({ verdict }: { verdict?: "pass" | "flag" }) {
       {passed ? <CheckCircle2 className="h-3 w-3" /> : <XCircle className="h-3 w-3" />}
       {passed ? "Pass" : "Flag"}
     </span>
-  );
-}
-
-export function NewHireBatchTable({ rows }: { rows: OptimizeBatchRow[] }) {
-  return (
-    <div className="overflow-x-auto rounded-2xl border border-white/[0.08] bg-surface shadow-inner-edge">
-      <table className="w-full min-w-[640px] text-sm">
-        <thead>
-          <tr className="border-b border-white/[0.08] text-left text-xs uppercase tracking-wide text-neutral-500">
-            <th className="px-4 py-3 font-medium">Row</th>
-            <th className="px-4 py-3 font-medium">CTC</th>
-            <th className="px-4 py-3 font-medium">Regime</th>
-            <th className="px-4 py-3 font-medium">Annual saving</th>
-            <th className="px-4 py-3 font-medium">Guardrail</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr key={row.row_index} className="border-b border-white/[0.04] text-neutral-300 transition-colors hover:bg-white/[0.02]">
-              <td className="px-4 py-3 font-mono text-xs text-neutral-500">{row.row_index + 1}</td>
-              {row.error ? (
-                <td colSpan={4} className="px-4 py-3 text-xs text-red-400/80">{row.error}</td>
-              ) : (
-                <>
-                  <td className="px-4 py-3 font-mono">{inr(row.ctc)}</td>
-                  <td className="px-4 py-3 capitalize">{row.recommended_regime}</td>
-                  <td className="px-4 py-3 font-mono text-gold-bright">{inr(row.annual_saving)}</td>
-                  <td className="px-4 py-3"><VerdictBadge verdict={row.guardrail?.verdict} /></td>
-                </>
-              )}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
   );
 }
 

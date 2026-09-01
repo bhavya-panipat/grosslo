@@ -2,9 +2,9 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { CheckCircle2, XCircle, ChevronDown, ChevronUp } from "lucide-react";
+import { CheckCircle2, XCircle, ChevronDown, ChevronUp, Download, Copy, Loader2 } from "lucide-react";
 import CardShell from "@/components/card-shell";
-import type { Submission, SubmissionRow, DecideRowResponse } from "@/lib/api-types";
+import type { Submission, SubmissionRow, DecideRowResponse, ExportApprovedRowResponse } from "@/lib/api-types";
 
 const inr = (v: number) => `₹${Math.round(v).toLocaleString("en-IN")}`;
 
@@ -41,6 +41,97 @@ function DiffPanel({ row }: { row: SubmissionRow }) {
           <span className="ml-2 text-xs text-neutral-500">({c.reason})</span>
         </div>
       ))}
+    </div>
+  );
+}
+
+// Approved rows only. Branches on what the row actually was: a correction
+// (current_structure present) downloads an XLSX file directly; a new hire
+// gets back a RazorpayX payout payload as JSON, shown inline like the
+// single-candidate export modal does, rather than opened in a second UI.
+function ExportPanel({ row }: { row: SubmissionRow }) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [payload, setPayload] = useState<ExportApprovedRowResponse | null>(null);
+  const [downloaded, setDownloaded] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const isCorrection = Boolean(row.input.current_structure);
+
+  const handleExport = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/submissions/${row.submission_id}/rows/${row.row_index}/export`, {
+        method: "POST",
+      });
+      const contentType = res.headers.get("content-type") || "";
+      if (contentType.includes("spreadsheet")) {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "grosslo_salary_revision.xlsx";
+        a.click();
+        URL.revokeObjectURL(url);
+        setDownloaded(true);
+      } else {
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
+        setPayload(json);
+      }
+    } catch (e) {
+      setError((e as Error).message || "Couldn't reach the backend — confirm it's running.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCopy = () => {
+    if (!payload) return;
+    navigator.clipboard.writeText(JSON.stringify(payload.payouts, null, 2)).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
+
+  return (
+    <div className="mt-3 border-t border-white/[0.06] pt-3">
+      {!payload && (
+        <button
+          onClick={handleExport}
+          disabled={loading || downloaded}
+          className="inline-flex items-center gap-1.5 rounded-full border border-gold/30 bg-gold/[0.06] px-3.5 py-1.5 text-xs font-medium text-gold-bright transition-colors hover:bg-gold/[0.12] disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+          {downloaded
+            ? "Downloaded"
+            : isCorrection
+              ? "Export Salary Revision XLSX"
+              : "Export RazorpayX payout"}
+        </button>
+      )}
+      {error && <p className="mt-1.5 text-xs text-red-400/80">{error}</p>}
+      {payload && (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-neutral-500">
+              Composite Payout payload{payload.payouts.length > 1 ? `s (${payload.payouts.length})` : ""}
+            </p>
+            <button onClick={handleCopy} className="flex items-center gap-1 text-xs text-neutral-500 hover:text-white">
+              {copied ? <CheckCircle2 className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+              {copied ? "Copied" : "Copy JSON"}
+            </button>
+          </div>
+          <pre className="max-h-56 overflow-auto rounded-xl border border-white/[0.06] bg-black/50 p-3 font-mono text-[11px] leading-relaxed text-neutral-400">
+            {JSON.stringify(payload.payouts, null, 2)}
+          </pre>
+          <p className="text-[11px] text-neutral-600">
+            Simulated only — no live call to RazorpayX. Capital required:{" "}
+            ₹{Math.round(payload.treasury_forecast.total_capital_outlay).toLocaleString("en-IN")}
+          </p>
+        </div>
+      )}
     </div>
   );
 }
@@ -171,7 +262,10 @@ function RowCard({ row, onDecided }: { row: SubmissionRow; onDecided: () => void
       ) : (
         <div className="mt-4 border-t border-white/[0.06] pt-3 text-sm text-neutral-400">
           {row.status === "approved" ? (
-            <span className="text-emerald-300">Approved — Payout SIMULATED, no live dispatch.</span>
+            <>
+              <span className="text-emerald-300">Approved — Payout SIMULATED, no live dispatch.</span>
+              <ExportPanel row={row} />
+            </>
           ) : (
             <span className="text-red-300">Rejected: {row.reason}</span>
           )}
@@ -187,10 +281,12 @@ export default function FinanceFlow() {
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(() => {
-    fetch("/api/submissions?status=pending")
+    // Fetches every submission, not just pending ones — approved rows need
+    // to stay visible here so their export action has somewhere to live.
+    fetch("/api/submissions")
       .then((r) => r.json())
       .then(async (d: { submissions: Submission[] }) => {
-        // fetch full detail (with diff) for each pending submission
+        // fetch full detail (with diff) for each submission
         const detailed = await Promise.all(
           d.submissions.map((s) => fetch(`/api/submissions/${s.id}`).then((r) => r.json())),
         );
@@ -205,6 +301,7 @@ export default function FinanceFlow() {
   }, [refresh]);
 
   const pendingRows = submissions.flatMap((s) => s.rows.filter((r) => r.status === "pending"));
+  const approvedRows = submissions.flatMap((s) => s.rows.filter((r) => r.status === "approved"));
 
   return (
     <section className="mx-auto max-w-4xl px-6 pb-28 pt-32 md:px-10">
@@ -215,7 +312,7 @@ export default function FinanceFlow() {
         </h1>
         <p className="mt-2 max-w-2xl text-sm text-neutral-500">
           Every approval writes a simulated decision only — nothing here ever calls RazorpayX or
-          dispatches a payout.
+          dispatches a payout. Approved rows can generate a real export payload below, on demand.
         </p>
       </div>
 
@@ -229,6 +326,17 @@ export default function FinanceFlow() {
           <RowCard key={`${row.submission_id}-${row.row_index}`} row={row} onDecided={refresh} />
         ))}
       </div>
+
+      {approvedRows.length > 0 && (
+        <div className="mt-10">
+          <h3 className="font-display text-lg font-semibold text-white">Approved — ready to export</h3>
+          <div className="mt-4 flex flex-col gap-3">
+            {approvedRows.map((row) => (
+              <RowCard key={`${row.submission_id}-${row.row_index}`} row={row} onDecided={refresh} />
+            ))}
+          </div>
+        </div>
+      )}
     </section>
   );
 }

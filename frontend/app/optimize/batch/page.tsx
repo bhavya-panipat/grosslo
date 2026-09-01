@@ -3,8 +3,8 @@ import Nav from "@/components/nav";
 import BatchFlow from "@/components/optimize/batch-flow";
 
 export const metadata: Metadata = {
-  title: "grosslo — Batch",
-  description: "Process new hire offers and audit existing payroll structures in batch.",
+  title: "grosslo — Audit",
+  description: "Audit existing payroll structures in bulk for compliance and unclaimed savings.",
 };
 
 export default function BatchPage() {

@@ -265,5 +265,108 @@ class TestSalaryRevisionExport(unittest.TestCase):
         self.assertEqual([c.value for c in default[2]], ["Ivan", 4_000_000])
 
 
+class TestExportApprovedRow(ReviewQueueTestCase):
+    """
+    Covers the redundancy fix: New Hire Batch (which bypassed Finance
+    review entirely) was removed, and /hr became the sole path for
+    structuring new hires — which only works end-to-end if an approved
+    row can actually be exported afterward. Exercises the real Flask
+    routes, not review_queue.py directly, since this is HTTP-shaped
+    behavior (status codes, response shape) that unit-level calls can't
+    verify.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.client = flask_app.app.test_client()
+
+    def _submit_and_approve(self, row):
+        resp = self.client.post("/api/submissions", json={"source": "single", "row": row})
+        self.assertEqual(resp.status_code, 200)
+        submission_id = resp.get_json()["submission_id"]
+        decide = self.client.post(f"/api/submissions/{submission_id}/rows/0/decide", json={"decision": "approve"})
+        self.assertEqual(decide.status_code, 200)
+        return submission_id
+
+    def test_export_requires_approval_first(self):
+        resp = self.client.post("/api/submissions", json={
+            "source": "single",
+            "row": {"employee_name": "Pending Export", "ctc": 1_800_000, "rent_paid": 0, "city": "metro", "nps_opted": False},
+        })
+        submission_id = resp.get_json()["submission_id"]
+        export = self.client.post(f"/api/submissions/{submission_id}/rows/0/export")
+        self.assertEqual(export.status_code, 400)
+        self.assertIn("not approved", export.get_json()["error"])
+
+    def test_new_hire_export_returns_razorpayx_payload_with_real_bank_details(self):
+        submission_id = self._submit_and_approve({
+            "employee_name": "Export Test", "ctc": 1_800_000, "rent_paid": 0, "city": "metro", "nps_opted": False,
+            "band_min": 1_700_000, "band_max": 1_900_000,
+            "bank_account_number": "1234567890", "ifsc": "HDFC0000001", "email": "export@test.com",
+        })
+        export = self.client.post(f"/api/submissions/{submission_id}/rows/0/export")
+        self.assertEqual(export.status_code, 200)
+        payout = export.get_json()["payouts"][0]
+        self.assertEqual(payout["fund_account"]["bank_account"]["account_number"], "1234567890")
+        self.assertEqual(payout["fund_account"]["bank_account"]["ifsc"], "HDFC0000001")
+
+    def test_new_hire_export_without_bank_details_errors_clearly(self):
+        # No bank_account_number/ifsc supplied at submission time — the
+        # export must fail with a clear reason, not a generated payload
+        # with fabricated or empty bank fields.
+        submission_id = self._submit_and_approve({
+            "employee_name": "No Bank", "ctc": 1_800_000, "rent_paid": 0, "city": "metro", "nps_opted": False,
+        })
+        export = self.client.post(f"/api/submissions/{submission_id}/rows/0/export")
+        self.assertEqual(export.status_code, 400)
+        self.assertIn("bank_account_number", export.get_json()["error"])
+
+    def test_correction_export_returns_salary_revision_xlsx(self):
+        submission_id = self._submit_and_approve({
+            "employee_name": "Correction Export", "ctc": 4_000_000, "rent_paid": 500_000, "city": "metro", "nps_opted": False,
+            "current_structure": {
+                "basic": 1_800_000, "hra": 900_000, "lta": 100_000,
+                "special_allowance": 300_000, "employer_pf": 900_000, "employer_nps": 0,
+            },
+        })
+        export = self.client.post(f"/api/submissions/{submission_id}/rows/0/export")
+        self.assertEqual(export.status_code, 200)
+        self.assertIn("spreadsheet", export.content_type)
+
+    def test_guardrail_runs_on_submission_when_band_supplied(self):
+        # Real gap this closed: /api/submissions never ran
+        # evaluate_band_guardrail() at all before the redundancy fix, so
+        # an out-of-band offer could be approved with no guardrail signal
+        # anywhere in the review queue.
+        resp = self.client.post("/api/submissions", json={
+            "source": "single",
+            "row": {
+                "employee_name": "Guardrail Check", "ctc": 5_000_000, "rent_paid": 0, "city": "metro", "nps_opted": False,
+                "band_min": 1_000_000, "band_max": 2_000_000,  # CTC is well outside this band
+            },
+        })
+        submission_id = resp.get_json()["submission_id"]
+        submission = self.client.get(f"/api/submissions/{submission_id}").get_json()
+        guardrail = submission["rows"][0]["computed"].get("guardrail")
+        self.assertIsNotNone(guardrail)
+        self.assertEqual(guardrail["verdict"], "flag")
+
+
+class TestOptimizeBatchRouteRemoved(unittest.TestCase):
+    def test_route_no_longer_exists(self):
+        # The New Hire Batch mode this route powered bypassed Finance
+        # review entirely, duplicating what /hr + /api/submissions already
+        # do with a review step. Removed as part of the redundancy fix;
+        # this guards against it quietly coming back.
+        # static_url_path="" means Flask's own static-file catch-all still
+        # matches this path for GET (and reports it as a 405 on POST,
+        # since the catch-all only registers GET/HEAD/OPTIONS) — asserting
+        # on the url_map directly is the actual signal that the route
+        # itself is gone, not a specific status code that catch-all
+        # routing happens to produce.
+        rules = [r.rule for r in flask_app.app.url_map.iter_rules() if r.rule == "/api/optimize-batch"]
+        self.assertEqual(rules, [])
+
+
 if __name__ == "__main__":
     unittest.main()

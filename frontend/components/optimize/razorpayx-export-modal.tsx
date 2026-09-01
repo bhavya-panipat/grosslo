@@ -10,43 +10,12 @@ export type EmployeeForm = { name: string; bank_account_number: string; ifsc: st
 
 const EMPTY_EMPLOYEE: EmployeeForm = { name: "", bank_account_number: "", ifsc: "", email: "" };
 
-// One export call's worth of inputs for a single row — batch mode makes one
-// /api/export-razorpayx call per row (each row can have its own CTC/rent/
-// city/NPS/band, since these are different new hires, not N employees on
-// one shared structure) and the modal aggregates the results.
-export type BatchExportRow = {
-  ctc: number;
-  rentPaid: number;
-  city: string;
-  npsOpted: boolean;
-  bandMin: number;
-  bandMax: number;
-  employee: EmployeeForm;
+type Props = {
+  form: FormState;
+  onClose: () => void;
 };
 
-type Props = {
-  onClose: () => void;
-} & (
-  | { form: FormState; batchRows?: undefined }
-  | { form?: undefined; batchRows: BatchExportRow[] }
-);
-
-function sumForecast(forecasts: TreasuryForecast[]): TreasuryForecast {
-  return forecasts.reduce(
-    (acc, f) => ({
-      net_take_home_annual: acc.net_take_home_annual + f.net_take_home_annual,
-      tds_escrow_annual: acc.tds_escrow_annual + f.tds_escrow_annual,
-      epfo_challan_annual: acc.epfo_challan_annual + f.epfo_challan_annual,
-      total_capital_outlay: acc.total_capital_outlay + f.total_capital_outlay,
-      funding_deadline_hours_before_payroll: f.funding_deadline_hours_before_payroll,
-    }),
-    { net_take_home_annual: 0, tds_escrow_annual: 0, epfo_challan_annual: 0, total_capital_outlay: 0, funding_deadline_hours_before_payroll: 48 },
-  );
-}
-
-export default function RazorpayXExportModal({ form, batchRows, onClose }: Props) {
-  const isBatch = batchRows !== undefined;
-
+export default function RazorpayXExportModal({ form, onClose }: Props) {
   const [employee, setEmployee] = useState<EmployeeForm>(EMPTY_EMPLOYEE);
   const [result, setResult] = useState<{ payouts: CompositeBankAccountPayout[]; treasury_forecast: TreasuryForecast; idempotencyCount: number } | null>(null);
   const [loading, setLoading] = useState(false);
@@ -55,71 +24,40 @@ export default function RazorpayXExportModal({ form, batchRows, onClose }: Props
   const [dispatched, setDispatched] = useState(false);
 
   const bandMissing =
-    !isBatch &&
-    (form.bandMin === "" || form.bandMax === "" || Number(form.bandMin) >= Number(form.bandMax));
-  const canGenerate = isBatch
-    ? batchRows.length > 0
-    : Boolean(employee.name && employee.bank_account_number && employee.ifsc && !bandMissing);
+    form.bandMin === "" || form.bandMax === "" || Number(form.bandMin) >= Number(form.bandMax);
+  const canGenerate = Boolean(employee.name && employee.bank_account_number && employee.ifsc && !bandMissing);
 
   const handleGenerate = async () => {
     if (!canGenerate) return;
     setLoading(true);
     setError(null);
     try {
-      if (isBatch) {
-        const responses = await Promise.all(
-          batchRows.map(async (row) => {
-            const res = await fetch("/api/export-razorpayx", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                ctc: row.ctc,
-                rent_paid: row.rentPaid || 0,
-                city: row.city,
-                nps_opted: row.npsOpted,
-                band_min: row.bandMin,
-                band_max: row.bandMax,
-                employees: [row.employee],
-              }),
-            });
-            const json: ExportRazorpayXResponse = await res.json();
-            if (!res.ok) throw new Error((json as unknown as { error?: string }).error ?? `HTTP ${res.status}`);
-            return json;
-          }),
-        );
-        setResult({
-          payouts: responses.flatMap((r) => r.payouts ?? []),
-          treasury_forecast: sumForecast(responses.map((r) => r.treasury_forecast)),
-          idempotencyCount: responses.length,
-        });
-      } else {
-        const res = await fetch("/api/export-razorpayx", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            ctc: form.ctc,
-            rent_paid: form.rentPaid || 0,
-            city: form.city,
-            nps_opted: form.npsOpted,
-            band_min: form.bandMin,
-            band_max: form.bandMax,
-            employees: [employee],
-          }),
-        });
-        const json: ExportRazorpayXResponse = await res.json();
-        if (!res.ok) {
-          setError((json as unknown as { error?: string }).error ?? `Export failed (HTTP ${res.status}).`);
-          setLoading(false);
-          return;
-        }
-        setResult({
-          payouts: json.payouts ?? [],
-          treasury_forecast: json.treasury_forecast,
-          idempotencyCount: 1,
-        });
+      const res = await fetch("/api/export-razorpayx", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ctc: form.ctc,
+          rent_paid: form.rentPaid || 0,
+          city: form.city,
+          nps_opted: form.npsOpted,
+          band_min: form.bandMin,
+          band_max: form.bandMax,
+          employees: [employee],
+        }),
+      });
+      const json: ExportRazorpayXResponse = await res.json();
+      if (!res.ok) {
+        setError((json as unknown as { error?: string }).error ?? `Export failed (HTTP ${res.status}).`);
+        setLoading(false);
+        return;
       }
-    } catch (e) {
-      setError(isBatch ? `One or more rows failed to export: ${(e as Error).message}` : "Couldn't reach the backend at all — confirm the Flask server is running.");
+      setResult({
+        payouts: json.payouts ?? [],
+        treasury_forecast: json.treasury_forecast,
+        idempotencyCount: 1,
+      });
+    } catch {
+      setError("Couldn't reach the backend at all — confirm the Flask server is running.");
     } finally {
       setLoading(false);
     }
@@ -151,9 +89,7 @@ export default function RazorpayXExportModal({ form, batchRows, onClose }: Props
           className="max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-white/10 bg-surface-raised p-6 shadow-2xl"
         >
           <div className="flex items-center justify-between">
-            <h2 className="font-display text-xl font-semibold text-white">
-              {isBatch ? `Export ${batchRows.length} payouts to RazorpayX` : "Export to RazorpayX"}
-            </h2>
+            <h2 className="font-display text-xl font-semibold text-white">Export to RazorpayX</h2>
             <button
               onClick={onClose}
               className="rounded-full p-1.5 text-neutral-500 transition-colors hover:bg-white/[0.06] hover:text-white"
@@ -168,39 +104,32 @@ export default function RazorpayXExportModal({ form, batchRows, onClose }: Props
 
           {!result ? (
             <div className="mt-6 space-y-3">
-              {isBatch ? (
-                <p className="rounded-lg border border-white/[0.06] bg-black/30 p-3 text-sm text-neutral-400">
-                  Using bank details already present in the uploaded CSV for all {batchRows.length} rows —
-                  no manual entry needed.
-                </p>
-              ) : (
-                <div className="grid grid-cols-2 gap-3">
-                  <input
-                    value={employee.name}
-                    onChange={(e) => setEmployee((p) => ({ ...p, name: e.target.value }))}
-                    placeholder="Employee name"
-                    className="col-span-2 rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-neutral-200 placeholder:text-neutral-600 focus:border-gold-bright/50 focus:outline-none"
-                  />
-                  <input
-                    value={employee.bank_account_number}
-                    onChange={(e) => setEmployee((p) => ({ ...p, bank_account_number: e.target.value }))}
-                    placeholder="Bank account number"
-                    className="rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-neutral-200 placeholder:text-neutral-600 focus:border-gold-bright/50 focus:outline-none"
-                  />
-                  <input
-                    value={employee.ifsc}
-                    onChange={(e) => setEmployee((p) => ({ ...p, ifsc: e.target.value }))}
-                    placeholder="IFSC"
-                    className="rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-neutral-200 placeholder:text-neutral-600 focus:border-gold-bright/50 focus:outline-none"
-                  />
-                  <input
-                    value={employee.email}
-                    onChange={(e) => setEmployee((p) => ({ ...p, email: e.target.value }))}
-                    placeholder="Email (optional)"
-                    className="col-span-2 rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-neutral-200 placeholder:text-neutral-600 focus:border-gold-bright/50 focus:outline-none"
-                  />
-                </div>
-              )}
+              <div className="grid grid-cols-2 gap-3">
+                <input
+                  value={employee.name}
+                  onChange={(e) => setEmployee((p) => ({ ...p, name: e.target.value }))}
+                  placeholder="Employee name"
+                  className="col-span-2 rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-neutral-200 placeholder:text-neutral-600 focus:border-gold-bright/50 focus:outline-none"
+                />
+                <input
+                  value={employee.bank_account_number}
+                  onChange={(e) => setEmployee((p) => ({ ...p, bank_account_number: e.target.value }))}
+                  placeholder="Bank account number"
+                  className="rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-neutral-200 placeholder:text-neutral-600 focus:border-gold-bright/50 focus:outline-none"
+                />
+                <input
+                  value={employee.ifsc}
+                  onChange={(e) => setEmployee((p) => ({ ...p, ifsc: e.target.value }))}
+                  placeholder="IFSC"
+                  className="rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-neutral-200 placeholder:text-neutral-600 focus:border-gold-bright/50 focus:outline-none"
+                />
+                <input
+                  value={employee.email}
+                  onChange={(e) => setEmployee((p) => ({ ...p, email: e.target.value }))}
+                  placeholder="Email (optional)"
+                  className="col-span-2 rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-neutral-200 placeholder:text-neutral-600 focus:border-gold-bright/50 focus:outline-none"
+                />
+              </div>
               {bandMissing && (
                 <p className="text-xs text-amber-300/80">
                   Enter a valid approved compensation band (min less than max) in the "Your
@@ -215,7 +144,7 @@ export default function RazorpayXExportModal({ form, batchRows, onClose }: Props
                 className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-2.5 text-sm font-medium text-black shadow-bevel disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-                {isBatch ? `Generate ${batchRows.length} payloads` : "Generate payload"}
+                Generate payload
               </button>
             </div>
           ) : (

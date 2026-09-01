@@ -32,11 +32,13 @@ execution trace, not a black box: what ran, what it found, and why.
 - **Export**: a real RazorpayX Composite Payout payload (verified against
   RazorpayX's own API docs, not guessed) — nested `fund_account`/`contact`,
   amount in paise. No live call is ever made; this generates the payload only.
-- **Batch**: the same flow over a CSV — either a New Hire Batch (structure +
-  export a set of new offers in one pass) or a Compliance & Savings Audit
-  (point the same guardrail checks at *existing* employee structures, surface
+- **Batch**: `/hr`'s CSV upload structures a set of new offers in one pass —
+  the single path for this now, single or batch, so every new hire goes
+  through the same Finance review an individual offer does (see "Redundancy
+  fix" below). `/optimize/batch` is a separate, audit-only CSV flow: point
+  the same guardrail checks at *existing* employee structures, surface
   unclaimed regime-switch savings and excess EPFO contributions across the
-  whole set).
+  whole set, and send any flagged row to Finance the same way.
 - **Trace**: a live-looking execution log on every result — parse → compliance
   pass → math solver → policy gate — where every line is built from a field
   the underlying computation actually returned, never a scripted placeholder.
@@ -103,6 +105,55 @@ honestly labeled as a demo simplification — making that layer *look* more
 sophisticated than the authentication underneath it can actually support
 would undermine the exact honesty this section is trying to model.
 
+### Redundancy fix: one path for structuring a new hire, not two
+
+`/optimize/batch` used to have a "New Hire Batch" mode alongside
+"Compliance & Savings Audit" — it computed a structure via
+`/api/optimize-batch` and offered a direct "Export N to RazorpayX" button
+with **no Finance review step at all**, while `/hr`'s batch upload went
+through the exact same computation and then queued it for approval. Same
+underlying pipeline, two different governance outcomes depending on which
+page happened to be open — a real workflow gap, not a cosmetic one.
+
+Fixed by removing the redundant path entirely, not just hiding it in the
+UI: `/api/optimize-batch` no longer exists, `/optimize/batch`'s mode
+toggle is gone, and it's audit-only now. `/hr` is the sole path for
+structuring a new hire, single offer or CSV batch, and it always goes
+through Finance.
+
+That fix surfaced three more gaps behind the same redundancy, closed
+together rather than one at a time:
+
+- **`/api/submissions` never ran the payroll guardrail at all.** Only the
+  standalone `/api/optimize-batch`/`/api/export-razorpayx` paths checked
+  a compensation band; an offer submitted through `/hr` could be approved
+  with zero guardrail signal anywhere in the review queue. Fixed —
+  `/api/submissions` now runs `evaluate_band_guardrail()` whenever
+  `band_min`/`band_max` are supplied, the same function every other route
+  uses.
+- **No path from an approved row to a real export.** Approving in
+  `/finance` only ever wrote a status change; there was no way to turn
+  that decision into an actual RazorpayX payload or Salary Revision file
+  without leaving the review queue and re-entering everything by hand in
+  a separate modal. Fixed with `POST
+  /api/submissions/<id>/rows/<row_index>/export` — approved-only, and it
+  branches on what the row actually was: a correction (has a prior
+  `current_structure`) generates the Salary Revision XLSX, a new hire
+  generates a RazorpayX Composite Payout payload from the bank details
+  supplied at submission time. `/hr` now also collects `band_min`/
+  `band_max`/`bank_account_number`/`ifsc`/`email` (all optional) for
+  exactly this reason — see the persistence note above for what that
+  means for stored data.
+- **The Bulk Salary Revision export had zero frontend wiring.**
+  `/api/export-salary-revision` (the original standalone endpoint) is
+  still never called from any page — it remains a real, tested capability
+  with no UI path to it, which is itself a known gap rather than
+  something newly introduced here. The new per-row export above reuses
+  the same `build_salary_revision_workbook()` function directly instead
+  of routing through that standalone endpoint, so a correction row's
+  export works today even though the standalone route's own UI gap is
+  unresolved.
+
 ## Architecture — the one rule that matters most
 
 ```
@@ -155,7 +206,7 @@ grosslo invented, only one the compliance engine already decided.
 
 Backend:
 ```bash
-python3 -m unittest discover -s tests   # 61 tests, all pass with or without an API key
+python3 -m unittest discover -s tests   # 69 tests, all pass with or without an API key
 python3 app.py 8000                     # serves the API at http://127.0.0.1:8000
 ```
 
@@ -242,11 +293,21 @@ guess at what the new number would be.
     `/finance` — see "Maker-checker review, demo-scoped" below. It is a
     UI convenience, not authentication; anyone who can reach the app can
     reach both roles.
-  - **No employee PII or bank details in either persisted store** — the
-    review queue stores computed structures and decisions, the audit log
-    excludes names/bank details/emails by construction (see its own
-    section below). This limits exposure; it does not substitute for the
-    four gaps above.
+  - **The review queue does store employee PII, including bank details —
+    named explicitly, not glossed over.** Employee name and CTC were
+    always stored (needed for the dedupe check); as of the redundancy fix
+    that unified new-hire structuring onto `/hr`, an offer's `band_min`/
+    `band_max`/`bank_account_number`/`ifsc`/`email` are stored too, when
+    HR supplies them — this is what lets an approved row generate a real
+    RazorpayX payout payload later, rather than requiring the export
+    modal's separate manual re-entry. It sits in the same unencrypted,
+    access-control-free SQLite file as everything else here, so this is
+    exactly the kind of data the "no encryption at rest" and "no access
+    control" gaps above are about — real production use needs those
+    closed before real bank details go anywhere near this schema. The
+    audit log remains the one exception: it excludes names/bank
+    details/emails by construction (see its own section below), and that
+    claim is unaffected by this change.
 
   Named explicitly as a pre-production gap, not an oversight — the same
   discipline already applied to the LTA-utilization estimate, the 40%
@@ -360,7 +421,12 @@ future plans:
   (`explain_result(..., skip_ai=True)`); the single-candidate flow, where
   the explanation is actually shown, is untouched. The same 20-row batch
   now completes in under 4 seconds; a 500-row batch completes in ~34
-  seconds (~69ms/row) instead of not completing at all.
+  seconds (~69ms/row) instead of not completing at all. `/api/optimize-batch`
+  itself no longer exists — it was the "New Hire Batch" mode's route,
+  removed as part of the redundancy fix below; the `skip_explanation_ai`
+  fix it originated carried forward into `/api/submissions` (batch source)
+  and `/api/batch-audit`, which is what this same measurement still
+  protects.
 - The salary-revision export's honesty-label header hung the dev server
   on the first real request against it, not in testing against mocked
   data. `X-Template-Honesty-Label` carried the label text verbatim,
@@ -375,22 +441,27 @@ future plans:
 
 ## Test coverage
 
-61 tests total — 51 in `tests/test_finos.py` covering the marginal relief
+69 tests total — 51 in `tests/test_finos.py` covering the marginal relief
 calculation (validated against the government's own worked example), the
 old-vs-new regime crossover, HRA metro vs non-metro, the PF statutory-ceiling
 toggle, extraction's mismatch-detection logic, the explainer's numeric guard
 (including that batch mode's `skip_ai` path stays deterministic), each
 compliance rule's trigger condition, and the conversational query layer's
-hypothetical-recalculation path; plus 10 in `tests/test_review_workflow.py`
+hypothetical-recalculation path; plus 18 in `tests/test_review_workflow.py`
 covering the maker-checker flow end to end — submission persistence,
 approval writes the correct simulated-not-dispatched status, rejection
 requires and stores a reason, the diff view's before/after values match a
 real optimizer run exactly (no invented attribution text), mixed-batch
 rows are decided independently, duplicate submissions are flagged rather
-than reprocessed, a double-approve doesn't double-write, and the salary-
+than reprocessed, a double-approve doesn't double-write, the salary-
 revision export's XLSX contains the real corrected values with the
-honesty label present. All pass with no `ANTHROPIC_API_KEY` set,
-exercising every deterministic fallback.
+honesty label present, and — from the redundancy fix — that an approved
+row's export is actually gated on approval, a new-hire export contains
+the real bank details supplied at submission (and fails clearly without
+them), a correction export returns a real XLSX, the guardrail actually
+runs when a submission carries a band, and `/api/optimize-batch` is
+verifiably gone from the route map, not just unused. All pass with no
+`ANTHROPIC_API_KEY` set, exercising every deterministic fallback.
 
 **The live LLM-backed path has been tested end-to-end against the real
 Claude API**, not just its deterministic fallback: extraction, explanation,

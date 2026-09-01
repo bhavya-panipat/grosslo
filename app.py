@@ -229,72 +229,6 @@ def api_optimize():
     return jsonify(response)
 
 
-@app.route("/api/optimize-batch", methods=["POST"])
-def api_optimize_batch():
-    """
-    Loops _build_optimize_response() per row — same validation, same
-    underlying functions as /api/optimize, just N rows in one round trip
-    instead of N sequential requests from the frontend. A bad row produces
-    an {error, row_index} entry in the output rather than failing the
-    whole batch, so one malformed CSV row doesn't block the rest.
-    """
-    data = request.get_json(force=True)
-    rows = data.get("rows")
-    if not isinstance(rows, list) or not rows:
-        return jsonify({"error": "rows must be a non-empty list"}), 400
-
-    results = []
-    for i, row in enumerate(rows):
-        if not isinstance(row, dict):
-            results.append({"row_index": i, "error": "each row must be an object"})
-            continue
-        try:
-            ctc = float(row["ctc"])
-            rent_paid = float(row.get("rent_paid", 0))
-            city = row.get("city", "metro")
-            nps_opted = bool(row.get("nps_opted", False))
-        except (KeyError, ValueError, TypeError):
-            results.append({"row_index": i, "error": "ctc is required and must be numeric"})
-            continue
-        if ctc <= 0:
-            results.append({"row_index": i, "error": "ctc must be positive"})
-            continue
-        if ctc > 40_000_000:
-            results.append({"row_index": i, "error": "CTC above Rs 4 crore is outside this tool's validated range"})
-            continue
-
-        response, raw_result = _build_optimize_response(
-            ctc, rent_paid, city, nps_opted,
-            row.get("current_structure"), bool(row.get("extraction_ai_backed", False)),
-            skip_explanation_ai=True,
-        )
-        response["row_index"] = i
-
-        band_min = row.get("band_min")
-        band_max = row.get("band_max")
-        if band_min is not None and band_max is not None:
-            try:
-                band_min = float(band_min)
-                band_max = float(band_max)
-                if band_min > 0 and band_max > 0 and band_min < band_max:
-                    recommended = raw_result["recommended"]
-                    response["guardrail"] = evaluate_band_guardrail(
-                        recommended.structure, recommended.regime, band_min, band_max,
-                    )
-            except (ValueError, TypeError):
-                pass  # malformed band on this row just skips the guardrail check, doesn't fail the row
-
-        results.append(response)
-        _append_audit_log("/api/optimize-batch", {
-            "row_index": i, "ctc": ctc, "recommended_regime": response["recommended_regime"],
-            "annual_saving": response["annual_saving"],
-            "compliance_flags": [f["rule_id"] for f in response["compliance"]["flags"]],
-            "guardrail_verdict": response.get("guardrail", {}).get("verdict"),
-        })
-
-    return jsonify({"rows": results})
-
-
 @app.route("/api/batch-audit", methods=["POST"])
 def api_batch_audit():
     """
@@ -585,12 +519,13 @@ def _get_commit_history() -> dict:
 @app.route("/api/submissions", methods=["POST"])
 def api_create_submission():
     """
-    HR's "Submit to Finance for Review" action. Computes each row via the
-    same _build_optimize_response() every other route uses (zero new tax
-    logic), then persists it to the review queue as 'pending'. Batch
-    submissions skip the per-row AI explanation the same way
-    /api/optimize-batch already does — same reasoning, same fix, reused
-    here rather than reintroduced.
+    HR's "Submit to Finance for Review" action — the sole path for
+    structuring both new hires and corrections, single or batch. Computes
+    each row via the same _build_optimize_response() every other route uses
+    (zero new tax logic), then persists it to the review queue as 'pending'.
+    Batch submissions skip the per-row AI explanation (skip_explanation_ai)
+    for the same measured reason /api/batch-audit's docstring describes —
+    a live API call per row doesn't scale.
     """
     data = request.get_json(force=True)
     source = data.get("source")
@@ -616,17 +551,45 @@ def api_create_submission():
             continue
 
         current_structure = row.get("current_structure")
-        response, _ = _build_optimize_response(
+        response, raw_result = _build_optimize_response(
             ctc, rent_paid, city, nps_opted,
             current_structure, bool(row.get("extraction_ai_backed", False)),
             skip_explanation_ai=(source == "batch"),
         )
+
+        # Band is optional (same convention as /api/optimize's own
+        # bandMissing handling on the frontend) — but when supplied, the
+        # guardrail actually runs here, in the review queue itself. It
+        # previously didn't: Finance could approve an offer with zero
+        # visibility into whether it was even within the approved
+        # compensation band, which defeats a real part of the point of
+        # having a review step at all.
+        band_min, band_max = row.get("band_min"), row.get("band_max")
+        if band_min is not None and band_max is not None:
+            try:
+                band_min, band_max = float(band_min), float(band_max)
+                if band_min > 0 and band_max > 0 and band_min < band_max:
+                    response["guardrail"] = evaluate_band_guardrail(
+                        raw_result["recommended"].structure, raw_result["recommended"].regime, band_min, band_max,
+                    )
+            except (ValueError, TypeError):
+                pass  # malformed band just skips the guardrail check, doesn't fail the row
+
         built_rows.append({
             "employee_name": row.get("employee_name"),
             "ctc": ctc,
             "input": {
                 "ctc": ctc, "rent_paid": rent_paid, "city": city, "nps_opted": nps_opted,
                 "current_structure": current_structure, "employee_name": row.get("employee_name"),
+                "band_min": band_min if isinstance(band_min, float) else None,
+                "band_max": band_max if isinstance(band_max, float) else None,
+                # Bank details are stored here ONLY for eventual RazorpayX
+                # export after Finance approves — never logged to
+                # audit_log.jsonl (see _append_audit_log's own docstring),
+                # and only ever read back by /rows/<i>/export below.
+                "bank_account_number": row.get("bank_account_number"),
+                "ifsc": row.get("ifsc"),
+                "email": row.get("email"),
             },
             "computed": response,
         })
@@ -699,6 +662,89 @@ def api_decide_row(submission_id, row_index):
         "message": "Approved — Payout SIMULATED, no live dispatch." if decision == "approve"
                     else f"Rejected: {reason}",
     })
+
+
+@app.route("/api/submissions/<int:submission_id>/rows/<int:row_index>/export", methods=["POST"])
+def api_export_approved_row(submission_id, row_index):
+    """
+    Closes the loop after Finance approves: generates the correct kind of
+    output for that specific row, without requiring HR or Finance to
+    re-enter anything. Which kind depends on what the row actually is,
+    not on which page it happened to be submitted from:
+    - A row with a current_structure is a correction (came from the audit
+      mode's "Submit correction") -> a Bulk Salary Revision XLSX, current
+      vs. corrected, via salary_revision_export.py.
+    - A row with no current_structure is a new hire -> a RazorpayX
+      Composite Payout payload, via the same _build_composite_payout()
+      /api/export-razorpayx already uses. Requires bank_account_number
+      and ifsc to have been supplied at submission time; if they weren't,
+      this says so rather than generating a payload with fabricated
+      bank details.
+    Only ever runs on a row that's actually 'approved' — exporting a
+    pending or rejected row is refused, not just discouraged.
+    """
+    submission = review_queue.get_submission(submission_id)
+    if submission is None:
+        return jsonify({"error": "submission not found"}), 404
+    row = next((r for r in submission["rows"] if r["row_index"] == row_index), None)
+    if row is None:
+        return jsonify({"error": "row not found"}), 404
+    if row["status"] != "approved":
+        return jsonify({"error": f"row is '{row['status']}', not approved — export requires approval first"}), 400
+
+    inp = row["input"]
+    computed = row["computed"]
+    recommended_regime = computed["recommended_regime"]
+    recommended_structure_dict = computed[f"{recommended_regime}_regime_best"]["structure"]
+
+    if inp.get("current_structure"):
+        # Correction path -> Salary Revision XLSX.
+        wb = build_salary_revision_workbook([{
+            "employee_name": row.get("employee_name") or f"Row {row_index + 1}",
+            "ctc": inp["ctc"],
+            "current": inp["current_structure"],
+            "corrected": recommended_structure_dict,
+        }])
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        _append_audit_log("/api/submissions/export", {
+            "submission_id": submission_id, "row_index": row_index, "export_type": "salary_revision",
+        })
+        response = send_file(
+            buf, as_attachment=True, download_name="grosslo_salary_revision.xlsx",
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        response.headers["X-Template-Honesty-Label"] = TEMPLATE_HONESTY_LABEL.replace("—", "-")
+        return response
+
+    # New-hire path -> RazorpayX Composite Payout payload.
+    if not inp.get("bank_account_number") or not inp.get("ifsc"):
+        return jsonify({
+            "error": "bank_account_number and ifsc were not supplied for this submission — "
+                     "can't generate a real payout payload without them",
+        }), 400
+
+    result = optimize(ctc=inp["ctc"], rent_paid=inp["rent_paid"], city=inp["city"], nps_opted=inp["nps_opted"])
+    recommended = result["recommended"]
+    forecast = treasury_forecast(recommended.structure, recommended.tax_breakdown)
+    employee = {
+        "name": row.get("employee_name") or f"Row {row_index + 1}",
+        "bank_account_number": inp["bank_account_number"],
+        "ifsc": inp["ifsc"],
+        "email": inp.get("email"),
+    }
+    payload = {
+        "treasury_forecast": forecast,
+        "guardrail": computed.get("guardrail"),
+        "idempotency_key_hint": str(uuid.uuid4()),
+        "payouts": [_build_composite_payout(recommended.structure, employee, DEFAULT_RAZORPAYX_ACCOUNT_NUMBER)],
+    }
+    _append_audit_log("/api/submissions/export", {
+        "submission_id": submission_id, "row_index": row_index, "export_type": "razorpayx_payout",
+        "total_capital_outlay": forecast["total_capital_outlay"],
+    })
+    return jsonify(payload)
 
 
 @app.route("/api/export-salary-revision", methods=["POST"])
