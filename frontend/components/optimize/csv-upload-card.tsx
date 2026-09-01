@@ -56,7 +56,7 @@ export default function CsvUploadCard({ mode, onRowsParsed }: Props) {
         const missing = expectedColumnList.filter((c) => !foundColumns.includes(c));
         if (missing.length > 0) {
           setError(
-            `This doesn't look like a ${MODE_LABEL[mode]} file — missing column${missing.length === 1 ? "" : "s"}: ${missing.join(", ")}. Check you're in the right mode above, or fix the CSV's header row.`,
+            `This doesn't look like a ${MODE_LABEL[mode]} file — missing column${missing.length === 1 ? "" : "s"}: ${missing.join(", ")}. This page only audits existing structures — for a new hire, use the HR page instead. Or fix the CSV's header row.`,
           );
           setRowCount(null);
           return;
