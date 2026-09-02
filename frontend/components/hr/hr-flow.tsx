@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Papa from "papaparse";
-import { Send, Upload, Loader2 } from "lucide-react";
+import { Send, Upload, Loader2, RotateCcw } from "lucide-react";
 import CardShell from "@/components/card-shell";
 import type { CreateSubmissionResponse, Submission } from "@/lib/api-types";
 
@@ -39,6 +39,11 @@ export default function HrFlow() {
   const [mySubmissions, setMySubmissions] = useState<Submission[]>([]);
   const [csvName, setCsvName] = useState<string | null>(null);
   const [csvError, setCsvError] = useState<string | null>(null);
+  // Remounts the file <input> on clear/success — re-selecting the exact
+  // same filename otherwise fires no onChange at all (a real HTML file-
+  // input quirk, not a React one), so a "try that file again" fix has to
+  // be more than just resetting the displayed name.
+  const [csvInputKey, setCsvInputKey] = useState(0);
 
   const refreshQueue = useCallback(() => {
     fetch("/api/submissions")
@@ -50,6 +55,23 @@ export default function HrFlow() {
   useEffect(() => {
     refreshQueue();
   }, [refreshQueue]);
+
+  // Shared by the post-submit auto-clear and the explicit "Clear form"
+  // button, so there's exactly one definition of "empty form" — not two
+  // that could drift (e.g. one resetting city to "metro", the other
+  // forgetting to).
+  const clearSingleForm = () => {
+    setName("");
+    setCtc("");
+    setRentPaid("");
+    setCity("metro");
+    setNpsOpted(false);
+    setBandMin("");
+    setBandMax("");
+    setBankAccountNumber("");
+    setIfsc("");
+    setEmail("");
+  };
 
   const handleSubmitSingle = () => {
     if (!ctc) return;
@@ -79,6 +101,12 @@ export default function HrFlow() {
       .then((json: CreateSubmissionResponse) => {
         setLastResult(json);
         setSubmitting(false);
+        // Real product behavior, not just a testing convenience: an HR
+        // user submitting one offer after another wants a fresh form each
+        // time, not the previous candidate's numbers still sitting there
+        // to accidentally resubmit. Only clears on success — a failed
+        // submission leaves the form as-is so nothing typed is lost.
+        clearSingleForm();
         refreshQueue();
       })
       .catch(() => {
@@ -133,6 +161,12 @@ export default function HrFlow() {
           .then((json: CreateSubmissionResponse) => {
             setLastResult(json);
             setSubmitting(false);
+            // Same reasoning as the single-offer form: a submitted batch
+            // is done, and leaving the old filename displayed would read
+            // as "this file is still active" when it's actually already
+            // queued.
+            setCsvName(null);
+            setCsvInputKey((k) => k + 1);
             refreshQueue();
           })
           .catch(() => {
@@ -159,7 +193,18 @@ export default function HrFlow() {
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <CardShell>
-          <h3 className="font-display text-lg font-semibold text-white">Single offer</h3>
+          <div className="flex items-center justify-between">
+            <h3 className="font-display text-lg font-semibold text-white">Single offer</h3>
+            {(name || ctc || rentPaid || bandMin || bandMax || bankAccountNumber || ifsc || email) && (
+              <button
+                onClick={clearSingleForm}
+                className="inline-flex items-center gap-1 text-xs text-neutral-500 hover:text-neutral-300"
+              >
+                <RotateCcw className="h-3 w-3" />
+                Clear form
+              </button>
+            )}
+          </div>
           <div className="mt-4 grid grid-cols-2 gap-3">
             <label className="col-span-2 flex flex-col gap-1">
               <span className="text-xs text-neutral-500">Employee name (optional)</span>
@@ -294,6 +339,7 @@ export default function HrFlow() {
             <Upload className="h-5 w-5 text-neutral-500" />
             <span className="text-sm text-neutral-400">{csvName || "Click to choose a CSV file"}</span>
             <input
+              key={csvInputKey}
               type="file"
               accept=".csv,text/csv"
               className="hidden"

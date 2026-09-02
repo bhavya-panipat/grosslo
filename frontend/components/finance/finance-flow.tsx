@@ -635,7 +635,14 @@ export default function FinanceFlow() {
   // IS the staleness fix: as rows get approved and drop out of
   // pendingRows, this number shrinks on the next render automatically,
   // with no separate cache to invalidate.
-  const requiredFunding = totalCapitalOutlay(pendingRows);
+  // pendingRows is SubmissionRow[] — treasury_forecast lives nested at
+  // row.computed.treasury_forecast there (unlike BatchAuditRow, where it's
+  // top-level), so map to .computed first. Caught live: TypeScript let the
+  // wrong access path (row.treasury_forecast, always undefined on this
+  // shape) compile silently, since the helper's param type only has an
+  // OPTIONAL treasury_forecast field — any object structurally satisfies
+  // "optionally has this field," including one that's missing it entirely.
+  const requiredFunding = totalCapitalOutlay(pendingRows.map((r) => r.computed));
   const availableRupees = balance?.live && balance.balance
     ? balance.balance.items.reduce((sum, item) => sum + item.available_amount, 0) / 100
     : null;

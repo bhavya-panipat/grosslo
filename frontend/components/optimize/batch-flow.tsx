@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Loader2 } from "lucide-react";
+import { Loader2, RotateCcw } from "lucide-react";
 import CsvUploadCard from "@/components/optimize/csv-upload-card";
 import { Send } from "lucide-react";
 import { AuditBatchTable, type CorrectionStatus } from "@/components/optimize/batch-results-table";
@@ -28,6 +28,20 @@ export default function BatchFlow() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [correctionStatus, setCorrectionStatus] = useState<Record<number, CorrectionStatus>>({});
+  // Bumped on "Clear results" — remounts CsvUploadCard (via key=) so its own
+  // internal fileName/rowCount/error state resets too, not just this
+  // component's. Without it the upload widget would still show the old
+  // filename after clearing, which is worse than not having a clear button
+  // at all: it would look like clearing didn't actually work.
+  const [uploadKey, setUploadKey] = useState(0);
+
+  const handleClear = () => {
+    setRawRows(null);
+    setAuditResult(null);
+    setError(null);
+    setCorrectionStatus({});
+    setUploadKey((k) => k + 1);
+  };
 
   const handleRowsParsed = async (rows: Record<string, string>[]) => {
     setRawRows(rows);
@@ -180,15 +194,26 @@ export default function BatchFlow() {
             path new hires go through on the <a href="/hr" className="text-gold-bright hover:underline">HR</a> page.
           </p>
         </div>
-        <a
-          href="/hr"
-          className="mt-1 hidden shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-white/10 px-4 py-2 text-sm text-neutral-300 transition-colors hover:border-white/20 hover:bg-white/[0.04] hover:text-white sm:inline-flex"
-        >
-          Structure a new hire →
-        </a>
+        <div className="mt-1 flex shrink-0 items-center gap-2">
+          {(rawRows || auditResult) && (
+            <button
+              onClick={handleClear}
+              className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-white/10 px-4 py-2 text-sm text-neutral-300 transition-colors hover:border-white/20 hover:bg-white/[0.04] hover:text-white"
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              Clear results
+            </button>
+          )}
+          <a
+            href="/hr"
+            className="hidden items-center gap-1.5 whitespace-nowrap rounded-full border border-white/10 px-4 py-2 text-sm text-neutral-300 transition-colors hover:border-white/20 hover:bg-white/[0.04] hover:text-white sm:inline-flex"
+          >
+            Structure a new hire →
+          </a>
+        </div>
       </div>
 
-      <CsvUploadCard mode="audit" onRowsParsed={handleRowsParsed} />
+      <CsvUploadCard key={uploadKey} mode="audit" onRowsParsed={handleRowsParsed} />
 
       {loading && (
         <div className="mt-6 flex items-center gap-2 text-sm text-neutral-500">
