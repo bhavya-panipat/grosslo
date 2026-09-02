@@ -519,34 +519,35 @@ features added one at a time.
 
 ## Test coverage
 
-73 tests total, passing with or without `ANTHROPIC_API_KEY` set (every
-AI-layer function has a deterministic fallback, so the full suite
-exercises real logic either way): 54 in `tests/test_finos.py` — the
-marginal relief calculation against the government's own worked example,
-the old-vs-new regime crossover, HRA metro/non-metro, the PF statutory
-ceiling, extraction mismatch detection, the explainer's numeric guard,
-each of the 6 compliance rules' trigger conditions, the query layer's
-hypothetical re-run path, and — mocking only the external Claude call,
-never the guard logic itself — the numeric guard's rejection branch
-actually rejecting an untraceable number and reporting that it did, not
-just passing a traceable one — plus 19 in `tests/test_review_workflow.py`
-covering the maker-checker flow: submission persistence, correctly-worded
-simulated approval, mandatory rejection reasons, the diff view matching
-real optimizer output exactly, independent row-level decisions on a mixed
-batch, duplicate-submission detection, double-approve protection, the
-salary-revision export's real values plus honesty label, approval-gated
-export, a new-hire export's real bank details (and its clean failure
-without them), a correction export's real XLSX, the guardrail actually
-firing on a banded submission, `/api/optimize-batch` being genuinely
-absent from the route map, and the batch audit's clean/flagged/exception
-counts matching a hand-verified mix, including a real regime-mismatch case
-found by brute-force search over the optimizer rather than asserted.
+116 tests total across five files, passing with no `ANTHROPIC_API_KEY` set
+(every AI-layer function has a deterministic fallback, so the full suite
+exercises real logic either way — see README.md's "Test coverage" for the
+full per-file breakdown):
+
+- **58** in `tests/test_finos.py` — marginal relief, regime crossover,
+  HRA, PF ceiling, extraction mismatch detection, the numeric guard's
+  rejection branch (mocking only the external Claude call, never the
+  guard logic), each compliance rule's trigger condition, the query
+  layer's hypothetical re-run path, and the Code on Wages 2025
+  statutory-floor fix.
+- **19** in `tests/test_review_workflow.py` — the maker-checker flow end
+  to end.
+- **18** in `tests/test_orchestration.py` — every routing outcome against
+  real compliance/guardrail output, including two gaps closed during plan
+  review before shipping (combined High-flag + failing-guardrail
+  ordering; two-different-severities aggregation).
+- **15** in `tests/test_auth.py` — login/session/route-protection,
+  including the explicit regression guard that row creation stays
+  unauthenticated on purpose.
+- **6** in `tests/test_razorpayx_client.py` — including one that
+  genuinely round-trips to RazorpayX's real server with a fake key and
+  gets back a real `401`, proving the call actually leaves the machine.
 
 The live LLM-backed path has also been exercised end-to-end against the
 real Claude API (extraction, explanation, compliance phrasing, query
-classification, and the hypothetical-recalc query path) — this is separate
-from the 49 automated tests above, which only run against the deterministic
-fallback. That live pass caught one real bug: the hypothetical-recalc
+classification, and the hypothetical-recalc query path) — separate from
+the automated suite above, which runs against the deterministic fallback
+by default. That live pass caught one real bug: the hypothetical-recalc
 guard's allow-list was missing the changed value itself, so a valid answer
 that naturally restated it was being silently rejected. Fixed, documented
 in `README.md`'s "what broke during development" section.

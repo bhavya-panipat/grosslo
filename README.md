@@ -279,7 +279,7 @@ grosslo invented, only one the compliance engine already decided.
 
 Backend:
 ```bash
-python3 -m unittest discover -s tests   # 73 tests, all pass with or without an API key
+python3 -m unittest discover -s tests   # 116 tests, all pass with no API key set
 python3 app.py 8000                     # serves the API at http://127.0.0.1:8000
 ```
 
@@ -646,31 +646,61 @@ future plans:
 
 ## Test coverage
 
-73 tests total — 54 in `tests/test_finos.py` covering the marginal relief
-calculation (validated against the government's own worked example), the
-old-vs-new regime crossover, HRA metro vs non-metro, the PF statutory-ceiling
-toggle, extraction's mismatch-detection logic, the explainer's numeric guard
-(including that batch mode's `skip_ai` path stays deterministic and that the
-conversational query layer's guard genuinely rejects an untraceable number
-and reports that it did, not just that it passes a traceable one), each
-compliance rule's trigger condition, and the conversational query layer's
-hypothetical-recalculation path; plus 19 in `tests/test_review_workflow.py`
-covering the maker-checker flow end to end — submission persistence,
-approval writes the correct simulated-not-dispatched status, rejection
-requires and stores a reason, the diff view's before/after values match a
-real optimizer run exactly (no invented attribution text), mixed-batch
-rows are decided independently, duplicate submissions are flagged rather
-than reprocessed, a double-approve doesn't double-write, the salary-
-revision export's XLSX contains the real corrected values with the
-honesty label present, an approved row's export is actually gated on
-approval, a new-hire export contains the real bank details supplied at
-submission (and fails clearly without them), a correction export returns a
-real XLSX, the guardrail actually runs when a submission carries a band,
-`/api/optimize-batch` is verifiably gone from the route map, and the batch
-audit's clean/flagged/exception counts match a hand-verified mix of rows
-(including a real regime-mismatch case found by brute-force search over
-the optimizer, not asserted from assumption). All pass with no
-`ANTHROPIC_API_KEY` set, exercising every deterministic fallback.
+116 tests total across five files (counted directly from the test
+methods in the repo, not estimated — re-run `python3 -m unittest discover
+-s tests` yourself to confirm):
+
+- **58 in `tests/test_finos.py`** — the marginal relief calculation
+  (validated against the government's own worked example), the
+  old-vs-new regime crossover, HRA metro vs non-metro, the PF
+  statutory-ceiling toggle, extraction's mismatch-detection logic, the
+  explainer's numeric guard (including that batch mode's `skip_ai` path
+  stays deterministic and that the conversational query layer's guard
+  genuinely rejects an untraceable number and reports that it did, not
+  just that it passes a traceable one), each compliance rule's trigger
+  condition, the conversational query layer's hypothetical-recalculation
+  path, and the Code on Wages 2025 statutory-floor fix (the search space
+  is genuinely 10 points wide, R1 fires at the correct boundary, and
+  `naive_baseline_tax()`'s hardcoded 0.50 is explicitly tied to
+  `BASIC_PCT_MIN` so the two can't silently drift apart).
+- **19 in `tests/test_review_workflow.py`** — the maker-checker flow end
+  to end: submission persistence, approval writes the correct
+  simulated-not-dispatched status, rejection requires and stores a
+  reason, the diff view's before/after values match a real optimizer run
+  exactly, mixed-batch rows are decided independently, duplicate
+  submissions are flagged rather than reprocessed, a double-approve
+  doesn't double-write, the salary-revision export's XLSX contains the
+  real corrected values with the honesty label present, exports are
+  gated on approval, bank details flow through correctly, and the batch
+  audit's clean/flagged/exception counts match a hand-verified mix of
+  rows.
+- **18 in `tests/test_orchestration.py`** — every routing outcome
+  (`auto_pass_candidate`/`needs_review`/`guardrail_not_run`/`escalate`)
+  against real `flag_compliance()`/`evaluate_band_guardrail()` output,
+  including the two gaps found during plan review before this shipped: a
+  High-severity flag and a failing guardrail on the same row (proves the
+  `reasons` ordering, not just the route), and two different-severity
+  flags on one row (proves the aggregation picks the higher one, not
+  just that the logic reads correctly).
+- **15 in `tests/test_auth.py`** — login/logout/session-check against
+  real correct and incorrect codes, that protected routes 401 with no
+  session and succeed with the right role, that the wrong role (HR on a
+  Finance-only route) is rejected specifically — not just "any login
+  passes" — and the explicit regression guard that `POST
+  /api/submissions` (create) stays open with zero session, since a
+  future "fix" gating it would break `/optimize/batch`'s public flow.
+- **6 in `tests/test_razorpayx_client.py`** — the not-configured and
+  live-key-refusal guards, plus one test that genuinely round-trips to
+  RazorpayX's real server with a deliberately fake key and confirms a
+  real `401` comes back, proving requests actually leave the machine
+  rather than hitting a local stub.
+
+All pass with no `ANTHROPIC_API_KEY` set, exercising every deterministic
+fallback. With a real key set (live Claude calls active), a small number
+of AI-backed-path tests in `test_finos.py` can flake — confirmed
+unrelated to correctness by passing cleanly in isolation; it's the same
+tests expecting deterministic-fallback wording that get a live AI
+response instead in that specific environment, not a real regression.
 
 **The live LLM-backed path has been tested end-to-end against the real
 Claude API**, not just its deterministic fallback: extraction, explanation,
@@ -684,4 +714,5 @@ repeated the number from the question (nearly all of them) was spuriously
 guard-rejected and silently fell back to the templated response, even though
 nothing was actually wrong with the answer. Fixed in `ai_layer.py` by adding
 the new numeric value to the guard's allow-list when the changed parameter
-is itself a number (`rent_paid`/`ctc`); all 49 tests still pass.
+is itself a number (`rent_paid`/`ctc`) — the full suite passed at the time,
+same as it does today.
