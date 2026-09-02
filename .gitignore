@@ -7,6 +7,7 @@ __pycache__/
 .env
 audit_log.jsonl
 review_queue.db
+test_*.db
 
 # frontend (Next.js)
 frontend/node_modules/

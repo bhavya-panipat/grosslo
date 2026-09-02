@@ -20,6 +20,9 @@ from payroll_breakdown import treasury_forecast
 from penalty_exposure import build_scenario_table
 from execution_trace import trace_optimize_stage, trace_guardrail_stage
 from orchestration import classify_row
+from razorpayx_client import (
+    fetch_account_balance, RazorpayXNotConfigured, RazorpayXKeyModeError, RazorpayXRequestError,
+)
 import io
 import review_queue
 from diff_view import build_diff
@@ -848,6 +851,28 @@ def api_audit_log():
     except (OSError, json.JSONDecodeError):
         pass
     return jsonify({"entries": entries[-limit:], "total_logged": len(entries)})
+
+
+@app.route("/api/razorpayx/balance", methods=["GET"])
+def api_razorpayx_balance():
+    """
+    The one route in this codebase that makes a real, live call to
+    RazorpayX — read-only, zero money movement. See razorpayx_client.py's
+    own docstring for the full scope boundary (one GET endpoint, test-mode
+    keys only, no override). Every other export/payout route in this file
+    stays payload-construction-only, unchanged.
+    """
+    try:
+        balance = fetch_account_balance()
+    except RazorpayXNotConfigured as e:
+        return jsonify({"configured": False, "live": False, "error": str(e)}), 503
+    except RazorpayXKeyModeError as e:
+        return jsonify({"configured": True, "live": False, "error": str(e)}), 403
+    except RazorpayXRequestError as e:
+        return jsonify({"configured": True, "live": False, "error": str(e), "status_code": e.status_code}), 502
+
+    _append_audit_log("/api/razorpayx/balance", {"live_call": True})
+    return jsonify({"configured": True, "live": True, "balance": balance})
 
 
 @app.route("/health")
