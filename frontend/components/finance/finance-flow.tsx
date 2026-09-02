@@ -129,7 +129,17 @@ function ExportPanel({ row, onCompleted }: { row: SubmissionRow; onCompleted: ()
   const [uploaded, setUploaded] = useState(false);
   const [dispatched, setDispatched] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [acknowledged, setAcknowledged] = useState(false);
   const isCorrection = Boolean(row.input.current_structure);
+  // A new-hire row approved with no bank details has no possible export —
+  // /rows/<i>/export always 400s on this (see app.py), so retrying the
+  // same doomed call forever, with no way to leave "Approved — ready to
+  // export," was a real dead end: Finance couldn't approve-then-move-on,
+  // and there was no way to clear the card once stuck. Detected here,
+  // proactively, before ever making the call — not reactively off a
+  // caught error — since this is a known, checkable precondition, not an
+  // unexpected failure.
+  const missingBankDetails = !isCorrection && (!row.input.bank_account_number || !row.input.ifsc);
 
   const handleExport = async () => {
     setLoading(true);
@@ -169,6 +179,34 @@ function ExportPanel({ row, onCompleted }: { row: SubmissionRow; onCompleted: ()
       setTimeout(() => setCopied(false), 1500);
     });
   };
+
+  if (missingBankDetails) {
+    return (
+      <div className="mt-3 border-t border-white/[0.06] pt-3">
+        <p className="text-xs text-neutral-500">
+          No bank account number or IFSC were supplied for this new hire — there's nothing to
+          export until HR resubmits with those details. Approving still stands; this just can't
+          generate a payout payload yet.
+        </p>
+        <button
+          onClick={() => {
+            setAcknowledged(true);
+            onCompleted();
+          }}
+          disabled={acknowledged}
+          className="mt-2 inline-flex items-center gap-2 rounded-full border border-white/10 px-4 py-1.5 text-xs font-medium text-neutral-200 transition-colors hover:border-white/20 hover:bg-white/[0.04] disabled:cursor-not-allowed"
+        >
+          {acknowledged ? (
+            <>
+              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" /> Acknowledged
+            </>
+          ) : (
+            "Acknowledge — nothing to export yet"
+          )}
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="mt-3 border-t border-white/[0.06] pt-3">
