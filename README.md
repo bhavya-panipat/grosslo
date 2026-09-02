@@ -4,11 +4,16 @@ Built for the Razorpay AI Buildathon 2026, AI Finance Controller track.
 
 **Stated precisely, up front:** grosslo is the decision and compliance layer
 a real autonomous payroll controller would need underneath it — not yet the
-acting system itself. Nothing in this build calls RazorpayX's real API,
-writes to a database, or moves money; every code path terminates in a
-recommendation or a generated payload. That boundary is deliberate (see
-"Known limitations" and "Roadmap" below), not a gap discovered after the
-fact.
+acting system itself. It does now call RazorpayX's real API and does write
+state (a SQLite review queue, a signed session cookie) — stated exactly,
+not glossed over: exactly one route (`GET /api/razorpayx/balance`, see
+`razorpayx_client.py`) makes a live, read-only call with zero money
+movement, and state-writing is scoped to persisting a submission for
+human review and authenticating who can see it — never to a payout.
+No route moves money or dispatches a payout; every payout/export code
+path still terminates in a generated payload, not a live disbursement.
+That boundary is deliberate (see "Known limitations" and "Roadmap"
+below), not a gap discovered after the fact.
 
 grosslo structures a compensation offer, checks it against a company's approved
 band and statutory ceilings, forecasts the capital a treasury team needs to fund
@@ -71,11 +76,27 @@ infrastructure:
   batch, computed through the exact same `_build_optimize_response()`
   every other route uses. Nothing new is computed here; this only decides
   whether a result gets persisted for review.
+- **Every submitted row is auto-routed by risk before Finance ever sees
+  it** (`orchestration.py`'s `classify_row()`, a routing/presentation
+  decision only — never an approval). Four routes, evaluated in priority
+  order: `escalate` (a failing guardrail check, or any High-severity
+  compliance flag), `guardrail_not_run` (no approved compensation band was
+  supplied — a real, visibly distinct "never checked" state, not folded
+  into "clean"), `needs_review` (Medium-severity flag), or
+  `auto_pass_candidate` (nothing above Low severity, and the guardrail
+  ran and passed — still visibly badged if a Low flag exists, e.g.
+  "Fast-tracked · 1 low-severity note, R4," never silently indistinguishable
+  from a genuinely flag-free row). A human still clicks Approve on every
+  single row regardless of route — see the next bullet for exactly how far
+  routing is allowed to go.
 - **Finance reviews** (`GET /api/submissions`, `/hr` and `/finance` as two
   separate frontend pages) — inspects the real execution trace, the real
   compliance flags, and a before/after diff (below), then approves or
   rejects **per row**, not only per whole submission — a 50-row batch
-  where 2 rows have flags doesn't require an all-or-nothing decision.
+  where 2 rows have flags doesn't require an all-or-nothing decision. The
+  queue itself is sectioned by the routing decision above (Clean / Needs
+  review / Guardrail not run / Escalated), so risk is visible before
+  opening a single row, not just after.
 - **Approving never dispatches anything.** It writes a status change and
   an audit-log entry that says exactly that: *"Approved — Payout
   SIMULATED, no live dispatch."* This is the same live-execution boundary
@@ -99,18 +120,25 @@ infrastructure:
   double-click on Approve doesn't write a second audit-log entry either —
   the status transition only fires once, by construction, not because of
   a special case bolted on for double-clicks.
-- **Bulk actions batch the click, never the judgment.** A "Submit all N
-  for review" button on the audit page sends every flagged row in one
+- **Bulk actions batch the click, never the judgment — and are now
+  structurally scoped to the clean bucket only.** A "Submit all N for
+  review" button on the audit page sends every flagged row in one
   `/api/submissions` batch call instead of N separate ones — the endpoint
-  already accepted a batch array, this just uses it. On `/finance`, row
-  checkboxes plus "select all pending" open a bulk action bar that
-  approves or rejects every selected row in one click; rejection still
-  requires a reason, one shared reason applied to the whole selection,
-  with the UI saying plainly to reject rows individually if they need
-  different explanations. There's no bulk-decide endpoint and no need for
-  one — this fires the same idempotent per-row `/decide` call once per
-  selected row, in parallel, so every row still gets its own individually
-  logged decision. Nothing here lets anything but a person decide.
+  already accepted a batch array, this just uses it. On `/finance`, only
+  the "Clean — ready to fast-track" section renders a "select all" /
+  per-row checkbox at all; `Needs review`, `Guardrail not run`, and
+  `Escalated` rows render with **no checkbox in the DOM**, not a disabled
+  one with a warning — there is structurally nothing to select-around. A
+  row in any of those three sections is approved/rejected individually,
+  through the same per-row flow, full stop. When a bulk action completes,
+  a summary states the split plainly, e.g. *"12 of 15 rows bulk-approved.
+  3 require individual review (2 high-severity, 1 guardrail not run)."*
+  Rejection (bulk or single) still requires a reason. There's no
+  bulk-decide endpoint and no need for one — this fires the same
+  idempotent per-row `/decide` call once per selected row, in parallel, so
+  every row still gets its own individually logged decision, now recorded
+  under the real Finance session's role rather than a client-supplied
+  string. Nothing here lets anything but a person decide.
 - **Bulk Salary Revision export** (`POST
   /api/submissions/<id>/rows/<row_index>/export`, approved rows only)
   closes the audit loop the rest of the way: takes a flagged employee's
@@ -131,25 +159,24 @@ infrastructure:
   confirm" UX without pretending an API call happened where only a file
   upload actually would.
 
-**What this deliberately is not:** real authentication. `/hr` and
-`/finance` each sit behind their own simulated access-code gate
-(`role-gate.tsx`) — `HR2026` and `FINANCE2026`, unlocking one has no
-effect on the other — but it's a client-only UX gate, not identity
-verification: there's no server-side session or account behind it, the
-code ships in the same client bundle anyone downloads, and it's shown on
-the gate screen itself rather than hidden, on purpose, so it's never
-mistaken for something it isn't. Anyone who reaches the app can reach both
-roles the moment they read the code shown on screen — this simulates what
-role-gated access would *feel* like from inside the demo, it doesn't
-provide it. Also deliberately absent: a production database (SQLite, a
-single gitignored file, explicitly not the "real database" the roadmap
-describes for a steady-state company roster), a second-approver escalation
-tier, or a notification system for pending reviews. All three are
-reasonable ideas in isolation; none of them belong on top of an approval
-layer already honestly labeled as a demo simplification — making that
-layer *look* more sophisticated than the authentication underneath it can
-actually support would undermine the exact honesty this section is trying
-to model.
+**What this is, and isn't:** real server-side authentication, but scoped
+to two shared role-codes, not per-person accounts. `/hr` and `/finance`
+each sit behind their own login (`role-gate.tsx` + `auth.py`) —
+`HR2026`/`FINANCE2026` by default, overridable via `HR_ACCESS_CODE`/
+`FINANCE_ACCESS_CODE` — verified server-side and backed by a real signed,
+HttpOnly, expiring session cookie (`flask.session`), not a client-side
+`sessionStorage` check anyone could read past in devtools. See "Security
+and privacy posture" below for exactly which routes that session now
+gates. What's still deliberately absent: per-person credentials or
+accounts (both roles remain shared secrets), login rate-limiting/lockout,
+a production database (SQLite, a single gitignored file, explicitly not
+the "real database" the roadmap describes for a steady-state company
+roster), a second-approver escalation tier, or a notification system for
+pending reviews. These are reasonable ideas in isolation; none of them
+belong on top of an approval layer already honestly labeled as a demo
+simplification — making that layer *look* more sophisticated than it
+actually is would undermine the exact honesty this section is trying to
+model.
 
 ### Redundancy fix: one path for structuring a new hire, not two
 
@@ -327,8 +354,18 @@ guess at what the new number would be.
   warning when extracted components don't sum to the extracted CTC.
 - Assumes a resident individual, under 60, salaried, with no other income
   sources or capital gains.
-- The RazorpayX export generates a schema-verified payload only — no live
-  call to RazorpayX is made anywhere in this codebase.
+- **The RazorpayX Composite Payout / Salary Revision exports generate a
+  schema-verified payload only — no live payout dispatch is made anywhere
+  in this codebase.** One route is a deliberate, narrow exception:
+  `GET /api/razorpayx/balance` (`razorpayx_client.py`) makes a real, live,
+  read-only call to RazorpayX's account-balance API (`GET
+  /v1/banking_balances`) — verified working against a real test-mode
+  account, returning a genuine (zero, freshly-provisioned) balance. It
+  refuses to run against anything but a test-mode key (`rzp_test_...`
+  prefix required, no override) and moves zero money. This exists to
+  prove the RazorpayX integration is real and reachable, not simulated —
+  every payout-generating route stays payload-construction-only,
+  unchanged, gated behind Finance approval either way.
 - **Security and privacy posture, stated plainly rather than left silent —
   this matters more than most limitations here, because this tool handles
   real compensation data.** Persistence is now limited to two things: the

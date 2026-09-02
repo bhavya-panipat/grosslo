@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { UserPlus, ShieldCheck, Landmark, Send } from "lucide-react";
+import { UserPlus, ShieldCheck, Route, Landmark, Send } from "lucide-react";
 
 const TABS = [
   {
@@ -22,8 +22,18 @@ const TABS = [
     stat: "3 guardrails",
     statLabel: "checked before every disbursement",
     headline: "Every structure checked against your bands and statutory caps.",
-    body: "Band cost-neutrality, the EPFO aggregate contribution ceiling, and the Section 80CCD(2) employer-NPS cap — enforced automatically, deterministically, before anything reaches payroll.",
+    body: "Band cost-neutrality, the EPFO aggregate contribution ceiling, and the Section 124 employer-NPS cap (formerly 80CCD(2)) — enforced automatically, deterministically, before anything reaches payroll.",
     gradient: "from-[#0f241a] via-[#0a0a0a] to-black",
+  },
+  {
+    key: "audit",
+    label: "Audit at scale",
+    icon: Route,
+    stat: "60 rows",
+    statLabel: "audited end-to-end in one sweep",
+    headline: "Audit a whole payroll, not one hire at a time.",
+    body: "Upload a CSV of existing structures — every row gets a real compliance check and guardrail verdict, then routes itself by severity (clean, needs review, guardrail not run, escalated) before Finance opens a single one. Bulk-approve only ever touches the clean rows.",
+    gradient: "from-[#2a1414] via-[#0a0a0a] to-black",
   },
   {
     key: "treasury",

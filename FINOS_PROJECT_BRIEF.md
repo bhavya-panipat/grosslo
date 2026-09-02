@@ -5,17 +5,35 @@ Razorpay AI Buildathon 2026, AI Finance Controller track.
 **Why this track and not AI Risk Manager, addressed directly, not left for
 a reviewer to ask:** what's most *built out* today — six compliance rules,
 a guardrail that actively blocks a bad structure, a penalty-exposure module
-citing real statutory sections — genuinely reads closer to a risk-management
+citing real statutory sections, and now a real orchestration layer
+(`orchestration.py`) that auto-routes every submitted row by severity
+before a human sees it — genuinely reads closer to a risk-management
 surface than a treasury one; the treasury forecast, by contrast, is one
-formula with no steady-state tracking yet. Finance Controller was picked
-for where this is headed, not for whichever surface happens to be furthest
-along today: the roadmap's endpoint is grosslo sitting in the actual
-payment-execution path — structuring, checking, and generating the payout
-that gets funded — which is a controller function, not a monitoring one.
-Risk Manager would be the more defensible claim if judged purely on what's
-built this week; Finance Controller is the honest claim about the category
-this is being built toward. Both are true; this doc says so on purpose
-instead of picking whichever reads better.
+formula with no steady-state tracking yet. If anything, that gap has
+widened since this reasoning was first written, not narrowed — the
+orchestration layer is squarely a risk-triage feature. Finance Controller
+was picked for where this is headed, not for whichever surface happens to
+be furthest along today: the roadmap's endpoint is grosslo sitting in the
+actual payment-execution path — structuring, checking, and generating the
+payout that gets funded — which is a controller function, not a
+monitoring one.
+
+That roadmap claim has real evidence behind it now, not just a stated
+intention: a live, authenticated call to RazorpayX's own API exists
+(`GET /api/razorpayx/balance`, read-only, test-mode only — see "Live
+RazorpayX connection" below), and real server-side session auth now
+gates who can read or act on a submission, where both were previously
+simulated. Neither closes the gap to a real controller — no route moves
+money — but both are concrete steps in that direction that didn't exist
+when this track was first chosen, which is the actual argument for
+picking Finance Controller "for where this is headed": there's now a
+demonstrated pattern of building toward it, not just a plan to. Risk
+Manager would still be the more defensible claim if judged purely on
+what's built this week — arguably more so now than before. Finance
+Controller is the honest claim about the category this is being built
+toward, and now has real, if narrow, forward motion to point to. Both are
+true; this doc says so on purpose instead of picking whichever reads
+better.
 
 This is the architecture document referenced from `README.md`. It exists to
 answer the questions a judge will actually ask: what does this do, what part
@@ -28,10 +46,17 @@ and the feature list.
 
 **Stated precisely, up front:** grosslo is the decision and compliance layer
 a real autonomous payroll controller would need underneath it — not yet the
-acting system itself. No route in this codebase writes state, calls an
-external API, or moves money; every RazorpayX interaction stops at
-generating a correctly-shaped payload. "Controller" describes what this is
-built toward, not a write-authority this build currently holds.
+acting system itself. Two things have moved since that line was first true,
+stated exactly rather than left stale: one route (`GET
+/api/razorpayx/balance`) makes a real, live, read-only call to RazorpayX's
+account-balance API — test-mode only, refused otherwise, zero money moved —
+and routes do write state (a SQLite review queue, a signed session cookie
+authenticating who can read it). Neither is a write-authority claim: no
+route moves money or dispatches a payout, and every RazorpayX
+payout/export interaction still stops at generating a correctly-shaped
+payload. "Controller" describes what this is built toward — a real
+external connection and real state now exist underneath it, which is
+genuine progress toward that, not the full claim itself.
 
 It takes a compensation decision — one new hire, or a whole CSV of them —
 and does four things a payroll/HR team currently does by hand, in
@@ -162,7 +187,26 @@ components.
 | `POST /api/submissions/<id>/rows/<row_index>/decide` | approve or reject one row — idempotent, never dispatches |
 | `POST /api/submissions/<id>/rows/<row_index>/export` | approved-only: a correction row generates the Salary Revision XLSX, a new-hire row generates a RazorpayX payout payload from the bank details supplied at submission |
 | `POST /api/export-salary-revision` | standalone Bulk Salary Revision XLSX for an explicit employee list — file only, no live upload; still has no frontend caller (see "Redundancy fix") |
+| `POST /api/auth/login` | verifies a role's shared demo code server-side, issues the signed session cookie |
+| `POST /api/auth/logout` | clears the session |
+| `GET /api/auth/session` | current role, or `null` — what `role-gate.tsx` checks on load instead of `sessionStorage` |
+| `GET /api/razorpayx/balance` | Finance-only: the one route that makes a real, live, read-only call to RazorpayX (`/v1/banking_balances`) — test-mode keys only |
 | `GET /health` | reports whether `ANTHROPIC_API_KEY` is set (`ai_backed`) so degraded mode is visible, not silent |
+
+Read (`GET /api/submissions*`) requires an `hr` or `finance` session;
+`.../decide`, `.../export`, and `/api/razorpayx/balance` require `finance`
+specifically (`auth.py`'s `@require_role`). `POST /api/submissions`
+(create) deliberately stays unauthenticated — see the "What grosslo is"
+section above for why.
+
+Every row `POST /api/submissions` persists is also run through
+`orchestration.py`'s `classify_row()` at submission time — a pure
+aggregation over the same compliance flags and guardrail result the row
+already computed, producing a routing decision
+(`auto_pass_candidate`/`needs_review`/`guardrail_not_run`/`escalate`) that
+changes only how the row is grouped and whether it's bulk-approve-eligible
+in `/finance`, never whether a human clicked Approve. Zero new
+tax/compliance logic, same discipline as `diff_view.py`/`execution_trace.py`.
 
 `/api/optimize`, `/api/submissions`, and `/api/batch-audit` all share one
 internal helper (`_build_optimize_response`) so no route reimplements the
@@ -338,23 +382,28 @@ employee name and CTC (needed for the dedupe check); it now also stores
 `band_min`/`band_max`/`bank_account_number`/`ifsc`/`email` when present,
 because that's what lets an approved row generate a real RazorpayX payout
 payload later without re-entering everything by hand. This is exactly the
-kind of data the security posture section below is about — unencrypted,
-no access control, demo-scale only — not a claim that no PII is stored.
-The audit log remains the one place that genuinely excludes it by
+kind of data the security posture section below is about — unencrypted at
+rest, demo-scale only, and (as of the auth pass described next) real
+read-access control, not none. Not a claim that no PII is stored. The
+audit log remains the one place that genuinely excludes it by
 construction (see below).
 
-**`/hr` and `/finance` sit behind a simulated access-code gate
-(`role-gate.tsx`), not real authentication.** Each page checks its own
-hardcoded demo code (`HR2026` / `FINANCE2026`) against `sessionStorage`,
-client-side only — no server session, no account, and the code is shown
-on the gate screen itself rather than hidden, the same way this app's
-demo bank details are always obviously fake rather than plausible-looking.
-This replaced a documentation claim, not a working feature — the docs
-used to reference a "demo role-toggle" on these pages that was never
-actually built; this gate is the first thing that's actually there.
-Anyone who reaches the app can reach both roles the moment they read the
-code shown on screen — it simulates what role-gated access would feel
-like from inside the demo, it doesn't provide it.
+**`/hr` and `/finance` now sit behind real server-side session
+authentication (`auth.py` + `role-gate.tsx`), scoped to two shared
+role-codes, not per-person accounts.** Each page's code (`HR2026` /
+`FINANCE2026` by default, overridable via env) is verified server-side and
+issues a real signed, HttpOnly, 8-hour session cookie — not a
+`sessionStorage` check anyone could read past in devtools. `GET
+/api/submissions*` (the routes that expose real PII and bank details)
+requires an `hr` or `finance` session; `/decide`, `/export`, and
+`/api/razorpayx/balance` require `finance` specifically. Verified live: an
+unauthenticated `curl` to `/api/submissions` now 401s, where it previously
+returned everyone's name/CTC/bank account/IFSC/email with zero auth —
+that's the concrete gap this closed. `POST /api/submissions` (create)
+deliberately stays open, since `/optimize/batch`'s public audit-correction
+flow also calls it and exposes no one else's data by doing so. What's
+still true: these remain two shared demo secrets, not per-person
+credentials, and there's no login rate-limiting or lockout.
 
 **One server-side file write does exist, deliberately narrow: a local audit
 log.** `_append_audit_log()` in `app.py` appends one JSON line per

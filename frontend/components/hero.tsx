@@ -50,7 +50,7 @@ export default function Hero() {
           >
             Structure payroll.
             <br />
-            Enforce every guardrail.
+            Route every exception.
           </motion.h1>
 
           <motion.p
@@ -59,9 +59,12 @@ export default function Hero() {
           >
             grosslo is an AI-assisted compensation controller for HR and
             finance teams — it structures CTC into a compliant split, checks
-            it against your approved bands and statutory ceilings, forecasts
-            the capital you need, and generates a RazorpayX-ready payout
-            payload — no live dispatch, by design. No invented figures, ever.
+            it against your approved bands and statutory ceilings, and
+            automatically routes every exception by severity so Finance
+            reviews what actually needs a human, not everything. Payouts stay
+            payload-only — no live dispatch, by design — though one real,
+            read-only RazorpayX connection already runs live. No invented
+            figures, ever.
           </motion.p>
 
           <motion.div variants={item} className="mt-10 flex flex-wrap items-center gap-3">
