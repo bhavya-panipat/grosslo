@@ -9,6 +9,7 @@ state and never touch a file a live demo session might be using.
 
 import os
 import sys
+import time
 import unittest
 from io import BytesIO
 
@@ -51,6 +52,10 @@ class ReviewQueueTestCase(unittest.TestCase):
         if os.path.exists(TEST_DB):
             os.remove(TEST_DB)
         review_queue.init_db()
+        # POST /api/submissions is now rate-limited per IP (module-level,
+        # process-wide state) — reset before every test so unrelated tests
+        # in this file don't trip each other's limit via the shared dict.
+        flask_app._SUBMISSION_ATTEMPTS.clear()
 
     def tearDown(self):
         if os.path.exists(TEST_DB):
@@ -437,6 +442,73 @@ class TestBatchAuditExceptionBreakdown(unittest.TestCase):
         clean_row = next(r for r in result_rows if r["name"] == "Clean Row")
         self.assertEqual(clean_row["excess_contribution"], 0)
         self.assertFalse(clean_row["regime_mismatch"])
+
+
+class TestSubmissionRateLimit(ReviewQueueTestCase):
+    """
+    POST /api/submissions stays deliberately unauthenticated (see its own
+    docstring — gating it would break /optimize/batch's public flow), but
+    that's not the same as unguarded. The real risk it leaves open is a
+    submitted row carrying attacker-controlled bank details that a
+    reviewer might approve among many legitimate ones — this rate limit
+    bounds how many attempts one source gets, without requiring identity.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.client = flask_app.app.test_client()
+
+    def _submit(self):
+        # source="batch" so this goes through skip_ai=True (see
+        # api_create_submission's docstring) — real HTTP round-trips, but
+        # no live AI call, so 20+ of these stay well inside the 60s rate-
+        # limit window instead of exceeding it through their own latency
+        # (found live: an earlier version of this test used source="single",
+        # which does make a real per-row AI call; 20 of those took ~350s,
+        # longer than the window itself, so the sliding window pruned
+        # early attempts before the limit was ever actually exercised —
+        # the limiter was working correctly, the test just couldn't reach
+        # it).
+        return self.client.post("/api/submissions", json={
+            "source": "batch", "rows": [{"ctc": 1_800_000}],
+        })
+
+    def test_requests_within_the_limit_all_succeed(self):
+        for _ in range(flask_app._RATE_LIMIT_MAX_REQUESTS):
+            resp = self._submit()
+            self.assertEqual(resp.status_code, 200)
+
+    def test_request_beyond_the_limit_is_rejected_with_429(self):
+        for _ in range(flask_app._RATE_LIMIT_MAX_REQUESTS):
+            self._submit()
+        over_limit = self._submit()
+        self.assertEqual(over_limit.status_code, 429)
+        self.assertIn("error", over_limit.get_json())
+
+    def test_rate_limit_is_per_source_not_global(self):
+        # A different IP must not inherit another source's exhausted
+        # limit — proves the key is genuinely per-source, not a single
+        # shared counter that would make the whole route unusable for
+        # everyone the moment one source hit the ceiling.
+        for _ in range(flask_app._RATE_LIMIT_MAX_REQUESTS):
+            self._submit()
+        self.assertEqual(self._submit().status_code, 429)
+
+        self.assertFalse(flask_app._rate_limited("203.0.113.7"))
+
+    def test_window_expiring_lets_a_source_submit_again(self):
+        # Directly exercises _rate_limited()'s time-window pruning rather
+        # than sleeping 60 real seconds in a test — backdates the
+        # recorded attempts past the window and confirms they're pruned,
+        # not just trusting the implementation reads correctly.
+        key = "198.51.100.5"
+        for _ in range(flask_app._RATE_LIMIT_MAX_REQUESTS):
+            self.assertFalse(flask_app._rate_limited(key))
+        self.assertTrue(flask_app._rate_limited(key))
+
+        past = time.time() - flask_app._RATE_LIMIT_WINDOW_SECONDS - 1
+        flask_app._SUBMISSION_ATTEMPTS[key] = [past] * flask_app._RATE_LIMIT_MAX_REQUESTS
+        self.assertFalse(flask_app._rate_limited(key))
 
 
 if __name__ == "__main__":

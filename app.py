@@ -7,6 +7,7 @@ import os
 import sys
 import subprocess
 import secrets
+import time
 import uuid
 import json
 from datetime import datetime, timezone
@@ -83,6 +84,36 @@ def _append_audit_log(route: str, event: dict) -> None:
             }) + "\n")
     except OSError:
         pass
+
+
+# Rate limit for the one route with no auth (POST /api/submissions — see
+# its own docstring for why it stays that way). The real risk that route
+# leaves open isn't spam, it's fraud: a submitted row can carry
+# attacker-controlled bank_account_number/ifsc, and if an approver
+# doesn't catch a well-disguised fraudulent row among many legitimate
+# ones, export generates a real payout payload to that account. Full
+# auth would close this but breaks /optimize/batch's public flow — this
+# doesn't require identity, it just bounds how many submission attempts
+# one source gets in a window, raising the cost of testing many
+# fraudulent variations against a live queue. In-memory, per-process —
+# same demo-scale honesty as review_queue.py's own SQLite file: resets on
+# restart, doesn't survive multiple server processes behind a real load
+# balancer. That's a real, named limitation, not a claim of production
+# hardening.
+_SUBMISSION_ATTEMPTS: dict[str, list[float]] = {}
+_RATE_LIMIT_WINDOW_SECONDS = 60
+_RATE_LIMIT_MAX_REQUESTS = 20
+
+
+def _rate_limited(key: str) -> bool:
+    """True if `key` (an IP address) has hit the submission rate limit."""
+    now = time.time()
+    attempts = _SUBMISSION_ATTEMPTS.setdefault(key, [])
+    attempts[:] = [t for t in attempts if now - t < _RATE_LIMIT_WINDOW_SECONDS]
+    if len(attempts) >= _RATE_LIMIT_MAX_REQUESTS:
+        return True
+    attempts.append(now)
+    return False
 
 
 def _structure_to_dict(s):
@@ -606,11 +637,23 @@ def api_create_submission():
     public, ungated page)'s "Submit correction" flow — gating it behind an
     HR session would break that already-working, already-demoed public
     flow. It's functionally a public form submission ("propose this
-    structure for review"), exposing no one else's data. The real
-    sensitivity — reading everyone's submitted PII/bank details, and
-    approving/exporting a payout — is gated below. Do not "fix" this route
-    into requiring auth for consistency; that regresses the audit page.
+    structure for review"). The real sensitivity — reading everyone's
+    submitted PII/bank details, and approving/exporting a payout — is
+    gated below. Do not "fix" this route into requiring auth for
+    consistency; that regresses the audit page.
+
+    Rate-limited instead (see _rate_limited()): staying unauthenticated
+    doesn't mean staying unguarded. A submitted row can carry
+    attacker-controlled bank details, and the real protection against
+    that becoming a real payout is a human catching it during review —
+    this bounds how many attempts one source gets to slip a fraudulent
+    row past that review, without requiring the identity check that would
+    break the public flow above.
     """
+    client_ip = request.remote_addr or "unknown"
+    if _rate_limited(client_ip):
+        return jsonify({"error": "Too many submissions from this source — try again shortly."}), 429
+
     data = request.get_json(force=True)
     source = data.get("source")
     if source not in ("single", "batch"):

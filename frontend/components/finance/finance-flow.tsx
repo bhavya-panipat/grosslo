@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { CheckCircle2, XCircle, ChevronDown, ChevronUp, Download, Upload, Copy, Loader2 } from "lucide-react";
+import { CheckCircle2, XCircle, ChevronDown, ChevronUp, Download, Upload, Copy, Loader2, TriangleAlert } from "lucide-react";
 import CardShell from "@/components/card-shell";
 import type {
   Submission,
@@ -25,10 +25,19 @@ function RouteBadge({ row }: { row: SubmissionRow }) {
   const severity = row.orchestration?.severity ?? "None";
 
   if (route === "auto_pass_candidate" && severity === "Low") {
+    // Deliberately NOT emerald, unlike the zero-flag "Clean" badge below —
+    // found live during a defense pressure-test: identical styling here
+    // meant a real (if low-severity) note could get scanned past and
+    // bulk-approved without ever being read, defeating the point of
+    // surfacing it at all. Same gold "caution" token already used for
+    // "Needs review" elsewhere in this file, plus an icon, so this reads
+    // as visually distinct even to someone scanning by color/shape, not
+    // just to someone who stops to read the text.
     const flags = row.computed.compliance.flags;
     const ruleIds = flags.map((f) => f.rule_id).join(", ");
     return (
-      <span className="inline-flex items-center rounded-full border border-emerald-400/30 bg-emerald-400/[0.08] px-2 py-0.5 text-[11px] font-medium text-emerald-300">
+      <span className="inline-flex items-center gap-1 rounded-full border border-gold/30 bg-gold/[0.08] px-2 py-0.5 text-[11px] font-medium text-gold-bright">
+        <TriangleAlert className="h-3 w-3 shrink-0" />
         Fast-tracked · {flags.length} low-severity note{flags.length === 1 ? "" : "s"}, {ruleIds}
       </span>
     );

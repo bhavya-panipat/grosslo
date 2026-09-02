@@ -40,6 +40,10 @@ class ReviewQueueTestCase(unittest.TestCase):
         if os.path.exists(TEST_DB):
             os.remove(TEST_DB)
         review_queue.init_db()
+        # POST /api/submissions is now rate-limited per IP (module-level,
+        # process-wide state) — reset before every test so unrelated tests
+        # in this file don't trip each other's limit via the shared dict.
+        flask_app._SUBMISSION_ATTEMPTS.clear()
 
     def tearDown(self):
         if os.path.exists(TEST_DB):
