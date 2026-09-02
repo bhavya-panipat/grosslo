@@ -281,6 +281,9 @@ class TestExportApprovedRow(ReviewQueueTestCase):
     def setUp(self):
         super().setUp()
         self.client = flask_app.app.test_client()
+        # GET/decide/export now require a real Finance session (see auth.py) —
+        # every test in this class exercises at least one of those.
+        self.client.post("/api/auth/login", json={"role": "finance", "code": "FINANCE2026"})
 
     def _submit_and_approve(self, row):
         resp = self.client.post("/api/submissions", json={"source": "single", "row": row})

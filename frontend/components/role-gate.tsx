@@ -5,19 +5,21 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Lock, LogOut, ShieldAlert } from "lucide-react";
 import CardShell from "@/components/card-shell";
 
-// A simulated access gate — deliberately NOT real authentication. There's
-// no server-side session, no hashed credential, no user record anywhere;
-// the "password" ships in this same client bundle and is shown on screen
-// as a hint. This exists so a demo can show what role-gated access would
-// *feel* like from the Finance/HR side, not to actually restrict who can
-// reach these pages — anyone who opens devtools or reads this file has
-// the real access this gate provides. Matches this codebase's standing
-// rule: real security infrastructure was deliberately not built for this
-// submission (see README.md's security-posture section) — this is a UX
-// simulation of that gap, not a fix for it.
+// A real, server-verified access gate over two SHARED role-codes — not a
+// per-person account system (that was deliberately out of scope). The
+// code is checked server-side (auth.py's verify_login()), and on success
+// the server sets a real signed, HttpOnly, 8-hour session cookie
+// (flask.session) that JS cannot read and cannot forge — a genuine
+// improvement over the previous sessionStorage-only approach, where the
+// code shipped in this bundle and anyone with devtools had the real
+// access it provided. This component now holds no secret at all; it only
+// calls /api/auth/session, /api/auth/login, /api/auth/logout. See
+// README.md's security-posture section for what's still true even with
+// this in place: still one shared demo code per role, not a per-person
+// credential, and no login rate-limiting.
 const ROLE_CONFIG = {
-  hr: { label: "HR", code: "HR2026", storageKey: "grosslo_access_hr" },
-  finance: { label: "Finance", code: "FINANCE2026", storageKey: "grosslo_access_finance" },
+  hr: { label: "HR", hint: "HR2026" },
+  finance: { label: "Finance", hint: "FINANCE2026" },
 } as const;
 
 type Role = keyof typeof ROLE_CONFIG;
@@ -30,24 +32,32 @@ export default function RoleGate({ role, children }: { role: Role; children: Rea
   const [error, setError] = useState(false);
 
   useEffect(() => {
-    setUnlocked(sessionStorage.getItem(config.storageKey) === "true");
-    setChecked(true);
-  }, [config.storageKey]);
+    fetch("/api/auth/session")
+      .then((r) => r.json())
+      .then((d: { role: Role | null }) => setUnlocked(d.role === role))
+      .catch(() => setUnlocked(false))
+      .finally(() => setChecked(true));
+  }, [role]);
 
   const handleSubmit = () => {
-    if (input.trim().toUpperCase() === config.code) {
-      sessionStorage.setItem(config.storageKey, "true");
-      setUnlocked(true);
-      setError(false);
-    } else {
-      setError(true);
-    }
+    fetch("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ role, code: input.trim() }),
+    })
+      .then((r) => {
+        if (!r.ok) throw new Error("bad code");
+        setUnlocked(true);
+        setError(false);
+      })
+      .catch(() => setError(true));
   };
 
   const handleLock = () => {
-    sessionStorage.removeItem(config.storageKey);
-    setUnlocked(false);
-    setInput("");
+    fetch("/api/auth/logout", { method: "POST" }).finally(() => {
+      setUnlocked(false);
+      setInput("");
+    });
   };
 
   // Avoids a flash of the gate before sessionStorage has been read once.
@@ -117,11 +127,11 @@ export default function RoleGate({ role, children }: { role: Role; children: Rea
             <div className="mt-6 flex items-start gap-2 rounded-lg border border-white/[0.06] bg-black/30 p-3 text-left">
               <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-neutral-500" />
               <p className="text-[11px] leading-relaxed text-neutral-500">
-                Simulated access only — not real authentication. There&apos;s no server-side session or
-                account behind this, the code lives in this page&apos;s own client code, and it&apos;s
-                shown below on purpose rather than hidden, the same way this app&apos;s demo bank
-                details are always obviously fake. Demo code:{" "}
-                <span className="font-mono text-neutral-400">{config.code}</span>
+                This code is checked server-side and issues a real, signed, expiring session — not
+                a client-side simulation. It&apos;s still one shared demo credential per role, not a
+                per-person account, and it&apos;s shown below on purpose for reviewer convenience, the
+                same way this app&apos;s demo bank details are always obviously fake. Demo code:{" "}
+                <span className="font-mono text-neutral-400">{config.hint}</span>
               </p>
             </div>
           </CardShell>

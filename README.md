@@ -338,13 +338,25 @@ guess at what the new number would be.
   - **No encryption at rest.** Both files are plain SQLite/JSONL on disk.
   - **No data-retention or deletion policy.** Data lives as long as the
     demo session/database file does, with no expiry or purge mechanism.
-  - **No real access control — `/hr` and `/finance`'s access-code gate is
-    a UX simulation, not authentication.** Each page checks a hardcoded
-    demo code against `sessionStorage`, client-side only; there's no
-    server-side session, no account, and the code itself is shown on the
-    gate screen rather than hidden. See "Maker-checker review, demo-scoped"
-    below. Anyone who reaches the app can reach both roles the moment they
-    read the code shown on screen.
+  - **`/hr` and `/finance` now have real server-side session
+    authentication** — `auth.py` verifies the role code server-side and
+    issues a signed, HttpOnly, 8-hour session cookie (`flask.session`);
+    `GET /api/submissions*` (real PII and bank details) requires an `hr` or
+    `finance` session, `.../decide`, `.../export`, and
+    `/api/razorpayx/balance` require `finance` specifically. Verified live:
+    an anonymous `curl` to `/api/submissions` now 401s, where it previously
+    returned everyone's name/CTC/bank account/IFSC/email with zero auth.
+    What's still true, stated plainly: this is **two shared role-codes,
+    not per-person accounts** — no registration, no individual
+    credentials, no login rate-limiting or lockout. `POST /api/submissions`
+    (creating a submission) is deliberately left open, since
+    `/optimize/batch`'s public audit-correction flow also calls it and
+    exposes no one else's data by doing so — see the code comment on that
+    route for the full reasoning. `SESSION_COOKIE_SECURE=False` for local
+    HTTP dev; a real deployment behind HTTPS would need that flipped to
+    `True`. See "Maker-checker review, demo-scoped" below — approve/reject
+    still always requires a human click regardless of session, unrelated
+    to this change.
   - **The review queue does store employee PII, including bank details —
     named explicitly, not glossed over.** Employee name and CTC were
     always stored (needed for the dedupe check); as of the redundancy fix
@@ -352,14 +364,16 @@ guess at what the new number would be.
     `band_max`/`bank_account_number`/`ifsc`/`email` are stored too, when
     HR supplies them — this is what lets an approved row generate a real
     RazorpayX payout payload later, rather than requiring the export
-    modal's separate manual re-entry. It sits in the same unencrypted,
-    access-control-free SQLite file as everything else here, so this is
-    exactly the kind of data the "no encryption at rest" and "no access
-    control" gaps above are about — real production use needs those
-    closed before real bank details go anywhere near this schema. The
-    audit log remains the one exception: it excludes names/bank
-    details/emails by construction (see its own section below), and that
-    claim is unaffected by this change.
+    modal's separate manual re-entry. It sits in the same unencrypted
+    SQLite file as everything else here — reading it now requires a real
+    `hr`/`finance` session (see above), but the "no encryption at rest"
+    gap is still real and unaffected by that change: the file itself is
+    plain SQLite on disk, so anyone with filesystem access to the machine
+    (not just anyone with a browser) can still read it directly. Real
+    production use needs that closed too before real bank details go
+    anywhere near this schema. The audit log remains the one exception: it
+    excludes names/bank details/emails by construction (see its own
+    section below), and that claim is unaffected by this change.
 
   Named explicitly as a pre-production gap, not an oversight — the same
   discipline already applied to the LTA-utilization estimate, the

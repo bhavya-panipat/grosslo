@@ -3,8 +3,10 @@ FinOS web app. Serves the static UI and exposes the optimize/extract/explain/
 compliance endpoints. Run with: python3 app.py [port]
 """
 
+import os
 import sys
 import subprocess
+import secrets
 import uuid
 import json
 from datetime import datetime, timezone
@@ -12,7 +14,7 @@ from dotenv import load_dotenv
 
 load_dotenv()  # must run before ai_layer is imported — it reads ANTHROPIC_API_KEY at import time
 
-from flask import Flask, request, jsonify, send_from_directory, send_file
+from flask import Flask, request, jsonify, send_from_directory, send_file, session
 from optimizer import optimize, best_regime_for_given_structure, sensitivity_sweep, optimization_value_pct
 from ai_layer import extract_from_text, explain_result, flag_compliance, negotiate, compliance_pct, ai_coverage_pct, answer_query, evaluate_band_guardrail, EPFO_AGGREGATE_CEILING
 from tax_engine import SalaryStructure, derive_pf, derive_nps
@@ -23,6 +25,7 @@ from orchestration import classify_row
 from razorpayx_client import (
     fetch_account_balance, RazorpayXNotConfigured, RazorpayXKeyModeError, RazorpayXRequestError,
 )
+from auth import verify_login, require_role
 import io
 import review_queue
 from diff_view import build_diff
@@ -30,6 +33,28 @@ from salary_revision_export import build_salary_revision_workbook, TEMPLATE_HONE
 
 app = Flask(__name__, static_folder="static", static_url_path="")
 review_queue.init_db()
+
+# Session cookie config for the real HR/Finance auth (see auth.py). Falls
+# back to an ephemeral per-process secret if FLASK_SECRET_KEY isn't set —
+# sessions won't survive a restart in that case, but the app still works
+# out of the box with zero required setup, same degrade-gracefully pattern
+# as ANTHROPIC_API_KEY elsewhere in this file.
+_secret_key = os.environ.get("FLASK_SECRET_KEY")
+if not _secret_key:
+    _secret_key = secrets.token_hex(32)
+    print(
+        "WARNING: FLASK_SECRET_KEY not set — using an ephemeral session key "
+        "for this process. Sessions will not survive a server restart. Set "
+        "FLASK_SECRET_KEY in .env to persist them.",
+        file=sys.stderr,
+    )
+app.secret_key = _secret_key
+app.config["PERMANENT_SESSION_LIFETIME"] = 60 * 60 * 8  # 8 hours
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+# False is correct for local HTTP dev (Secure cookies require HTTPS) — a
+# real deployment behind HTTPS would need this flipped to True.
+app.config["SESSION_COOKIE_SECURE"] = False
 
 AUDIT_LOG_PATH = "audit_log.jsonl"
 
@@ -557,6 +582,16 @@ def api_create_submission():
     (zero new tax logic), then persists it to the review queue as 'pending'.
     Batch submissions skip the per-row AI explanation (skip_explanation_ai)
     for the same measured reason /api/batch-audit's docstring describes —
+
+    DELIBERATELY NOT @require_role-gated, unlike the read/decide/export
+    routes below. This route is also called from /optimize/batch (a fully
+    public, ungated page)'s "Submit correction" flow — gating it behind an
+    HR session would break that already-working, already-demoed public
+    flow. It's functionally a public form submission ("propose this
+    structure for review"), exposing no one else's data. The real
+    sensitivity — reading everyone's submitted PII/bank details, and
+    approving/exporting a payout — is gated below. Do not "fix" this route
+    into requiring auth for consistency; that regresses the audit page.
     a live API call per row doesn't scale.
     """
     data = request.get_json(force=True)
@@ -648,12 +683,14 @@ def api_create_submission():
 
 
 @app.route("/api/submissions", methods=["GET"])
+@require_role("hr", "finance")
 def api_list_submissions():
     status = request.args.get("status")
     return jsonify({"submissions": review_queue.list_submissions(status)})
 
 
 @app.route("/api/submissions/<int:submission_id>", methods=["GET"])
+@require_role("hr", "finance")
 def api_get_submission(submission_id):
     """Finance's detail view — includes the before/after diff per row, built over already-computed data only."""
     submission = review_queue.get_submission(submission_id)
@@ -665,6 +702,7 @@ def api_get_submission(submission_id):
 
 
 @app.route("/api/submissions/<int:submission_id>/rows/<int:row_index>/decide", methods=["POST"])
+@require_role("finance")
 def api_decide_row(submission_id, row_index):
     """
     Finance's approve/reject action on one row. Idempotent: a second call
@@ -683,8 +721,12 @@ def api_decide_row(submission_id, row_index):
         return jsonify({"error": "a rejection requires a reason"}), 400
 
     try:
+        # decided_by now comes from the verified session, not client
+        # input — @require_role("finance") guarantees this is "finance" in
+        # practice, but it's genuinely server-verified now rather than an
+        # unenforced client-supplied string.
         result = review_queue.decide_row(submission_id, row_index, decision, reason,
-                                          decided_by=data.get("decided_by", "finance"))
+                                          decided_by=session["role"])
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
 
@@ -707,6 +749,7 @@ def api_decide_row(submission_id, row_index):
 
 
 @app.route("/api/submissions/<int:submission_id>/rows/<int:row_index>/export", methods=["POST"])
+@require_role("finance")
 def api_export_approved_row(submission_id, row_index):
     """
     Closes the loop after Finance approves: generates the correct kind of
@@ -853,14 +896,47 @@ def api_audit_log():
     return jsonify({"entries": entries[-limit:], "total_logged": len(entries)})
 
 
+@app.route("/api/auth/login", methods=["POST"])
+def api_auth_login():
+    """
+    Server-side verification of the shared HR/Finance demo code — see
+    auth.py. Two shared role-codes, not per-person accounts, by deliberate
+    scope. On success, sets a real signed, HttpOnly, expiring session
+    cookie; role-gate.tsx reads GET /api/auth/session on load instead of
+    checking sessionStorage.
+    """
+    data = request.get_json(force=True)
+    role = data.get("role")
+    code = data.get("code", "")
+    if not verify_login(role, code):
+        return jsonify({"error": "That code doesn't match — try again."}), 401
+    session.clear()
+    session["role"] = role
+    session.permanent = True
+    return jsonify({"role": role})
+
+
+@app.route("/api/auth/logout", methods=["POST"])
+def api_auth_logout():
+    session.clear()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/auth/session", methods=["GET"])
+def api_auth_session():
+    return jsonify({"role": session.get("role")})
+
+
 @app.route("/api/razorpayx/balance", methods=["GET"])
+@require_role("finance")
 def api_razorpayx_balance():
     """
     The one route in this codebase that makes a real, live call to
     RazorpayX — read-only, zero money movement. See razorpayx_client.py's
     own docstring for the full scope boundary (one GET endpoint, test-mode
     keys only, no override). Every other export/payout route in this file
-    stays payload-construction-only, unchanged.
+    stays payload-construction-only, unchanged. Finance-only: real
+    financial visibility, same sensitivity class as the review queue.
     """
     try:
         balance = fetch_account_balance()

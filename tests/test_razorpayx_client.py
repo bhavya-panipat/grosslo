@@ -90,8 +90,16 @@ class TestFetchAccountBalanceGuards(unittest.TestCase):
 
 
 class TestRazorpayXBalanceRoute(unittest.TestCase):
+    """
+    These test the not-configured/live-key-mode logic downstream of auth —
+    the 401-before-any-of-that-is-even-checked case is covered in
+    test_auth.py's test_razorpayx_balance_requires_finance_session_before_anything_else.
+    So every test here logs in as finance first, deliberately.
+    """
+
     def setUp(self):
         self.client = flask_app.app.test_client()
+        self.client.post("/api/auth/login", json={"role": "finance", "code": "FINANCE2026"})
         self._orig_id = os.environ.pop("RAZORPAYX_KEY_ID", None)
         self._orig_secret = os.environ.pop("RAZORPAYX_KEY_SECRET", None)
 

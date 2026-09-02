@@ -290,6 +290,9 @@ class TestSubmissionsRouteIntegration(ReviewQueueTestCase):
     def setUp(self):
         super().setUp()
         self.client = flask_app.app.test_client()
+        # GET /api/submissions/<id> now requires a real hr/finance session
+        # (see auth.py) — POST (create) deliberately stays open, unaffected.
+        self.client.post("/api/auth/login", json={"role": "finance", "code": "FINANCE2026"})
 
     def test_submitting_r1_row_persists_and_returns_escalate_route(self):
         row = {
