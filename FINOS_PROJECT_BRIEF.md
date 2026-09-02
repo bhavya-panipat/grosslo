@@ -405,6 +405,15 @@ flow also calls it and exposes no one else's data by doing so. What's
 still true: these remain two shared demo secrets, not per-person
 credentials, and there's no login rate-limiting or lockout.
 
+That one open route is now rate-limited, not just unauthenticated —
+found in a live-defense pressure-test, not by inspection. A submitted
+row can carry attacker-controlled bank details, and the real protection
+against that becoming a real payout is a reviewer catching it — an
+in-memory, per-IP limit (20 requests/60s) on `POST /api/submissions`
+bounds how many attempts one source gets to slip a fraudulent row past
+that review. Demo-scale (resets on restart, no cross-process
+coordination), not production hardening, stated as such.
+
 **One server-side file write does exist, deliberately narrow: a local audit
 log.** `_append_audit_log()` in `app.py` appends one JSON line per
 money-adjacent decision (structure computed, compliance/guardrail verdict,

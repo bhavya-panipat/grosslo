@@ -96,7 +96,11 @@ infrastructure:
   where 2 rows have flags doesn't require an all-or-nothing decision. The
   queue itself is sectioned by the routing decision above (Clean / Needs
   review / Guardrail not run / Escalated), so risk is visible before
-  opening a single row, not just after.
+  opening a single row, not just after — and the sections render in
+  urgency order, Escalated first and Clean last, not in whatever order
+  they happened to be coded in. (They originally rendered Clean-first,
+  the opposite of what a reviewer opening the page actually wants;
+  fixed once that was pointed out.)
 - **Approving never dispatches anything.** It writes a status change and
   an audit-log entry that says exactly that: *"Approved — Payout
   SIMULATED, no live dispatch."* This is the same live-execution boundary
@@ -107,13 +111,21 @@ infrastructure:
   returns to HR's queue with that reason visible, and the rejection is
   logged exactly like an approval — a decision either way belongs in the
   trail.
-- **A before/after diff, not just a raw trace.** For every offer with a
-  prior structure to compare against, Finance sees exactly which fields
-  changed and *why* — attributed to the specific compliance rule it
-  resolves (e.g. "Basic: ₹5,00,000 → ₹9,00,000 — R1 compliance fix") or to
-  "tax optimization" when no rule is involved. Zero new computation: this
-  reads the same `negotiation`/`compliance` data every other route already
-  produces (`diff_view.py`).
+- **A before/after diff, not just a raw trace — and now visible without
+  opening the row.** For every offer with a prior structure to compare
+  against, Finance sees exactly which fields changed and *why* —
+  attributed to the specific compliance rule it resolves (e.g. "Basic:
+  ₹5,00,000 → ₹9,00,000 — R1 compliance fix") or to "tax optimization"
+  when no rule is involved. Zero new computation: this reads the same
+  `negotiation`/`compliance` data every other route already produces
+  (`diff_view.py`). This used to render only inside the "Inspect" expand
+  panel — a reviewer scanning the queue saw a flag count, never the
+  actual fix, unless they clicked into every row. A one-line summary of
+  the single highest-severity fix — not just the first field that happens
+  to differ — now renders directly in the collapsed row. A row with no
+  prior offer to compare against (a plain new hire) shows no suggested-fix
+  line at all, on purpose — a vague placeholder would be worse than
+  showing nothing.
 - **Duplicate submissions are flagged, not silently reprocessed.** The
   same employee at the same CTC submitted twice in the same day is
   detected and blocked before it's inserted (`review_queue.py`). A
@@ -394,6 +406,22 @@ guess at what the new number would be.
     `True`. See "Maker-checker review, demo-scoped" below — approve/reject
     still always requires a human click regardless of session, unrelated
     to this change.
+  - **That one open route is rate-limited, not just unauthenticated.**
+    Found in a live-defense pressure-test, not by inspection: staying
+    open doesn't mean staying unguarded — a submitted row can carry
+    attacker-controlled `bank_account_number`/`ifsc`, and if a reviewer
+    approves a well-disguised fraudulent row among many legitimate ones,
+    export generates a real payout payload to that account. Fixed with an
+    in-memory, per-IP limit (20 requests/60s) on `POST /api/submissions`
+    specifically — bounds how many attempts one source gets to slip a
+    fraudulent row past review, without requiring the identity check that
+    would break the public audit flow. Demo-scale, stated plainly: resets
+    on restart, doesn't coordinate across multiple server processes behind
+    a real load balancer — this is a real, named limitation, not a claim
+    of production hardening. Distinct from the "no login rate-limiting"
+    gap above — that's about repeated login *attempts* against the shared
+    role-codes, still genuinely absent; this is about repeated *submission*
+    attempts against the one open route, now genuinely present.
   - **The review queue does store employee PII, including bank details —
     named explicitly, not glossed over.** Employee name and CTC were
     always stored (needed for the dedupe check); as of the redundancy fix
@@ -415,11 +443,15 @@ guess at what the new number would be.
   Named explicitly as a pre-production gap, not an oversight — the same
   discipline already applied to the LTA-utilization estimate, the
   Basic-salary statutory floor, and the no-live-dispatch boundary
-  elsewhere in this document. **Real security infrastructure was
-  deliberately not built for
-  this submission** — the honest statement is the correct move here; a
-  rushed implementation before Sept 5 would be worse than admitting the
-  gap plainly.
+  elsewhere in this document. **This paragraph used to say "real security
+  infrastructure was deliberately not built for this submission" — that
+  stopped being true partway through this build and the sentence went
+  stale until this pass caught it.** Real session auth, route-level role
+  gating, and a submission rate-limit are all now real and described
+  above, not simulated. What's still genuinely absent — no encryption at
+  rest, no per-person accounts, no login rate-limiting, no production
+  database — is named explicitly in each case above, not folded into one
+  blanket disclaimer that was true on day one and stopped being checked.
 - **The treasury forecast (`payroll_breakdown.treasury_forecast`) has no
   concept of history or an existing payroll baseline** — there's no database
   anywhere in this app, so the "capital required" figure is a literal sum
