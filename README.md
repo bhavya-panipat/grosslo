@@ -763,11 +763,11 @@ future plans:
 
 ## Test coverage
 
-116 tests total across five files (counted directly from the test
+141 tests total across five files (counted directly from the test
 methods in the repo, not estimated — re-run `python3 -m unittest discover
 -s tests` yourself to confirm):
 
-- **58 in `tests/test_finos.py`** — the marginal relief calculation
+- **73 in `tests/test_finos.py`** — the marginal relief calculation
   (validated against the government's own worked example), the
   old-vs-new regime crossover, HRA metro vs non-metro, the PF
   statutory-ceiling toggle, extraction's mismatch-detection logic, the
@@ -776,11 +776,17 @@ methods in the repo, not estimated — re-run `python3 -m unittest discover
   genuinely rejects an untraceable number and reports that it did, not
   just that it passes a traceable one), each compliance rule's trigger
   condition, the conversational query layer's hypothetical-recalculation
-  path, and the Code on Wages 2025 statutory-floor fix (the search space
+  path, the Code on Wages 2025 statutory-floor fix (the search space
   is genuinely 10 points wide, R1 fires at the correct boundary, and
   `naive_baseline_tax()`'s hardcoded 0.50 is explicitly tied to
-  `BASIC_PCT_MIN` so the two can't silently drift apart).
-- **19 in `tests/test_review_workflow.py`** — the maker-checker flow end
+  `BASIC_PCT_MIN` so the two can't silently drift apart), the numeric+
+  polarity guard on compliance-flag/guardrail-check phrasing (including
+  the negated-marker and hyphenated-negation cases found in review), and
+  the NPS 10%/14% old-vs-new-regime rate differential (re-verified live
+  during the Income Tax Act 2025 citation sweep, since the citation text
+  had gone stale but the underlying rate logic had never actually been
+  tested directly).
+- **28 in `tests/test_review_workflow.py`** — the maker-checker flow end
   to end: submission persistence, approval writes the correct
   simulated-not-dispatched status, rejection requires and stores a
   reason, the diff view's before/after values match a real optimizer run
@@ -788,10 +794,17 @@ methods in the repo, not estimated — re-run `python3 -m unittest discover
   submissions are flagged rather than reprocessed, a double-approve
   doesn't double-write, the salary-revision export's XLSX contains the
   real corrected values with the honesty label present, exports are
-  gated on approval, bank details flow through correctly, and the batch
+  gated on approval, bank details flow through correctly, the batch
   audit's clean/flagged/exception counts match a hand-verified mix of
-  rows.
-- **18 in `tests/test_orchestration.py`** — every routing outcome
+  rows, the dedup-collision fix (same name+CTC, different email, no
+  longer collide; same candidate's same-day resubmission still does),
+  `orchestration.route` on `/api/batch-audit` matched against a real
+  hand-counted tally of `auto_pass_candidate` rows (the exact computation
+  the batch executive summary's Compliance Clean Rate does client-side),
+  and `treasury_forecast`'s presence plus its own internal
+  net-take-home+TDS-escrow+EPFO-challan identity on submission rows (what
+  the live treasury gate on `/finance` sums for Required Treasury Funding).
+- **19 in `tests/test_orchestration.py`** — every routing outcome
   (`auto_pass_candidate`/`needs_review`/`guardrail_not_run`/`escalate`)
   against real `flag_compliance()`/`evaluate_band_guardrail()` output,
   including the two gaps found during plan review before this shipped: a

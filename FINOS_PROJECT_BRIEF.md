@@ -288,6 +288,28 @@ different failure mode from `unclaimed_savings > 0` alone, which can fire
 even when the regime is already correct and only the basic/HRA/PF split
 within it is suboptimal.
 
+**The batch executive summary reuses `orchestration.route`, not a second
+"is this row clean" definition.** `/api/batch-audit` didn't compute
+`orchestration.route` at all until this feature needed it — wired in via
+`flag_compliance(..., skip_ai=True)` + `classify_row()`, the exact same
+classifier `/api/submissions` feeds the Finance queue with, run
+deterministic-only so a 50+ row audit gains zero AI latency. Its
+Compliance Clean Rate metric tallies `auto_pass_candidate` routes
+client-side; Total Monthly Payroll Liability and Discovered Annual Tax
+Inefficiency sum `treasury_forecast.total_capital_outlay` and
+`unclaimed_savings`, both already present on every row. One real,
+non-obvious consequence, found live while testing this: the pre-existing
+`clean_count`/`flagged_count` pair (unclaimed-savings-and-EPFO-ceiling
+based) and `orchestration.route` (compliance-rule/guardrail-band based)
+are genuinely different lenses and can disagree on the same row — a
+structure already at its tax-optimal split with basic below the Code on
+Wages 50% floor shows "nothing to correct" under the first and escalates
+under the second. Both are real; the executive card deliberately reads
+only the second, and the pre-existing `AuditSummaryCard` was trimmed down
+to the one thing it still uniquely covers (breakdown by exception type)
+so the two summaries never show competing clean/flagged headlines on the
+same screen.
+
 **Bulk actions reuse existing endpoints rather than adding new ones.**
 "Submit all N flagged" on the audit page collects every flagged row and
 sends them as a single `/api/submissions` batch call — the same endpoint
@@ -439,19 +461,40 @@ trust.
 not a delta against a company's real payroll.** This follows directly from
 the statelessness above: `payroll_breakdown.treasury_forecast()` has no
 history to compute a delta against, so "capital required" is a literal
-figure for whatever single structure is in the request — one candidate on
-`/optimize`, or one approved row's own forecast on the per-row export in
-`/finance`. (`/api/batch-audit` computes one per row too, for the CSV
-being audited; nothing currently aggregates a multi-employee capital
-figure in one call — the New Hire Batch export modal that once did this
-was removed with the redundancy fix, and nothing replaced that specific
-aggregation.) That's an accurate number for what it is, but it is not a
-company's
-full recurring payroll capital, and the UI label says so explicitly rather
+figure for whatever structure(s) are in play — one candidate on
+`/optimize`, one approved row's own forecast on the per-row export in
+`/finance`, or (since the executive summary and treasury gate below)
+a real sum across every row in a batch or every row still pending. That's
+an accurate number for what it is, but it is not a company's full
+recurring payroll capital — it only ever covers rows this specific request
+or queue actually has in view, and the UI labels say so explicitly rather
 than leaving that inference to the viewer. Closing that gap for real —
 showing a steady-state baseline alongside the incremental figure — needs a
 persisted employee roster this build deliberately doesn't have; it's the
 first item on the roadmap in `README.md`, not a silent limitation.
+
+**The live treasury gate on `/finance` is the one gate in this flow based
+on something 100% real, and it fails closed on purpose.** `GET
+/api/razorpayx/balance` already existed as an isolated, passing test with
+no role in the actual demo flow; this wires it into a genuine
+bulk-approve gate. Required funding sums `treasury_forecast
+.total_capital_outlay` — on the RECOMMENDED structure, matching what the
+guardrail check and the export route already use, not the as-offered one
+— over every currently-pending row, recomputed fresh on every render
+(pending rows are themselves derived fresh from submission state on every
+render, so there's no separate cache to go stale). The live RazorpayX
+balance side is a fresh API call each time Finance takes an action. When
+required funding exceeds the live balance — or the balance can't be
+confirmed at all, e.g. a real RazorpayX rate limit, verified live during
+testing, not simulated — bulk-approve selection disappears using the
+identical exclusion pattern already built for escalated/no-guardrail rows
+(no checkbox rendered, structurally nothing to select, not a disabled
+button with a warning next to it). Individual row approval is deliberately
+unaffected: the gate exists to stop a batch from collectively outstripping
+real, current funds, not to freeze review entirely. Every other gate in
+this maker-checker flow is necessarily simulated, since there's no live
+dispatch anywhere in this product by design — this is the one place a
+gate reflects something currently, literally true.
 
 **Batch mode skips the AI-generated explanation entirely — measured, not
 assumed, to cost nothing.** `explain_result(..., skip_ai=True)` goes
@@ -534,20 +577,28 @@ features added one at a time.
 
 ## Test coverage
 
-116 tests total across five files, passing with no `ANTHROPIC_API_KEY` set
+141 tests total across five files, passing with no `ANTHROPIC_API_KEY` set
 (every AI-layer function has a deterministic fallback, so the full suite
 exercises real logic either way — see README.md's "Test coverage" for the
 full per-file breakdown):
 
-- **58** in `tests/test_finos.py` — marginal relief, regime crossover,
+- **73** in `tests/test_finos.py` — marginal relief, regime crossover,
   HRA, PF ceiling, extraction mismatch detection, the numeric guard's
   rejection branch (mocking only the external Claude call, never the
   guard logic), each compliance rule's trigger condition, the query
-  layer's hypothetical re-run path, and the Code on Wages 2025
-  statutory-floor fix.
-- **19** in `tests/test_review_workflow.py` — the maker-checker flow end
-  to end.
-- **18** in `tests/test_orchestration.py` — every routing outcome against
+  layer's hypothetical re-run path, the Code on Wages 2025 statutory-floor
+  fix, and the NPS 10%/14% old-vs-new-regime rate differential (re-verified
+  live during the Income Tax Act 2025 citation sweep — the citation text
+  was wrong, the underlying rate logic wasn't, confirmed rather than
+  assumed).
+- **28** in `tests/test_review_workflow.py` — the maker-checker flow end
+  to end, including the dedup-collision fix (name+CTC alone false-positives
+  across multiple hires at an identical comp band; now folds in the
+  already-existing optional email field), `orchestration.route` on
+  `/api/batch-audit` matched against a real hand-counted tally (not just
+  "a percentage renders"), and `treasury_forecast`'s presence and internal
+  identity on submission rows.
+- **19** in `tests/test_orchestration.py` — every routing outcome against
   real compliance/guardrail output, including two gaps closed during plan
   review before shipping (combined High-flag + failing-guardrail
   ordering; two-different-severities aggregation).
