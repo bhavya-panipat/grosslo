@@ -17,6 +17,7 @@ from ai_layer import (
     extract_from_text, explain_result, flag_compliance, negotiate, _check_rules,
     compliance_pct, ai_coverage_pct, answer_query, evaluate_band_guardrail,
 )
+from payroll_breakdown import monthly_professional_tax, annual_professional_tax, treasury_forecast
 from unittest.mock import patch, Mock
 from app import _parse_commit_dates
 
@@ -845,6 +846,100 @@ class TestConversationalQueryLayer(unittest.TestCase):
         self.assertTrue(r["guard_triggered"])
         self.assertFalse(r["ai_backed"])
         self.assertIn("88,140", r["answer"])  # verified fallback, grounded in the real context number
+
+
+class TestStateProfessionalTax(unittest.TestCase):
+    """
+    payroll_breakdown.py's PT tables were re-verified live on 2026-09-03
+    against primary sources, not the figures a first draft of this feature
+    proposed — two of which had already gone stale or wrong: Karnataka's
+    exemption threshold moved from Rs 15,000 to Rs 25,000 (Karnataka Tax on
+    Professions... (Amendment) Act, 2025, effective 1 April 2025), and
+    Tamil Nadu's Greater Chennai Corporation slab is a real 6-tier
+    half-yearly table (verified against tnswp.com's own PDF directly), not
+    a 2-tier approximation. Every gross_monthly figure below is chosen to
+    land unambiguously inside the band being tested, not near a boundary,
+    except the Telangana boundary test which does the opposite on purpose.
+    """
+
+    def test_karnataka_above_new_25000_threshold(self):
+        r = monthly_professional_tax("karnataka", 30_000)
+        self.assertEqual(r["amount"], 200)
+        self.assertTrue(r["pt_state_recognized"])
+        self.assertFalse(r["is_approximation"])
+
+    def test_karnataka_below_new_25000_threshold_is_exempt(self):
+        # The real behavioral consequence of the corrected threshold: a
+        # salary that WOULD have owed Rs 200/month under the old Rs 15,000
+        # exemption is genuinely exempt now.
+        r = monthly_professional_tax("karnataka", 20_000)
+        self.assertEqual(r["amount"], 0)
+        self.assertTrue(r["pt_state_recognized"])
+
+    def test_maharashtra_7501_to_10000_band(self):
+        r = monthly_professional_tax("maharashtra", 8_000)
+        self.assertEqual(r["amount"], 175)
+        self.assertTrue(r["pt_state_recognized"])
+
+    def test_maharashtra_february_bump_reaches_2500_annual_ceiling(self):
+        # Both the single-month lookup and the real annual total, so a
+        # regression in either the bump condition or the aggregation gets
+        # caught, not just one of the two.
+        february = monthly_professional_tax("maharashtra", 50_000, month=2)
+        self.assertEqual(february["amount"], 300)
+        annual = annual_professional_tax("maharashtra", 50_000)
+        self.assertEqual(annual["amount"], 2_500)  # 11 x 200 + 300, the Article 276 ceiling
+
+    def test_telangana_three_tier_boundaries(self):
+        self.assertEqual(monthly_professional_tax("telangana", 15_000)["amount"], 0)
+        self.assertEqual(monthly_professional_tax("telangana", 15_001)["amount"], 150)
+        self.assertEqual(monthly_professional_tax("telangana", 20_000)["amount"], 150)
+        self.assertEqual(monthly_professional_tax("telangana", 20_001)["amount"], 200)
+
+    def test_tamil_nadu_monthly_equivalent_flagged_as_approximation(self):
+        # Real half-yearly top-band tax is Rs 1,095 (verified against
+        # tnswp.com's own PDF) -> monthly-equivalent is 1,095/6 = 182.5.
+        r = monthly_professional_tax("tamil_nadu", 20_000)
+        self.assertEqual(r["amount"], round(1_095 / 6, 2))
+        self.assertTrue(r["pt_state_recognized"])
+        self.assertTrue(r["is_approximation"])
+
+    def test_delhi_is_a_confirmed_zero_not_an_unmodeled_one(self):
+        r = monthly_professional_tax("delhi", 50_000)
+        self.assertEqual(r["amount"], 0)
+        self.assertTrue(r["pt_state_recognized"])  # the whole point of this case
+
+    def test_missing_work_location_is_unmodeled_not_zero_by_law(self):
+        # Negative control for the Delhi case directly above: both return
+        # amount=0, but pt_state_recognized must tell them apart.
+        r = monthly_professional_tax(None, 50_000)
+        self.assertEqual(r["amount"], 0)
+        self.assertFalse(r["pt_state_recognized"])
+
+    def test_treasury_forecast_net_disbursement_differs_by_exactly_the_pt_amount(self):
+        structure = build_structure(ctc=1_800_000, basic_pct=0.6, hra_pct_of_remaining=0.4,
+                                     lta=0, regime="new", nps_opted=False)
+        tax = compute_tax(taxable_income_for_structure(structure, "new", rent_paid=0, city="metro"), "new")
+        without_pt = treasury_forecast(structure, tax)
+        with_pt = treasury_forecast(structure, tax, work_location="karnataka")
+        self.assertGreater(with_pt["professional_tax_annual"], 0)
+        self.assertAlmostEqual(
+            without_pt["net_take_home_annual"] - with_pt["net_take_home_annual"],
+            with_pt["professional_tax_annual"],
+            places=2,
+        )
+        # total_capital_outlay's own defining identity (see treasury_forecast's
+        # docstring) must still hold with PT folded in as a fourth term —
+        # the total cash the company needs doesn't change, only how it splits.
+        self.assertAlmostEqual(
+            with_pt["total_capital_outlay"],
+            with_pt["net_take_home_annual"] + with_pt["tds_escrow_annual"]
+            + with_pt["epfo_challan_annual"] + with_pt["professional_tax_annual"],
+            places=2,
+        )
+        # And the total itself is unchanged by PT — it's a fourth split of
+        # the same fixed cash pool, not new money the company has to find.
+        self.assertAlmostEqual(without_pt["total_capital_outlay"], with_pt["total_capital_outlay"], places=2)
 
 
 if __name__ == "__main__":

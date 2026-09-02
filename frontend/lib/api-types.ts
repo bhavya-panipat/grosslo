@@ -158,6 +158,14 @@ export type TreasuryForecast = {
   net_take_home_annual: number;
   tds_escrow_annual: number;
   epfo_challan_annual: number;
+  // State Professional Tax — 0 with pt_state_recognized:false when
+  // work_location wasn't supplied or isn't one of the 5 modeled states
+  // (a real "not modeled" gap), vs. Delhi's genuine, checked 0 with
+  // pt_state_recognized:true. pt_is_approximation is true only for
+  // tamil_nadu (a monthly-equivalent of its real half-yearly assessment).
+  professional_tax_annual: number;
+  pt_state_recognized: boolean;
+  pt_is_approximation: boolean;
   total_capital_outlay: number;
   funding_deadline_hours_before_payroll: number;
 };
@@ -295,6 +303,7 @@ export type SubmissionRow = {
     current_structure: StructureDict | null; employee_name: string | null;
     band_min?: number | null; band_max?: number | null;
     bank_account_number?: string | null; ifsc?: string | null; email?: string | null;
+    work_location?: string | null;
   };
   computed: OptimizeResponse;
   diff?: SubmissionDiff;

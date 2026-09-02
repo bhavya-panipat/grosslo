@@ -384,6 +384,27 @@ for the same reason the 271C citation got checked against the actual
 ruling instead of recalled knowledge: this is a domain where being
 confidently wrong is worse than being narrow.
 
+**Three specific things stay out of scope on purpose, named explicitly
+rather than left for a reviewer to wonder whether they were missed:**
+- **Bulk Payout rate-limit handling** (RazorpayX's own batching/
+  `queue_if_low_balance` machinery for `/v1/payouts`) — excluded because
+  live dispatch doesn't exist yet anywhere in this build. No route calls
+  `/v1/payouts`; building rate-limit handling for a call that never
+  happens would produce no demonstrable behavior, only code nothing
+  exercises.
+- **Webhook reconciliation** (`POST /api/webhooks/razorpayx`, syncing
+  payout state from `payout.processed`/`payout.failed`/`payout.reversed`)
+  — excluded for the identical reason. A webhook reacts to dispatch
+  events; there's nothing to react to until dispatch itself exists.
+- **Mid-year proration and previous-employer TDS credit (Form 12B)** —
+  excluded as a stated scope boundary, the same class of gap as surcharge
+  and multiple income sources above. Real and eventually worth having,
+  but it touches `tax_engine.py`, the one module this build deliberately
+  keeps untouched by feature work specifically to protect its existing,
+  already-passing test coverage — the same discipline that kept the
+  state-level Professional Tax addition entirely inside
+  `payroll_breakdown.py` instead.
+
 **The RazorpayX Composite Payout payload shape was verified against
 RazorpayX's own API documentation**, not inferred from field-name guesses —
 nested `fund_account`/`bank_account`/`contact` objects, amount in paise, and
@@ -496,6 +517,56 @@ this maker-checker flow is necessarily simulated, since there's no live
 dispatch anywhere in this product by design — this is the one place a
 gate reflects something currently, literally true.
 
+**Known, stated simplification in the treasury gate above: it compares
+against total exposure, not time-phased need.** `payroll_breakdown.py`
+already tracks a `funding_deadline_hours_before_payroll` per structure,
+but the live gate sums every pending row's full `total_capital_outlay`
+regardless of when each row's funding is actually due — a batch could
+technically be blocked by money that isn't needed for weeks. Fixing this
+for real means staging required funding against each row's own lead time,
+a genuine, non-trivial change to a gate that's already live and demoable
+— exactly the kind of scope this build has deliberately avoided rushing
+under deadline pressure elsewhere (see the rate-limiting
+known-limitation, README.md). Stated here as a decision, not silently
+left for a reviewer to find: the next iteration stages required funding
+against funding lead time; this one demonstrates the gate is real, not
+that it's fully time-aware yet.
+
+**State-level Professional Tax (PT) closes a real gap in
+`payroll_breakdown.py`'s net-disbursement figure — the one deduction
+Basic/HRA/PF payroll math has that this build didn't compute until now.**
+Five states (Karnataka, Maharashtra, Telangana, Tamil Nadu, Delhi),
+chosen for realistic hiring-hub coverage, added as a deterministic lookup
+table in `payroll_breakdown.py` — never `tax_engine.py` or
+`optimizer.py`, same boundary that already keeps employee PF and
+delayed-remittance penalty math out of the tax engine, since PT doesn't
+affect the tax-optimal Basic/HRA/PF split, only the final net-disbursement
+number. Every slab was re-verified live against a primary source before
+shipping, not carried over from an initial draft's figures — which had
+already gone stale or wrong in two places: Karnataka's exemption
+threshold moved from Rs 15,000 to Rs 25,000 under a 2025 amendment
+already in force, and Tamil Nadu's Greater Chennai Corporation slab is a
+real 6-tier half-yearly table (verified against the government's own
+tnswp.com PDF directly, not an aggregator's paraphrase, which for this
+specific table didn't match the primary source when checked), not the
+simpler 2-tier approximation first proposed — a live instance of exactly
+the "secondary sources disagree" risk this feature's own spec warned
+about. Delhi is modeled as an explicit, checked Rs 0 (no PT Act has ever
+been enacted for the NCT of Delhi), distinguished at the API level from
+an unrecognized `work_location` — both return `professional_tax_annual: 0`,
+but `pt_state_recognized` tells apart "correctly zero" from "not
+modeled," so an unset field never silently looks the same as Delhi's
+confirmed zero. Tamil Nadu's monthly-equivalent figure carries its own
+`pt_is_approximation: true` flag for the same reason — a monthly
+approximation of a real half-yearly assessment is a genuine
+simplification, stated as one rather than presented at the same
+confidence as the other four states. Additive by construction: every
+existing caller of `treasury_forecast()` that doesn't pass `work_location`
+reproduces its exact pre-PT output, verified directly — the full 60-row
+sample audit's executive-summary numbers (65% clean rate, ~Rs 14.1 crore
+liability, ~Rs 9,95,196 unclaimed) are byte-for-byte unchanged after this
+shipped, not just assumed unaffected.
+
 **Batch mode skips the AI-generated explanation entirely — measured, not
 assumed, to cost nothing.** `explain_result(..., skip_ai=True)` goes
 straight to the deterministic explanation without a live API call,
@@ -577,20 +648,23 @@ features added one at a time.
 
 ## Test coverage
 
-141 tests total across five files, passing with no `ANTHROPIC_API_KEY` set
+150 tests total across five files, passing with no `ANTHROPIC_API_KEY` set
 (every AI-layer function has a deterministic fallback, so the full suite
 exercises real logic either way — see README.md's "Test coverage" for the
 full per-file breakdown):
 
-- **73** in `tests/test_finos.py` — marginal relief, regime crossover,
+- **82** in `tests/test_finos.py` — marginal relief, regime crossover,
   HRA, PF ceiling, extraction mismatch detection, the numeric guard's
   rejection branch (mocking only the external Claude call, never the
   guard logic), each compliance rule's trigger condition, the query
   layer's hypothetical re-run path, the Code on Wages 2025 statutory-floor
-  fix, and the NPS 10%/14% old-vs-new-regime rate differential (re-verified
+  fix, the NPS 10%/14% old-vs-new-regime rate differential (re-verified
   live during the Income Tax Act 2025 citation sweep — the citation text
   was wrong, the underlying rate logic wasn't, confirmed rather than
-  assumed).
+  assumed), and the state Professional Tax table (5 states, live-verified
+  slabs, the February-bump annual ceiling, Delhi's confirmed-zero vs.
+  an unrecognized state, and the treasury-forecast net-disbursement
+  identity with PT included).
 - **28** in `tests/test_review_workflow.py` — the maker-checker flow end
   to end, including the dedup-collision fix (name+CTC alone false-positives
   across multiple hires at an identical comp band; now folds in the

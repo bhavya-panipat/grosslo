@@ -65,6 +65,12 @@ export default function BatchFlow() {
           city: r.city || "metro",
           band_min: toNum(r.band_min),
           band_max: toNum(r.band_max),
+          // Optional, deliberately not in CsvUploadCard's required-column
+          // list — every existing sample CSV and in-flight demo flow has
+          // no such column and must keep working unchanged. Absent or
+          // unrecognized -> professional_tax_annual is 0 with
+          // pt_state_recognized: false, not a parse error.
+          work_location: r.work_location || undefined,
         })),
       };
       const res = await fetch("/api/batch-audit", {
@@ -89,6 +95,7 @@ export default function BatchFlow() {
     rent_paid: toNum(raw.rent_paid) ?? 0,
     city: raw.city || "metro",
     nps_opted: toBool(raw.nps_opted),
+    work_location: raw.work_location || undefined,
     current_structure: {
       basic: toNum(raw.basic) ?? 0,
       hra: toNum(raw.hra) ?? 0,

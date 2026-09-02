@@ -33,6 +33,7 @@ export default function HrFlow() {
   const [bankAccountNumber, setBankAccountNumber] = useState("");
   const [ifsc, setIfsc] = useState("");
   const [email, setEmail] = useState("");
+  const [workLocation, setWorkLocation] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [lastResult, setLastResult] = useState<CreateSubmissionResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -71,6 +72,7 @@ export default function HrFlow() {
     setBankAccountNumber("");
     setIfsc("");
     setEmail("");
+    setWorkLocation("");
   };
 
   const handleSubmitSingle = () => {
@@ -94,6 +96,7 @@ export default function HrFlow() {
           bank_account_number: bankAccountNumber || undefined,
           ifsc: ifsc || undefined,
           email: email || undefined,
+          work_location: workLocation || undefined,
         },
       }),
     })
@@ -146,6 +149,7 @@ export default function HrFlow() {
             bank_account_number: r.bank_account_number || undefined,
             ifsc: r.ifsc || undefined,
             email: r.email || undefined,
+            work_location: r.work_location || undefined,
           }));
         if (rows.length === 0) {
           setCsvError("No valid rows found — a ctc column is required.");
@@ -195,7 +199,7 @@ export default function HrFlow() {
         <CardShell>
           <div className="flex items-center justify-between">
             <h3 className="font-display text-lg font-semibold text-white">Single offer</h3>
-            {(name || ctc || rentPaid || bandMin || bandMax || bankAccountNumber || ifsc || email) && (
+            {(name || ctc || rentPaid || bandMin || bandMax || bankAccountNumber || ifsc || email || workLocation) && (
               <button
                 onClick={clearSingleForm}
                 className="inline-flex items-center gap-1 text-xs text-neutral-500 hover:text-neutral-300"
@@ -308,6 +312,23 @@ export default function HrFlow() {
                 className="rounded-lg border border-white/10 bg-black/40 px-2.5 py-1.5 text-sm text-neutral-200 focus:border-gold-bright/50 focus:outline-none"
               />
             </label>
+            <label className="col-span-2 flex flex-col gap-1">
+              <span className="text-xs text-neutral-500">
+                Work location (optional — state Professional Tax)
+              </span>
+              <select
+                value={workLocation}
+                onChange={(e) => setWorkLocation(e.target.value)}
+                className="rounded-lg border border-white/10 bg-black/40 px-2.5 py-1.5 text-sm text-neutral-200 focus:border-gold-bright/50 focus:outline-none"
+              >
+                <option value="">Not specified — PT not modeled</option>
+                <option value="karnataka">Karnataka</option>
+                <option value="maharashtra">Maharashtra</option>
+                <option value="telangana">Telangana</option>
+                <option value="tamil_nadu">Tamil Nadu (monthly-equivalent approximation)</option>
+                <option value="delhi">Delhi (no PT levied)</option>
+              </select>
+            </label>
           </div>
 
           <button
@@ -334,6 +355,11 @@ export default function HrFlow() {
             <span className="font-mono text-xs text-neutral-400">
               band_min, band_max, bank_account_number, ifsc, email
             </span>
+          </p>
+          <p className="mt-1 text-sm text-neutral-500">
+            Optional (state Professional Tax):{" "}
+            <span className="font-mono text-xs text-neutral-400">work_location</span> — karnataka,
+            maharashtra, telangana, tamil_nadu, or delhi.
           </p>
           <label className="mt-4 flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-white/15 bg-black/30 px-6 py-8 text-center transition-colors hover:border-gold-bright/40 hover:bg-white/[0.02]">
             <Upload className="h-5 w-5 text-neutral-500" />

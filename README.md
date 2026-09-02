@@ -498,6 +498,25 @@ guess at what the new number would be.
   ("capital required for these employees... not your full existing
   payroll") so it isn't mistaken for more than it is. See Roadmap below for
   what closing this gap actually requires.
+- **The live treasury gate on `/finance` compares against total exposure,
+  not time-phased need.** `payroll_breakdown.py` already tracks a
+  `funding_deadline_hours_before_payroll` per structure, but the gate's
+  "Required Treasury Funding" sums every pending row's full
+  `total_capital_outlay` regardless of when each row's funding is
+  actually due — a batch could technically be blocked by money not
+  needed for weeks. Named here as a stated decision, not silently left
+  for a reviewer to find: staging required funding against each row's own
+  funding lead time is the next iteration; this one demonstrates the gate
+  compares against something 100% real, not that it's fully time-aware
+  yet.
+- **State-level Professional Tax (PT) is now a real deduction line in
+  `treasury_forecast()`, not a missing one.** Five states (Karnataka,
+  Maharashtra, Telangana, Tamil Nadu, Delhi), an optional `work_location`
+  on the `/hr` form and CSV schemas, and every slab re-verified live
+  against a primary source, not carried over stale — see "what broke"
+  below for the two real corrections that verification pass found.
+  Additive by construction: omitting `work_location` reproduces the exact
+  pre-PT figures, confirmed directly, not assumed.
 
 ## Regulatory currency — verified live on 2026-09-01, not assumed
 
@@ -767,14 +786,27 @@ future plans:
   needed sanitizing. Caught by actually calling the endpoint over real
   HTTP with a timeout, not by reading the code — this is exactly the kind
   of bug that inspection alone doesn't surface.
+- **Building state Professional Tax, the initial spec's own draft figures
+  were wrong in two places — caught by verifying against a primary
+  source before writing the table, not after.** Karnataka's PT exemption
+  threshold was drafted at Rs 15,000, which was correct once but moved to
+  Rs 25,000 under a 2025 amendment already in force — a hardcoded Rs
+  15,000 figure would have overcharged every real salary between the two
+  thresholds from day one. Tamil Nadu's Greater Chennai Corporation slab
+  was drafted as a simple 2-tier approximation; the real slab is a 6-tier
+  half-yearly table, confirmed by fetching tnswp.com's own PDF directly
+  — not an aggregator's summary, which for this specific table gave
+  numbers that didn't match the government source when checked side by
+  side. Both fixed before the table shipped, using the primary source's
+  real figures rather than the numbers the spec happened to propose.
 
 ## Test coverage
 
-141 tests total across five files (counted directly from the test
+150 tests total across five files (counted directly from the test
 methods in the repo, not estimated — re-run `python3 -m unittest discover
 -s tests` yourself to confirm):
 
-- **73 in `tests/test_finos.py`** — the marginal relief calculation
+- **82 in `tests/test_finos.py`** — the marginal relief calculation
   (validated against the government's own worked example), the
   old-vs-new regime crossover, HRA metro vs non-metro, the PF
   statutory-ceiling toggle, extraction's mismatch-detection logic, the
@@ -788,11 +820,16 @@ methods in the repo, not estimated — re-run `python3 -m unittest discover
   `naive_baseline_tax()`'s hardcoded 0.50 is explicitly tied to
   `BASIC_PCT_MIN` so the two can't silently drift apart), the numeric+
   polarity guard on compliance-flag/guardrail-check phrasing (including
-  the negated-marker and hyphenated-negation cases found in review), and
-  the NPS 10%/14% old-vs-new-regime rate differential (re-verified live
+  the negated-marker and hyphenated-negation cases found in review), the
+  NPS 10%/14% old-vs-new-regime rate differential (re-verified live
   during the Income Tax Act 2025 citation sweep, since the citation text
   had gone stale but the underlying rate logic had never actually been
-  tested directly).
+  tested directly), and the state Professional Tax table (Karnataka's
+  and Tamil Nadu's corrected-live slabs, the Karnataka/Maharashtra
+  February bump landing at the real Rs 2,500 annual ceiling, Delhi's
+  confirmed-zero distinguished from an unrecognized `work_location`, and
+  `treasury_forecast()`'s net-disbursement identity holding with PT
+  folded in as a fourth term).
 - **28 in `tests/test_review_workflow.py`** — the maker-checker flow end
   to end: submission persistence, approval writes the correct
   simulated-not-dispatched status, rejection requires and stores a

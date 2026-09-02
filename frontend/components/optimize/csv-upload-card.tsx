@@ -81,6 +81,11 @@ export default function CsvUploadCard({ mode, onRowsParsed }: Props) {
       <p className="mt-1 text-sm text-neutral-500">
         Expected columns: <span className="font-mono text-xs text-neutral-400">{expectedColumns}</span>
       </p>
+      <p className="mt-1 text-sm text-neutral-500">
+        Optional (state Professional Tax): <span className="font-mono text-xs text-neutral-400">work_location</span>{" "}
+        — karnataka, maharashtra, telangana, tamil_nadu, or delhi. Omitted or unrecognized rows show PT as not
+        modeled, not zero.
+      </p>
 
       <label className="mt-4 flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-white/15 bg-black/30 px-6 py-8 text-center transition-colors hover:border-gold-bright/40 hover:bg-white/[0.02]">
         <Upload className="h-5 w-5 text-neutral-500" />

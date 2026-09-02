@@ -365,6 +365,10 @@ def api_batch_audit():
             city = row.get("city", "metro")
             band_min = float(row["band_min"])
             band_max = float(row["band_max"])
+            # Optional — absent (None) reproduces treasury_forecast()'s
+            # exact pre-PT behavior for every existing CSV, sample, or
+            # in-flight demo flow that doesn't have this column at all.
+            work_location = row.get("work_location")
         except (KeyError, ValueError, TypeError):
             results.append({"row_index": i, "error": "ctc, basic, band_min, and band_max are required and must be numeric"})
             continue
@@ -387,7 +391,7 @@ def api_batch_audit():
             (structure.employer_pf + structure.employer_nps) - EPFO_AGGREGATE_CEILING,
         ), 2)
         guardrail = evaluate_band_guardrail(structure, current_best["regime"], band_min, band_max)
-        forecast = treasury_forecast(structure, current_best["tax_breakdown"])
+        forecast = treasury_forecast(structure, current_best["tax_breakdown"], work_location=work_location)
         # A genuinely different signal from unclaimed_savings > 0: this fires
         # only when the structure is filed under the WRONG regime entirely,
         # not when the regime is right but the basic/HRA/PF split within it
@@ -555,6 +559,7 @@ def api_export_razorpayx():
         band_max = float(data["band_max"])
     except (KeyError, ValueError, TypeError):
         return jsonify({"error": "ctc, band_min, and band_max are required and must be numeric"}), 400
+    work_location = data.get("work_location")
 
     if band_min <= 0 or band_max <= 0:
         return jsonify({"error": "band_min and band_max must be positive"}), 400
@@ -583,7 +588,7 @@ def api_export_razorpayx():
     recommended = result["recommended"]
 
     guardrail = evaluate_band_guardrail(recommended.structure, recommended.regime, band_min, band_max)
-    forecast = treasury_forecast(recommended.structure, recommended.tax_breakdown)
+    forecast = treasury_forecast(recommended.structure, recommended.tax_breakdown, work_location=work_location)
 
     response = {
         "treasury_forecast": forecast,
@@ -720,6 +725,7 @@ def api_create_submission():
         # funding requirements without a second, parallel computation.
         response["treasury_forecast"] = treasury_forecast(
             raw_result["recommended"].structure, raw_result["recommended"].tax_breakdown,
+            work_location=row.get("work_location"),
         )
 
         # Band is optional (same convention as /api/optimize's own
@@ -764,6 +770,7 @@ def api_create_submission():
                 "bank_account_number": row.get("bank_account_number"),
                 "ifsc": row.get("ifsc"),
                 "email": row.get("email"),
+                "work_location": row.get("work_location"),
             },
             "computed": response,
             "orchestration": orchestration,
@@ -910,7 +917,7 @@ def api_export_approved_row(submission_id, row_index):
 
     result = optimize(ctc=inp["ctc"], rent_paid=inp["rent_paid"], city=inp["city"], nps_opted=inp["nps_opted"])
     recommended = result["recommended"]
-    forecast = treasury_forecast(recommended.structure, recommended.tax_breakdown)
+    forecast = treasury_forecast(recommended.structure, recommended.tax_breakdown, work_location=inp.get("work_location"))
     employee = {
         "name": row.get("employee_name") or f"Row {row_index + 1}",
         "bank_account_number": inp["bank_account_number"],
