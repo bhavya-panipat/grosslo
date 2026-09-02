@@ -418,21 +418,37 @@ def ai_coverage_pct(extraction_ran: bool, extraction_ai_backed: bool,
     return round(sum(1 for x in ran if x) / len(ran) * 100, 1)
 
 
-def flag_compliance(structure, rent_paid: float) -> dict:
+def flag_compliance(structure, rent_paid: float, skip_ai: bool = False) -> dict:
     """
     Check a salary structure against the fixed compliance_rules.md checklist.
-    Rule matching is always deterministic (see _check_rules). The LLM, when
+    Rule matching is always deterministic (see _check_rules) and is what
+    every routing/severity decision downstream (orchestration.py's
+    classify_row(), R1-R6 membership) is actually based on — the LLM, when
     available, only rephrases the already-determined flags into cleaner
-    prose — it cannot add or remove flags.
+    prose. It cannot add or remove flags, and skipping it never changes
+    which rules fired or how a row gets routed, only the wording of
+    flag["message"].
 
-    Numeric- and polarity-guarded, same discipline as explain_result()/
-    answer_query(): every triggered flag is a real violation by
-    construction, so a rephrasing that states a wrong number
-    (_numbers_ungrounded) or soft-pedals the violation into sounding
-    compliant (_phrasing_flips_polarity) is rejected for the WHOLE batch,
-    not just the offending line — same all-or-nothing granularity the
-    length check already used. This is the actual guard behind
-    orchestration.py's classify_row(), which surfaces these flags'
+    skip_ai=True goes straight to the real rationale text as the message,
+    without ever calling the live API — same pattern as explain_result()'s
+    own skip_ai, for the same measured reason: flag_compliance()'s AI call
+    ran unconditionally per row with no batch-mode skip, measured at
+    ~7.9s/row through a real 10-row POST /api/submissions batch (~79s
+    total) — the actual latency cost, not assumed. Passed True by the
+    batch route only. The rationale text this falls back to is the same
+    well-written, professional prose already used as the fallback
+    everywhere else this function's output can't use AI phrasing (guard
+    fired, no client, API error) — reviewed for presentability before
+    this was ever a batch-mode default, not just assumed to read fine.
+
+    Numeric- and polarity-guarded when AI phrasing IS used, same
+    discipline as explain_result()/answer_query(): every triggered flag
+    is a real violation by construction, so a rephrasing that states a
+    wrong number (_numbers_ungrounded) or soft-pedals the violation into
+    sounding compliant (_phrasing_flips_polarity) is rejected for the
+    WHOLE batch, not just the offending line — same all-or-nothing
+    granularity the length check already used. This is the actual guard
+    behind orchestration.py's classify_row(), which surfaces these flags'
     "message" text as the stated reason for a routing decision.
 
     Returns {"flags": [...], "ai_backed": bool, "guard_triggered": bool}.
@@ -440,6 +456,11 @@ def flag_compliance(structure, rent_paid: float) -> dict:
     triggered = _check_rules(structure, rent_paid)
     if not triggered:
         return {"flags": [], "ai_backed": False, "guard_triggered": False}
+
+    if skip_ai:
+        for flag in triggered:
+            flag["message"] = flag["rationale"]
+        return {"flags": triggered, "ai_backed": False, "guard_triggered": False}
 
     allowed_numbers = set()
     for flag in triggered:
@@ -704,7 +725,7 @@ def _diff_levers(current: SalaryStructure, recommended: SalaryStructure,
 
 def negotiate(current_structure: SalaryStructure, current_best: dict,
               recommended: SalaryStructure, recommended_regime: str,
-              recommended_tax: dict, ctc: float) -> dict:
+              recommended_tax: dict, ctc: float, skip_ai: bool = False) -> dict:
     """
     Compare the offer letter's as-extracted structure against the
     optimizer's recommendation and produce negotiation talking points.
@@ -714,6 +735,22 @@ def negotiate(current_structure: SalaryStructure, current_best: dict,
     Caller must only invoke this when a real extracted current_structure
     exists — there is nothing to negotiate away from a manually-entered
     CTC-only input with no offered breakdown.
+
+    skip_ai=True goes straight to _deterministic_negotiate() without
+    calling the live API — same pattern, same reason, as explain_result's/
+    flag_compliance's own skip_ai. Found live during a real latency
+    investigation, not assumed: this function was the actual dominant
+    cost in a 10-row batch submission (~5.5s/row, ~55s total) even AFTER
+    flag_compliance() had already been fixed — it was called
+    unconditionally whenever a current_structure was supplied (every
+    correction row), with no skip flag at all, and its "points" text is
+    never rendered anywhere in the batch/Finance-queue UI (confirmed by
+    grepping finance-flow.tsx/batch-results-table.tsx/batch-flow.tsx —
+    zero references), the same "computed and silently discarded" pattern
+    explain_result's original skip_ai fix was built for. This function's
+    route/severity relevance is also zero: orchestration.py's
+    classify_row() reads only compliance/guardrail output, never
+    negotiation.
     """
     total_saving = round(current_best["tax_breakdown"]["total_tax"] - recommended_tax["total_tax"], 2)
     changed_levers = _diff_levers(current_structure, recommended, ctc)
@@ -723,6 +760,15 @@ def negotiate(current_structure: SalaryStructure, current_best: dict,
             "points": "Your offered structure is already at or near the tax-optimal split — nothing to negotiate here.",
             "total_annual_saving": max(total_saving, 0),
             "changed_levers": [],
+            "ai_backed": False,
+            "guard_triggered": False,
+        }
+
+    if skip_ai:
+        return {
+            "points": _deterministic_negotiate(total_saving, changed_levers, recommended_regime),
+            "total_annual_saving": total_saving,
+            "changed_levers": changed_levers,
             "ai_backed": False,
             "guard_triggered": False,
         }

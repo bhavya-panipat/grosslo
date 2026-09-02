@@ -406,6 +406,39 @@ class TestNegotiationCopilot(unittest.TestCase):
         saving_str = f"{neg['total_annual_saving']:,.0f}"
         self.assertIn(saving_str, neg["points"])
 
+    def test_skip_ai_goes_straight_to_deterministic_text_no_api_call(self):
+        # Real latency fix, not a hypothetical: negotiate() was measured
+        # live as the DOMINANT cost in a batch submission (~5.5s/row,
+        # even after flag_compliance() was already fixed) because it was
+        # called unconditionally for every correction row with no skip
+        # flag at all. skip_ai=True must never reach _client.messages.create
+        # — verified here by patching _client to a Mock that raises if
+        # called, not just by checking the returned ai_backed flag (which
+        # a real bug could report correctly while still making the call).
+        current = SalaryStructure(
+            ctc=1_800_000, basic=450_000, hra=300_000, lta=0,
+            special_allowance=996_000, employer_pf=54_000, employer_nps=0,
+            nps_opted=False,
+        )
+        current_best = best_regime_for_given_structure(current, 400_000, "metro")
+        result = optimize(ctc=1_800_000, rent_paid=400_000, city="metro", nps_opted=True)
+
+        def _fail_if_called(*args, **kwargs):
+            raise AssertionError("negotiate() called the API despite skip_ai=True")
+
+        with patch("ai_layer._client", Mock(messages=Mock(create=_fail_if_called))):
+            neg = negotiate(
+                current_structure=current, current_best=current_best,
+                recommended=result["recommended"].structure,
+                recommended_regime=result["recommended"].regime,
+                recommended_tax=result["recommended"].tax_breakdown,
+                ctc=1_800_000, skip_ai=True,
+            )
+        self.assertFalse(neg["ai_backed"])
+        self.assertFalse(neg["guard_triggered"])
+        saving_str = f"{neg['total_annual_saving']:,.0f}"
+        self.assertIn(saving_str, neg["points"])
+
 
 class TestSensitivitySweep(unittest.TestCase):
     def test_returns_requested_number_of_points(self):

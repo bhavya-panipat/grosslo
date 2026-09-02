@@ -40,7 +40,7 @@ def _optimize_response_for(ctc, rent_paid=0, city="metro", nps_opted=False, curr
     the real function's output directly, not by inspection.
     """
     response, _ = flask_app._build_optimize_response(
-        ctc, rent_paid, city, nps_opted, current_structure, False, skip_explanation_ai=True,
+        ctc, rent_paid, city, nps_opted, current_structure, False, skip_ai=True,
     )
     return response
 

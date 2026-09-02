@@ -144,7 +144,7 @@ def readme():
 
 
 def _build_optimize_response(ctc, rent_paid, city, nps_opted, current_extracted, extraction_ai_backed,
-                              skip_explanation_ai=False):
+                              skip_ai=False):
     """
     The full optimize+compliance+negotiation+metrics pipeline for one
     candidate, extracted out of api_optimize() so /api/optimize-batch can
@@ -152,9 +152,23 @@ def _build_optimize_response(ctc, rent_paid, city, nps_opted, current_extracted,
     refactor — behavior is byte-for-byte identical to what api_optimize()
     used to do inline; only the call site changed.
 
-    skip_explanation_ai=True is passed by the batch route only — see
-    explain_result()'s docstring for why (measured, not assumed: this was
-    the entire cause of a 500-row batch not completing in 2 minutes).
+    skip_ai=True is passed by the batch route only — gates THREE per-row
+    AI calls, not one: explain_result() (the original reason this
+    parameter existed — see its own docstring: measured, not assumed,
+    the entire cause of a 500-row batch not completing in 2 minutes),
+    flag_compliance() (added once the same unconditional-per-row-AI-call
+    pattern was measured there too), and negotiate() (added last, after
+    it turned out to be the actual DOMINANT remaining cost — ~5.5s/row —
+    even after the first two were fixed; see its own docstring for the
+    measurement). Renamed from skip_explanation_ai to skip_ai once it
+    started gating more than explanation, since the old name would have
+    been misleading about what it now gates. None of these three skips
+    change any actual determination — regime choice, compliance rule
+    membership, guardrail verdicts are all deterministic and unaffected;
+    only AI-phrased prose is skipped in favor of the already-real
+    deterministic text, none of which is rendered anywhere in the batch/
+    Finance-queue UI in the first place (confirmed by grep, not assumed,
+    for each of the three).
 
     Returns (response_dict, raw_result) — raw_result is optimize()'s own
     return value, with real SalaryStructure objects (not yet flattened to
@@ -182,14 +196,14 @@ def _build_optimize_response(ctc, rent_paid, city, nps_opted, current_extracted,
         current_structure = _build_current_structure(current_extracted, ctc, result["recommended"].regime)
 
     # Attach explanation for the recommended structure
-    explanation = explain_result(result, rent_paid, city, skip_ai=skip_explanation_ai)
+    explanation = explain_result(result, rent_paid, city, skip_ai=skip_ai)
     response["explanation"] = explanation
 
     # Compliance checks the AS-OFFERED structure when we have one (the real
     # risk surface); only falls back to the recommended structure when
     # nothing was extracted, so there's still something to check.
     structure_to_check = current_structure if current_structure is not None else result["recommended"].structure
-    compliance = flag_compliance(structure_to_check, rent_paid)
+    compliance = flag_compliance(structure_to_check, rent_paid, skip_ai=skip_ai)
     response["compliance"] = compliance
     response["compliance_checked_against"] = "as_offered" if current_structure is not None else "recommended"
 
@@ -206,6 +220,7 @@ def _build_optimize_response(ctc, rent_paid, city, nps_opted, current_extracted,
             recommended_regime=result["recommended"].regime,
             recommended_tax=result["recommended"].tax_breakdown,
             ctc=ctc,
+            skip_ai=skip_ai,
         )
         response["negotiation"] = negotiation
 
@@ -580,8 +595,11 @@ def api_create_submission():
     structuring both new hires and corrections, single or batch. Computes
     each row via the same _build_optimize_response() every other route uses
     (zero new tax logic), then persists it to the review queue as 'pending'.
-    Batch submissions skip the per-row AI explanation (skip_explanation_ai)
-    for the same measured reason /api/batch-audit's docstring describes —
+    Batch submissions skip per-row AI phrasing (skip_ai — both the
+    explanation and the compliance-flag rephrasing, see
+    _build_optimize_response()'s own docstring) for the same measured
+    reason /api/batch-audit's docstring describes — a live API call per
+    row doesn't scale.
 
     DELIBERATELY NOT @require_role-gated, unlike the read/decide/export
     routes below. This route is also called from /optimize/batch (a fully
@@ -592,7 +610,6 @@ def api_create_submission():
     sensitivity — reading everyone's submitted PII/bank details, and
     approving/exporting a payout — is gated below. Do not "fix" this route
     into requiring auth for consistency; that regresses the audit page.
-    a live API call per row doesn't scale.
     """
     data = request.get_json(force=True)
     source = data.get("source")
@@ -621,7 +638,7 @@ def api_create_submission():
         response, raw_result = _build_optimize_response(
             ctc, rent_paid, city, nps_opted,
             current_structure, bool(row.get("extraction_ai_backed", False)),
-            skip_explanation_ai=(source == "batch"),
+            skip_ai=(source == "batch"),
         )
 
         # Band is optional (same convention as /api/optimize's own
