@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { CheckCircle2, XCircle, ChevronDown, ChevronUp, Download, Upload, Copy, Loader2, TriangleAlert } from "lucide-react";
 import CardShell from "@/components/card-shell";
@@ -609,7 +609,24 @@ export default function FinanceFlow() {
       .finally(() => setBalanceLoading(false));
   }, []);
 
+  // React StrictMode (on by default in Next dev, not disabled here on
+  // purpose — see the ref guard below instead of turning it off) double-
+  // invokes this effect on mount: run, cleanup, run again, same component
+  // instance. Harmless for the submissions fetch (our own backend, free,
+  // idempotent) but not for the balance fetch inside refresh() — that one
+  // hits RazorpayX's real sandbox API, which has a real, tight rate limit
+  // that two calls per page load burns through twice as fast as it should.
+  // A useRef survives StrictMode's double-invoke of the SAME effect (it's
+  // still the same component instance, not remounted from scratch), so
+  // this guard lets the first invoke run refresh() normally and makes the
+  // second, redundant invoke a no-op — while every later, user-triggered
+  // refresh() call (after approve/reject) is untouched by this guard
+  // entirely, since those aren't part of this mount effect and still fetch
+  // a genuinely fresh balance each time, as designed.
+  const didInitialFetch = useRef(false);
   useEffect(() => {
+    if (didInitialFetch.current) return;
+    didInitialFetch.current = true;
     refresh();
   }, [refresh]);
 
