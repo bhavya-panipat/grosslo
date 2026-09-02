@@ -48,9 +48,29 @@ VALID_SOURCES = {"single", "batch"}
 # same person on the same day (rare, but real) would also get flagged —
 # that's a false-positive risk taken on purpose in exchange for a few
 # lines of logic instead of a real dedup service.
-def _dedupe_hash(employee_name: str | None, ctc: float) -> str:
+#
+# `email` folds into the key when supplied — flagged in external review:
+# name+CTC alone collides for multiple real hires at an identical
+# standardized compensation band (common at scale), a false duplicate with
+# no code-level fix before this. `email` was already an optional field on
+# every submission row (collected for the RazorpayX export payload, see
+# app.py's built_rows), so this reuses it rather than adding a column.
+# When email IS supplied, two candidates with the same name+CTC now hash
+# differently as long as their emails differ, while a same-candidate
+# same-day revised offer (same email) still collides as intended. When
+# email is absent, the key is deliberately built with the exact old
+# name+ctc+window shape (no empty email segment) — not just a lower bar,
+# but bit-for-bit the previous formula — so dedupe_hash values already
+# stored for existing emailless rows keep matching fresh lookups instead
+# of silently stopping mid-flight.
+def _dedupe_hash(employee_name: str | None, ctc: float, email: str | None = None) -> str:
     window = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    key = f"{(employee_name or 'anon').strip().lower()}|{round(ctc)}|{window}"
+    normalized_name = (employee_name or "anon").strip().lower()
+    normalized_email = (email or "").strip().lower()
+    if normalized_email:
+        key = f"{normalized_name}|{normalized_email}|{round(ctc)}|{window}"
+    else:
+        key = f"{normalized_name}|{round(ctc)}|{window}"
     return hashlib.sha256(key.encode()).hexdigest()
 
 
@@ -147,14 +167,14 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
     return d
 
 
-def check_duplicate(employee_name: str | None, ctc: float) -> dict | None:
+def check_duplicate(employee_name: str | None, ctc: float, email: str | None = None) -> dict | None:
     """
     Returns the existing pending/approved row this would duplicate, or
     None. Callers decide what to do with a duplicate (block, per the
     brief's "flag or block, don't silently reprocess") — this function
     only detects.
     """
-    dedupe_hash = _dedupe_hash(employee_name, ctc)
+    dedupe_hash = _dedupe_hash(employee_name, ctc, email)
     with _conn() as conn:
         existing = conn.execute(
             "SELECT * FROM submission_rows WHERE dedupe_hash = ? AND status != 'rejected' ORDER BY id DESC LIMIT 1",
@@ -187,7 +207,8 @@ def create_submission(source: str, rows: list[dict], submitted_by: str = "hr") -
         for i, row in enumerate(rows):
             name = row.get("employee_name")
             ctc = row["ctc"]
-            dedupe_hash = _dedupe_hash(name, ctc)
+            email = row.get("input", {}).get("email")
+            dedupe_hash = _dedupe_hash(name, ctc, email)
             existing = conn.execute(
                 "SELECT * FROM submission_rows WHERE dedupe_hash = ? AND status != 'rejected' LIMIT 1",
                 (dedupe_hash,),

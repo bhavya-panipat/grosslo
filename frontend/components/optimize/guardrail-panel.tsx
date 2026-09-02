@@ -19,7 +19,7 @@ export default function GuardrailPanel({
         </div>
         <p className="mt-2 text-sm text-neutral-500">
           Enter a valid approved compensation band above (min less than max) to run band, EPFO
-          ceiling, and Section 80CCD(2) checks before export.
+          ceiling, and Section 124 (formerly 80CCD(2)) checks before export.
         </p>
       </div>
     );

@@ -14,12 +14,27 @@ Sources checked live on 2026-08-24 (see chat for citations):
 - New regime slabs unchanged from FY25-26 into FY26-27 (Budget 2026 made no changes)
 - New regime: nil up to 4L, 5/10/15/20/25/30% in 4L bands up to 24L
 - New regime standard deduction: Rs 75,000
-- New regime 87A rebate: taxable income up to Rs 12,00,000 -> zero tax (with marginal relief above)
+- New regime Section 156 (formerly 87A) rebate: taxable income up to Rs
+  12,00,000 -> zero tax (with marginal relief above)
 - Old regime: nil up to 2.5L, then 5% (2.5-5L), 20% (5-10L), 30% (>10L)
 - Old regime standard deduction: Rs 50,000
-- Old regime 87A rebate: taxable income up to Rs 5,00,000 -> zero tax
-- 80CCD(2) employer NPS cap: 10% of basic (old regime), 14% of basic (new regime)
+- Old regime Section 156 (formerly 87A) rebate: taxable income up to Rs
+  5,00,000 -> zero tax
+- Section 124 (formerly 80CCD(2)) employer NPS cap: 10% of basic (old regime),
+  14% of basic (new regime)
 - Cess: 4% flat on (tax - rebate + surcharge) in both regimes, surcharge = 0 here
+
+Citation sweep re-verified live 2026-09-02 against the Income Tax Act 2025
+(in force 1 April 2026, current for this tax year): Section 87A -> Section
+156, Section 80CCD(2) -> Section 124, Section 201(1A) -> Section 398(3),
+Section 271C -> Section 448. Section 17(2)(vii) (the >Rs 7.5L PF+NPS
+perquisite rule referenced in ai_layer.py/compliance_rules.md) was checked
+and confirmed retained at its original number in the new Act — not every
+section moved. Internal Python names below (REBATE_87A_THRESHOLD,
+NPS_80CCD2_CAP_PCT, etc.) keep their old-Act-numbered names deliberately,
+same precedent as NPS_80CCD2_CAP_PCT elsewhere in this codebase — renaming
+constants is a bigger diff for zero behavioral gain; only citation TEXT
+shown to a user or judge needed the sweep.
 """
 
 from dataclasses import dataclass, field
@@ -84,7 +99,7 @@ def _slab_tax(taxable_income: float, slabs: list[tuple[float, float]]) -> float:
 
 
 def _apply_87a_rebate(slab_tax: float, taxable_income: float, regime: Regime) -> float:
-    """Apply Section 87A rebate. Returns tax after rebate (before cess)."""
+    """Apply Section 156 (formerly Section 87A) rebate. Returns tax after rebate (before cess)."""
     threshold = REBATE_87A_THRESHOLD[regime]
     max_rebate = REBATE_87A_MAX[regime]
     if taxable_income <= threshold:
@@ -97,7 +112,7 @@ def _apply_marginal_relief(tax_after_rebate: float, taxable_income: float, regim
     """
     Marginal relief: tax payable on income just above the rebate threshold
     should not exceed (income - threshold) + tax that would've applied at threshold.
-    In practice for 87A: if income is slightly above threshold, tax payable is
+    In practice for Section 156 (formerly 87A): if income is slightly above threshold, tax payable is
     capped at (taxable_income - threshold), so post-threshold earners aren't
     worse off than someone right at the threshold (who pays ~0 due to rebate).
     """
@@ -111,7 +126,7 @@ def _apply_marginal_relief(tax_after_rebate: float, taxable_income: float, regim
 
 
 def compute_tax(taxable_income: float, regime: Regime) -> dict:
-    """Full tax computation: slab tax -> 87A rebate -> marginal relief -> cess."""
+    """Full tax computation: slab tax -> Section 156 (formerly 87A) rebate -> marginal relief -> cess."""
     slabs = NEW_REGIME_SLABS if regime == "new" else OLD_REGIME_SLABS
     raw_slab_tax = _slab_tax(taxable_income, slabs)
     after_rebate = _apply_87a_rebate(raw_slab_tax, taxable_income, regime)
@@ -221,11 +236,12 @@ def taxable_income_for_structure(structure: SalaryStructure, regime: Regime,
                                   rent_paid: float, city: CityTier) -> float:
     """
     Gross salary income (excluding employer PF, which is not part of taxable
-    salary; employer NPS beyond 80CCD(2) cap would be taxable but we assume
-    contribution == cap, so fully exempt) minus applicable exemptions/deductions.
+    salary; employer NPS beyond the Section 124 (formerly 80CCD(2)) cap would
+    be taxable but we assume contribution == cap, so fully exempt) minus
+    applicable exemptions/deductions.
     """
     gross_salary = structure.basic + structure.hra + structure.lta + structure.special_allowance
-    # employer NPS under 80CCD(2) is deductible from gross total income (both regimes)
+    # employer NPS under Section 124 (formerly 80CCD(2)) is deductible from gross total income (both regimes)
     # LTA exemption (old regime only) is capped to a conservative assumed
     # utilization fraction — see LTA_ASSUMED_UTILIZATION_PCT_DEFAULT above.
     std_deduction = STANDARD_DEDUCTION[regime]

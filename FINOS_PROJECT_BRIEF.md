@@ -153,7 +153,8 @@ ai_layer.py — compliance flags        6 fixed rules (compliance_rules.md),
         │                             matched in Python; LLM only rephrases
         ▼
 ai_layer.py — payroll guardrail       band check + EPFO ₹7.5L aggregate
-        │                             ceiling + regime-specific 80CCD(2) cap
+        │                             ceiling + regime-specific Section 124
+        │                             (formerly 80CCD(2)) cap
         ▼
 payroll_breakdown.py                  treasury forecast: net disbursement,
         │                             TDS escrow, EPFO challan, funding lead time
@@ -326,19 +327,24 @@ that call into the tax engine read-only — instead of extending it — means
 the original 23-test-covered engine is untouched by later feature work; only
 additive modules and their own new tests carry the risk of a new bug.
 
-**Section 271C is deliberately absent from the delayed-remittance penalty
-scenario**, not an oversight. `penalty_exposure.py` models the cost of
-depositing already-deducted EPF/TDS late (Sections 7Q, 14B, 201(1A)). The
+**Section 448 (formerly Section 271C under the 1961 Act) is deliberately
+absent from the delayed-remittance penalty scenario**, not an oversight.
+`penalty_exposure.py` models the cost of depositing already-deducted
+EPF/TDS late (Sections 7Q, 14B, and Section 398(3), formerly 201(1A)). The
 Supreme Court held in *US Technologies International (P.) Ltd. v.
-Commissioner of Income Tax* (2023) that Section 271C's penalty applies only
-to a *failure to deduct* TDS in the first place — not to late remittance
-after deduction, which is the exact scenario this feature models, and which
-is already covered by Section 201(1A) interest. An earlier draft of this
-module included a 271C figure; it was removed after checking the actual
-ruling rather than relying on recalled priors, because a feature whose whole
-premise is real statutory citations can't afford a citation that's wrong in
-scope. `README.md`'s "what broke during development" section documents this
-by name.
+Commissioner of Income Tax* (2023), under the 1961 Act's numbering current
+at the time, that Section 271C's penalty applies only to a *failure to
+deduct* TDS in the first place — not to late remittance after deduction,
+which is the exact scenario this feature models, and which is already
+covered by Section 398(3) (formerly 201(1A)) interest. An earlier draft of
+this module included a 271C figure; it was removed after checking the
+actual ruling rather than relying on recalled priors, because a feature
+whose whole premise is real statutory citations can't afford a citation
+that's wrong in scope. `README.md`'s "what broke during development"
+section documents this by name. (Section numbers re-verified 2026-09-02
+against the Income Tax Act 2025, in force since 1 April 2026 and current
+for this tax year — 271C → 448, 201(1A) → 398(3) — see README's
+"Regulatory currency" section.)
 
 **The 6-rule compliance set and the tax engine's narrow scope (no surcharge,
 single income source, resident individuals only) are a deliberate hackathon

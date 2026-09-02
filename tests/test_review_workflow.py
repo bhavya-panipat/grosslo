@@ -230,6 +230,52 @@ class TestIdempotency(ReviewQueueTestCase):
         self.assertEqual(len(second["duplicates"]), 1)
         self.assertEqual(len(second["inserted_row_ids"]), 0)
 
+    def test_same_name_and_ctc_different_emails_do_not_collide(self):
+        # Real, realistic scenario flagged in external review: multiple
+        # hires at an identical standardized compensation band (common at
+        # scale) share name+CTC by coincidence, not because they're the
+        # same person. Two distinct people, same name, same CTC, same day
+        # — must both go through, not silently drop the second as a
+        # duplicate of the first.
+        computed = _optimize_response_for(ctc=1_800_000)
+        row_a = {
+            "employee_name": "Aarav Kumar", "ctc": 1_800_000,
+            "input": {"ctc": 1_800_000, "rent_paid": 0, "city": "metro", "nps_opted": False,
+                      "current_structure": None, "email": "aarav.kumar@company-a.example"},
+            "computed": computed,
+        }
+        row_b = {
+            "employee_name": "Aarav Kumar", "ctc": 1_800_000,
+            "input": {"ctc": 1_800_000, "rent_paid": 0, "city": "metro", "nps_opted": False,
+                      "current_structure": None, "email": "aarav.kumar@company-b.example"},
+            "computed": computed,
+        }
+        first = review_queue.create_submission("single", [row_a])
+        self.assertEqual(len(first["duplicates"]), 0)
+
+        second = review_queue.create_submission("single", [row_b])
+        self.assertEqual(len(second["duplicates"]), 0)
+        self.assertEqual(len(second["inserted_row_ids"]), 1)
+
+    def test_same_candidate_same_day_revised_offer_still_caught_as_duplicate(self):
+        # The other half of the same fix: a same-day resubmission for the
+        # *same* real candidate (same email) must still be flagged, exactly
+        # as it was before email was folded into the hash — the composite
+        # key adds a discriminator, it doesn't loosen the existing check.
+        computed = _optimize_response_for(ctc=1_800_000)
+        row = {
+            "employee_name": "Priya Singh", "ctc": 1_800_000,
+            "input": {"ctc": 1_800_000, "rent_paid": 0, "city": "metro", "nps_opted": False,
+                      "current_structure": None, "email": "priya.singh@company.example"},
+            "computed": computed,
+        }
+        first = review_queue.create_submission("single", [row])
+        self.assertEqual(len(first["duplicates"]), 0)
+
+        second = review_queue.create_submission("single", [row])
+        self.assertEqual(len(second["duplicates"]), 1)
+        self.assertEqual(len(second["inserted_row_ids"]), 0)
+
     def test_double_approve_does_not_double_write(self):
         computed = _optimize_response_for(ctc=1_800_000)
         result = review_queue.create_submission("single", [{

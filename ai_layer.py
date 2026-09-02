@@ -719,7 +719,7 @@ def _diff_levers(current: SalaryStructure, recommended: SalaryStructure,
     if abs(current.lta - recommended.lta) > threshold:
         levers.append("LTA")
     if bool(current.nps_opted) != bool(recommended.nps_opted):
-        levers.append("NPS enrollment (80CCD2)")
+        levers.append("NPS enrollment (Section 124, formerly 80CCD2)")
     return levers
 
 

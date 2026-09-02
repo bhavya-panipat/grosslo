@@ -32,7 +32,9 @@ export default function PenaltyScenarioTable({ scenario }: { scenario: PenaltySc
               <th className="py-2 pr-4 font-medium">Delay</th>
               <th className="py-2 pr-4 font-medium">Sec 7Q interest</th>
               <th className="py-2 pr-4 font-medium">Sec 14B damages</th>
-              <th className="py-2 pr-4 font-medium">Sec 201(1A) interest</th>
+              <th className="py-2 pr-4 font-medium" title="Section 398(3), formerly Section 201(1A) under the 1961 Act">
+                Sec 398(3) interest
+              </th>
               <th className="py-2 font-medium">Total</th>
             </tr>
           </thead>

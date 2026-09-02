@@ -352,15 +352,17 @@ guess at what the new number would be.
   net-disbursement and treasury math — it never feeds back into the tax
   calculation itself.
 - **The delayed-remittance penalty scenario (`penalty_exposure.py`) models
-  Section 7Q interest and Section 14B damages (EPF) and Section 201(1A)
-  interest (TDS) — deliberately not Section 271C.** The Supreme Court held
-  in *US Technologies International (P.) Ltd. v. CIT* (2023) that 271C
-  applies only to failure to *deduct* TDS, not to late remittance after
-  deduction — the exact scenario this feature models. Including a 271C
-  figure here would have been a real citation error, not a rounding one, so
-  it's excluded on purpose. Professional tax (state-variable) and ESI
-  (wage ceiling below this tool's target salary bracket) are excluded for
-  similar scope reasons.
+  Section 7Q interest and Section 14B damages (EPF) and Section 398(3)
+  (formerly Section 201(1A) under the 1961 Act) interest (TDS) —
+  deliberately not Section 448 (formerly Section 271C).** The Supreme Court
+  held in *US Technologies International (P.) Ltd. v. CIT* (2023), under
+  the 1961 Act's numbering current at the time, that 271C applies only to
+  failure to *deduct* TDS, not to late remittance after deduction — the
+  exact scenario this feature models. Including that figure here would have
+  been a real citation error, not a rounding one, so it's excluded on
+  purpose. Professional tax (state-variable) and ESI (wage ceiling below
+  this tool's target salary bracket) are excluded for similar scope
+  reasons.
 - **Extraction is not guaranteed accurate**, LLM-backed or not — extracted
   values are always shown for manual correction before use, with a mismatch
   warning when extracted components don't sum to the extracted CTC.
@@ -406,6 +408,18 @@ guess at what the new number would be.
     `True`. See "Maker-checker review, demo-scoped" below — approve/reject
     still always requires a human click regardless of session, unrelated
     to this change.
+  - **No server-side session revocation.** The session cookie is a signed,
+    stateless `itsdangerous` token, not a lookup against a server-held
+    session store — there's nothing to revoke server-side without adding a
+    revocation table, which would contradict the deliberately minimal
+    "no new tables beyond the review queue" design this auth system was
+    reviewed and cleared against. `/api/auth/logout` clears the cookie on
+    the client; it does not and cannot invalidate that cookie's signature
+    before its 8-hour expiry if a copy of it existed elsewhere. An
+    enterprise deployment would replace the shared demo codes with
+    OAuth2/SAML through a real identity provider, which supports central
+    token revocation as a first-class feature — this demo's shared-secret
+    model deliberately does not.
   - **That one open route is rate-limited, not just unauthenticated.**
     Found in a live-defense pressure-test, not by inspection: staying
     open doesn't mean staying unguarded — a submitted row can carry
@@ -422,6 +436,23 @@ guess at what the new number would be.
     gap above — that's about repeated login *attempts* against the shared
     role-codes, still genuinely absent; this is about repeated *submission*
     attempts against the one open route, now genuinely present.
+  - **A sharper version of the same gap, flagged in external review and
+    deliberately not rushed into a fix:** the limiter keys on
+    `request.remote_addr`, which is a real, well-known failure mode behind
+    a reverse proxy or load balancer — that value resolves to the proxy's
+    own IP, not the real client's, silently collapsing every client onto
+    one shared bucket and defeating the per-source limit entirely. A
+    multi-worker deployment (Gunicorn/Uvicorn without a shared cache) has
+    the same problem from a different angle — each worker process keeps
+    its own in-memory count, so the effective limit multiplies by worker
+    count instead of applying globally. The correct fix is a shared store
+    (Redis) plus parsing `X-Forwarded-For` against a known, trusted proxy
+    hop — and that second part is the part not to rush: get the trust
+    boundary wrong and the header becomes attacker-spoofable by design,
+    which reads as "fixed" while being less safe than the honest gap
+    stated here. Left undone under this deadline for the same reason a
+    rushed security build was correctly avoided earlier in this project —
+    an admitted gap is a better outcome than a fix that only looks solved.
   - **The review queue does store employee PII, including bank details —
     named explicitly, not glossed over.** Employee name and CTC were
     always stored (needed for the dedupe check); as of the redundancy fix
@@ -497,18 +528,42 @@ citation that was wrong from the start.
 - Sections 7Q and 14B (`penalty_exposure.py`'s EPF interest/damages) are
   under the EPF & Miscellaneous Provisions Act 1952 — a different statute
   from the Income-tax Act entirely, unaffected by this renumbering.
-
-**Checked, and genuinely unresolved — not silently left looking as current
-as the citations above:**
 - **Section 17(2)(vii)** (the >₹7.5L aggregate PF+NPS perquisite rule
-  behind Rule R5 and the payroll guardrail) and **Section 201(1A)** (TDS
-  late-deposit interest, in `penalty_exposure.py`) are both still cited
-  under their 1961-Act numbers. Two real search attempts each found no
-  confirmed 2025-Act mapping for either — the underlying provisions and
-  rates are real and current, only the exact new section/schedule number
-  is unverified. Left as the 1961-Act citation rather than guessing a
-  replacement, since a fabricated new number would be a worse error than
-  an old-but-real one.
+  behind Rule R5 and the payroll guardrail) — re-checked 2026-09-02 against
+  multiple independent sources on the Income-tax Act 2025's actual salary
+  chapter (Sections 15–17). Confirmed retained at its original number; not
+  every section moved in the renumbering, and this was verified rather than
+  assumed just because most of its neighbors did move.
+
+**Resolved 2026-09-02 — previously left as an open gap below, now
+confirmed and fixed in code:**
+- **Section 201(1A)** (TDS late-deposit interest, in
+  `penalty_exposure.py`) moved to **Section 398(3)**. The two earlier
+  search attempts noted below found no confirmed mapping at the time;
+  re-searching found it directly. Citation updated everywhere it appears —
+  `penalty_exposure.py`, this document, and the penalty-scenario table's
+  column header in the frontend.
+- **Section 271C** (the section deliberately *not* modeled in the
+  delayed-remittance feature, see above) moved to **Section 448**. Same
+  update pattern: the historical "an early draft cited 271C and I caught
+  it" story below keeps the old number, since that's the number that was
+  actually wrong at the time — but the present-tense design explanation of
+  what's excluded and why now cites Section 448.
+- **Section 87A** (both regimes' rebate, `tax_engine.py`) moved to
+  **Section 156**. This one was missed by the original 2026-09-01 sweep
+  entirely — that pass covered the NPS/HRA sections a specific review
+  raised, not every statutory reference in the product. A follow-up
+  external review flagged the gap directly: a stale citation anywhere is a
+  live symptom the whole citation surface wasn't re-swept, not an isolated
+  miss. `REBATE_87A_THRESHOLD`/`REBATE_87A_MAX` keep their 1961-Act-numbered
+  Python names, same precedent as `NPS_80CCD2_CAP_PCT` — only the citation
+  text a user or judge would read was in scope.
+
+No open citation gaps remain as of this sweep — every statutory reference
+in `compliance_rules.md`, `ai_layer.py`, `tax_engine.py`,
+`penalty_exposure.py`, `optimizer.py`, `execution_trace.py`, and every
+frontend component that displays a section number was grepped and checked,
+not just the ones a prior review happened to name.
 
 **A real correctness gap, found, decided on, and fixed — not a citation:**
 - **The Code on Wages 2025** (one of the four labour codes, effective

@@ -66,6 +66,36 @@ class TestPfCeilingToggle(unittest.TestCase):
         self.assertEqual(capped, round(0.12 * 15_000 * 12, 2))
 
 
+class TestNpsRegimeRateDifferential(unittest.TestCase):
+    """
+    Section 124 (formerly 80CCD(2)): employer NPS deduction cap is 10% of
+    basic under the old regime, 14% under the new regime, for private-sector
+    employer contributions — the specific rate split flagged for
+    confirm-don't-assume verification in the 2026-09-02 citation sweep,
+    since the codebase has changed substantially since this was first built.
+    """
+
+    def test_new_regime_caps_at_14_percent_of_basic(self):
+        basic = 1_000_000
+        self.assertEqual(derive_nps(basic, "new", opted_in=True), round(0.14 * basic, 2))
+
+    def test_old_regime_caps_at_10_percent_of_basic(self):
+        basic = 1_000_000
+        self.assertEqual(derive_nps(basic, "old", opted_in=True), round(0.10 * basic, 2))
+
+    def test_new_regime_rate_exceeds_old_regime_rate_for_same_basic(self):
+        basic = 1_000_000
+        new_nps = derive_nps(basic, "new", opted_in=True)
+        old_nps = derive_nps(basic, "old", opted_in=True)
+        self.assertGreater(new_nps, old_nps)
+        self.assertEqual(new_nps, round(old_nps * 1.4, 2))
+
+    def test_not_opted_in_yields_zero_regardless_of_regime(self):
+        basic = 1_000_000
+        self.assertEqual(derive_nps(basic, "new", opted_in=False), 0.0)
+        self.assertEqual(derive_nps(basic, "old", opted_in=False), 0.0)
+
+
 class TestOptimizerRegimeCrossover(unittest.TestCase):
     def test_high_rent_low_ctc_new_regime_still_favored(self):
         # Post-2025-reform, new regime dominates for most typical salaried
@@ -374,7 +404,7 @@ class TestNegotiationCopilot(unittest.TestCase):
         # so it isn't constrained by BASIC_PCT_MIN/MAX at all — the 25%
         # value is unaffected by the statutory-floor fix and needs no
         # change here beyond this comment's own arithmetic being correct.
-        self.assertIn("NPS enrollment (80CCD2)", neg["changed_levers"])
+        self.assertIn("NPS enrollment (Section 124, formerly 80CCD2)", neg["changed_levers"])
 
     def test_already_optimal_structure_yields_no_ask(self):
         # Build a "current" structure that IS the optimizer's own recommendation

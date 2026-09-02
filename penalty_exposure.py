@@ -21,22 +21,27 @@ stale silently:
   operates within it) — at 1%/month it takes ~100 months to bind, so the
   cap is implemented for correctness even though none of the fixed presets
   below reach it.
-- Income Tax Section 201(1A): 1%/month for failure to deduct TDS, 1.5%/month
-  for failure to deposit TDS already deducted. This module models the
+- Income Tax Section 398(3) (formerly Section 201(1A) under the 1961 Act,
+  renamed by the Income Tax Act 2025, in force 1 April 2026 — re-verified
+  live 2026-09-02): 1%/month for failure to deduct TDS, 1.5%/month for
+  failure to deposit TDS already deducted. This module models the
   deducted-but-not-deposited case (the delayed-remittance scenario this
   whole feature is about), so the 1.5%/month rate applies — documented
   explicitly here, same pattern as payroll_breakdown.py's monthly_tds_schedule
   docstring.
-- Section 271C is deliberately NOT modeled anywhere in this module. The
+- Section 448 (formerly Section 271C under the 1961 Act, same 2025-Act
+  renumbering) is deliberately NOT modeled anywhere in this module. The
   Supreme Court held in US Technologies International (P.) Ltd. v. CIT
-  (10 April 2023; [2023] 149 taxmann.com 144 (SC)) that Section 271C(1)(a)
+  (10 April 2023; [2023] 149 taxmann.com 144 (SC)) — under the 1961 Act's
+  numbering current at the time of that ruling — that Section 271C(1)(a)
   applies only to failure to DEDUCT TDS in the first place — the words
   "fails to deduct" do not cover "failure to deposit" — and that belated
   remittance after deduction is covered exclusively by Section 201(1A)
-  interest, never 271C. Since every scenario in this module is the
-  deposit-delay case, 271C simply does not apply here; it is not a
-  different-but-related figure that was left out, it is a legally
-  inapplicable one that was checked and excluded on purpose.
+  (now Section 398(3)) interest, never 271C (now Section 448). Since every
+  scenario in this module is the deposit-delay case, that provision simply
+  does not apply here; it is not a different-but-related figure that was
+  left out, it is a legally inapplicable one that was checked and excluded
+  on purpose.
 
 SCOPE / KNOWN LIMITATIONS (state these explicitly, same as tax_engine.py
 and payroll_breakdown.py do):
@@ -53,7 +58,7 @@ and payroll_breakdown.py do):
 EPF_7Q_MONTHLY_RATE = 0.01  # Section 7Q: 12% p.a. simple interest
 EPF_14B_MONTHLY_RATE = 0.01  # Section 14B, effective 15 June 2024: flat 1%/month
 EPF_14B_CAP_FRACTION = 1.0  # Section 14B statutory ceiling: damages capped at 100% of arrears
-TDS_201_1A_MONTHLY_RATE = 0.015  # Section 201(1A): 1.5%/month, deducted-but-not-deposited case
+TDS_201_1A_MONTHLY_RATE = 0.015  # Section 398(3) (formerly Section 201(1A)): 1.5%/month, deducted-but-not-deposited case
 
 DELAY_PRESETS_MONTHS = [1, 3, 6, 12]
 
@@ -79,9 +84,9 @@ def epf_interest_and_damages(monthly_epf_total: float, months_delayed: int) -> d
 
 def tds_interest(monthly_tds_total: float, months_delayed: int) -> dict:
     """
-    Section 201(1A) interest on TDS deducted but not deposited by the due
-    date. See module docstring for why the 1.5%/month (not 1%/month) rate
-    applies to this scenario.
+    Section 398(3) (formerly Section 201(1A)) interest on TDS deducted but
+    not deposited by the due date. See module docstring for why the
+    1.5%/month (not 1%/month) rate applies to this scenario.
     """
     interest = round(monthly_tds_total * TDS_201_1A_MONTHLY_RATE * months_delayed, 2)
     return {"months_delayed": months_delayed, "section_201_1a_interest": interest}
@@ -90,7 +95,7 @@ def tds_interest(monthly_tds_total: float, months_delayed: int) -> dict:
 def build_scenario_table(monthly_epf_total: float, monthly_tds_total: float) -> dict:
     """
     Illustrative delay-scenario table across the fixed preset durations.
-    No Section 271C figure anywhere in this output — see module docstring.
+    No Section 448 (formerly 271C) figure anywhere in this output — see module docstring.
     """
     rows = []
     for months in DELAY_PRESETS_MONTHS:
