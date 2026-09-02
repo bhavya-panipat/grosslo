@@ -4,13 +4,16 @@ import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { CheckCircle2, XCircle, ChevronDown, ChevronUp, Download, Upload, Copy, Loader2, TriangleAlert } from "lucide-react";
 import CardShell from "@/components/card-shell";
+import TreasuryGate from "@/components/finance/treasury-gate";
 import type {
   Submission,
   SubmissionRow,
   DecideRowResponse,
   ExportApprovedRowResponse,
   OrchestrationRoute,
+  RazorpayXBalanceResponse,
 } from "@/lib/api-types";
+import { totalCapitalOutlay } from "@/lib/treasury";
 
 const inr = (v: number) => `₹${Math.round(v).toLocaleString("en-IN")}`;
 
@@ -576,6 +579,13 @@ export default function FinanceFlow() {
   // a row back, consistent with every other "simulated" state in this app.
   const [completedKeys, setCompletedKeys] = useState<Set<string>>(new Set());
 
+  // Live treasury check — the one gate in this flow based on something
+  // 100% real, not a demo approximation. Refetched inside the same
+  // refresh() that reloads submissions, so the balance is re-checked
+  // every time Finance takes an action, not just once on page load.
+  const [balance, setBalance] = useState<RazorpayXBalanceResponse | null>(null);
+  const [balanceLoading, setBalanceLoading] = useState(true);
+
   const refresh = useCallback(() => {
     // Fetches every submission, not just pending ones — approved rows need
     // to stay visible here so their export action has somewhere to live.
@@ -590,6 +600,13 @@ export default function FinanceFlow() {
         setLoading(false);
       })
       .catch(() => setLoading(false));
+
+    setBalanceLoading(true);
+    fetch("/api/razorpayx/balance")
+      .then((r) => r.json())
+      .then((d: RazorpayXBalanceResponse) => setBalance(d))
+      .catch(() => setBalance({ configured: false, live: false, error: "Couldn't reach the backend." }))
+      .finally(() => setBalanceLoading(false));
   }, []);
 
   useEffect(() => {
@@ -608,6 +625,25 @@ export default function FinanceFlow() {
   const reviewRows = pendingRows.filter((r) => routeOf(r) === "needs_review");
   const noGuardrailRows = pendingRows.filter((r) => routeOf(r) === "guardrail_not_run");
   const escalatedRows = pendingRows.filter((r) => routeOf(r) === "escalate");
+
+  // Required funding is summed over ALL pending rows (not just cleanRows)
+  // — individual approval of a needs_review/escalated row during a deficit
+  // still draws on the same real account, so the funding figure Finance
+  // sees has to reflect everything still outstanding, not just the
+  // bulk-eligible subset. Recomputed fresh on every render, straight from
+  // pendingRows (itself derived fresh from submissions state above) — this
+  // IS the staleness fix: as rows get approved and drop out of
+  // pendingRows, this number shrinks on the next render automatically,
+  // with no separate cache to invalidate.
+  const requiredFunding = totalCapitalOutlay(pendingRows);
+  const availableRupees = balance?.live && balance.balance
+    ? balance.balance.items.reduce((sum, item) => sum + item.available_amount, 0) / 100
+    : null;
+  // Fails closed: an unreachable/unconfigured balance is treated the same
+  // as a confirmed deficit for gating purposes (see TreasuryGate's own
+  // docstring) — "couldn't verify" must never behave like "verified fine."
+  const deficit = availableRupees === null || availableRupees < requiredFunding;
+  const canBulkApprove = !deficit;
 
   const keyOf = (r: SubmissionRow) => `${r.submission_id}-${r.row_index}`;
   const toggleSelected = (key: string) => {
@@ -636,6 +672,12 @@ export default function FinanceFlow() {
     // layer, not only by the absence of a checkbox in those sections.
     const targets = cleanRows.filter((r) => selectedKeys.has(keyOf(r)));
     if (targets.length === 0) return;
+    // Structural block, not just a hidden button: mirrors the
+    // targets.length===0 guard above — even if this function is somehow
+    // reached with a bulk-approve while in deficit (stale UI, direct
+    // call), the fetch never fires. The UI additionally never renders the
+    // selection controls in this state (see canBulkApprove below).
+    if (decision === "approve" && !canBulkApprove) return;
     setBulkDeciding(true);
     const totalPending = pendingRows.length;
     const remaining = reviewRows.length + noGuardrailRows.length + escalatedRows.length;
@@ -676,6 +718,15 @@ export default function FinanceFlow() {
           dispatches a payout. Approved rows can generate a real export payload below, on demand.
         </p>
       </div>
+
+      <TreasuryGate
+        loading={balanceLoading}
+        live={Boolean(balance?.live)}
+        error={balance?.error ?? null}
+        availableRupees={availableRupees}
+        requiredFunding={requiredFunding}
+        deficit={deficit}
+      />
 
       {loading && <p className="text-sm text-neutral-600">Loading queue…</p>}
       {!loading && pendingRows.length === 0 && (
@@ -739,37 +790,57 @@ export default function FinanceFlow() {
           <h3 className="mb-3 font-display text-lg font-semibold text-emerald-300">
             Clean — ready to fast-track
           </h3>
-          {cleanRows.length > 1 && (
-            <label className="mb-3 flex w-fit items-center gap-2 text-xs text-neutral-500 hover:text-neutral-300">
-              <input
-                type="checkbox"
-                checked={allCleanSelected}
-                onChange={toggleSelectAllClean}
-                className="h-3.5 w-3.5 rounded border-white/20 bg-black/40 accent-gold-bright"
-              />
-              Select all {cleanRows.length} clean
-            </label>
-          )}
-          {selectedKeys.size > 0 && (
-            <div className="mb-3">
-              <BulkActionBar
-                count={selectedKeys.size}
-                busy={bulkDeciding}
-                onApproveAll={() => bulkDecide("approve")}
-                onRejectAll={(reason) => bulkDecide("reject", reason)}
-              />
-            </div>
+          {/* Same exclusion pattern the other three sections already use for
+              routing reasons (no checkbox rendered = structurally nothing to
+              select), applied here for a deficit instead: while required
+              treasury funding exceeds the live balance, Clean rows drop back
+              to individual-approve-only, same as an escalated row would.
+              Nothing here re-runs the deficit math — it just stops offering
+              a selection UI while canBulkApprove is false. */}
+          {canBulkApprove ? (
+            <>
+              {cleanRows.length > 1 && (
+                <label className="mb-3 flex w-fit items-center gap-2 text-xs text-neutral-500 hover:text-neutral-300">
+                  <input
+                    type="checkbox"
+                    checked={allCleanSelected}
+                    onChange={toggleSelectAllClean}
+                    className="h-3.5 w-3.5 rounded border-white/20 bg-black/40 accent-gold-bright"
+                  />
+                  Select all {cleanRows.length} clean
+                </label>
+              )}
+              {selectedKeys.size > 0 && (
+                <div className="mb-3">
+                  <BulkActionBar
+                    count={selectedKeys.size}
+                    busy={bulkDeciding}
+                    onApproveAll={() => bulkDecide("approve")}
+                    onRejectAll={(reason) => bulkDecide("reject", reason)}
+                  />
+                </div>
+              )}
+            </>
+          ) : (
+            <p className="mb-3 text-xs text-neutral-500">
+              Bulk selection is unavailable while required treasury funding exceeds the live RazorpayX
+              balance — approve individually below.
+            </p>
           )}
           <div className="flex flex-col gap-3">
-            {cleanRows.map((row) => (
-              <RowCard
-                key={`${row.submission_id}-${row.row_index}`}
-                row={row}
-                onDecided={refresh}
-                selected={selectedKeys.has(keyOf(row))}
-                onToggleSelect={() => toggleSelected(keyOf(row))}
-              />
-            ))}
+            {cleanRows.map((row) =>
+              canBulkApprove ? (
+                <RowCard
+                  key={`${row.submission_id}-${row.row_index}`}
+                  row={row}
+                  onDecided={refresh}
+                  selected={selectedKeys.has(keyOf(row))}
+                  onToggleSelect={() => toggleSelected(keyOf(row))}
+                />
+              ) : (
+                <RowCard key={`${row.submission_id}-${row.row_index}`} row={row} onDecided={refresh} />
+              ),
+            )}
           </div>
         </div>
       )}

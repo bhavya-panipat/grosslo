@@ -7,6 +7,7 @@ import CsvUploadCard from "@/components/optimize/csv-upload-card";
 import { Send } from "lucide-react";
 import { AuditBatchTable, type CorrectionStatus } from "@/components/optimize/batch-results-table";
 import AuditSummaryCard from "@/components/optimize/audit-summary-card";
+import ExecutiveSummaryCard from "@/components/optimize/executive-summary-card";
 import PenaltyScenarioTable from "@/components/optimize/penalty-scenario-table";
 import type { BatchAuditResponse, CreateSubmissionResponse } from "@/lib/api-types";
 
@@ -209,14 +210,16 @@ export default function BatchFlow() {
             transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
             className="mt-8 flex flex-col gap-6"
           >
+            <ExecutiveSummaryCard
+              processedCount={auditResult.summary.total_rows}
+              submittedCount={auditResult.rows.length}
+              rows={auditResult.rows}
+            />
             <AuditSummaryCard
-              totalRows={auditResult.summary.total_rows}
-              cleanCount={auditResult.summary.clean_count}
               flaggedCount={auditResult.summary.flagged_count}
               epfoCapExceededCount={auditResult.summary.epfo_cap_exceeded_count}
               regimeMismatchCount={auditResult.summary.regime_mismatch_count}
               totalExcessContribution={auditResult.summary.total_excess_contribution}
-              totalUnclaimedSavings={auditResult.summary.total_unclaimed_savings}
             />
             {flaggedIndices.length > 0 && (
               <div className="flex items-center justify-between rounded-xl border border-gold/20 bg-gold/[0.04] px-5 py-3">

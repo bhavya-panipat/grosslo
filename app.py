@@ -311,14 +311,25 @@ def api_batch_audit():
     from. For each row: best_regime_for_given_structure() gives the real
     tax on the structure as it stands today, optimize() gives the
     theoretical best for the same CTC, the gap between them is
-    unclaimed_savings. evaluate_band_guardrail() and treasury_forecast()
-    run on the same as-is structure. Every figure traces to an existing,
-    already-tested function — no new tax/compliance logic here.
+    unclaimed_savings. evaluate_band_guardrail(), treasury_forecast(), and
+    (skip_ai=True, deterministic-only) flag_compliance()+classify_row()
+    all run on the same as-is structure. Every figure traces to an
+    existing, already-tested function — no new tax/compliance logic here,
+    and no new routing logic either: orchestration.route is the exact
+    same classifier /api/submissions feeds the Finance queue with, not a
+    second "is this row clean" definition invented for this endpoint.
 
     summary also reports clean_count/flagged_count and a breakdown by
     exception type (epfo_cap_exceeded_count, regime_mismatch_count) — not
     just the two currency totals — so a batch narration can point at an
     actual on-screen count instead of a number nobody watching can verify.
+    Note this clean_count/flagged_count pair is a DIFFERENT lens than
+    orchestration.route: it's audit-optimality (is the current structure
+    at the tax-optimal split and under the EPFO ceiling), not
+    compliance-rule/guardrail-band routing. Both are real, neither is a
+    silently-competing copy of the other — the batch executive summary's
+    Compliance Clean Rate metric reads orchestration.route specifically,
+    never this pair, for exactly that reason.
     """
     data = request.get_json(force=True)
     rows = data.get("rows")
@@ -383,6 +394,19 @@ def api_batch_audit():
         # is suboptimal — the two are separate exception categories, not the
         # same thing counted twice.
         regime_mismatch = current_best["regime"] != optimal["recommended"].regime
+        # orchestration.route, added for the batch executive summary's
+        # Compliance Clean Rate metric — reuses the exact same
+        # flag_compliance()+classify_row() pair /api/submissions already
+        # runs, so "clean" means the identical thing on this page and on
+        # the Finance queue, never a second, competing definition of it.
+        # skip_ai=True: this endpoint is a 50+ row bulk audit and has
+        # never made a per-row AI call (see this function's own docstring
+        # + _build_optimize_response()'s skip_ai docstring for the
+        # measured latency reason) — skip_ai routes flag_compliance()
+        # straight to the real deterministic rationale text, same rule
+        # membership either way, zero new latency.
+        compliance = flag_compliance(structure, rent_paid, skip_ai=True)
+        orchestration = classify_row(compliance, guardrail)
 
         total_excess_contribution += excess_contribution
         total_unclaimed_savings += unclaimed_savings
@@ -406,6 +430,7 @@ def api_batch_audit():
             "regime_mismatch": regime_mismatch,
             "guardrail": guardrail,
             "treasury_forecast": forecast,
+            "orchestration": orchestration,
         })
         _append_audit_log("/api/batch-audit", {
             "row_index": i, "current_regime": current_best["regime"],
@@ -682,6 +707,19 @@ def api_create_submission():
             ctc, rent_paid, city, nps_opted,
             current_structure, bool(row.get("extraction_ai_backed", False)),
             skip_ai=(source == "batch"),
+        )
+
+        # Treasury forecast on the RECOMMENDED structure — same object the
+        # guardrail check below runs against, and the same call
+        # /api/export-razorpayx already makes (treasury_forecast(recommended.
+        # structure, recommended.tax_breakdown)) — not the as-offered
+        # structure, since what Finance is actually approving (and what
+        # later exports) is the recommendation, not the raw offer letter
+        # input. Needed here (not just at export time) so the live
+        # treasury-funding gate on /finance can sum real pending-row
+        # funding requirements without a second, parallel computation.
+        response["treasury_forecast"] = treasury_forecast(
+            raw_result["recommended"].structure, raw_result["recommended"].tax_breakdown,
         )
 
         # Band is optional (same convention as /api/optimize's own

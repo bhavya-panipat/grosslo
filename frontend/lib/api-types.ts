@@ -65,6 +65,10 @@ export type OptimizeResponse = {
   // runs the same evaluate_band_guardrail() the single-candidate flow uses,
   // not a separate check.
   guardrail?: GuardrailResponse;
+  // Present on /api/submissions rows only (computed against the RECOMMENDED
+  // structure, same call /api/export-razorpayx makes) — absent on plain
+  // /api/optimize responses, which have no review-queue row to fund.
+  treasury_forecast?: TreasuryForecast;
 };
 
 export type SensitivityPoint = {
@@ -217,6 +221,10 @@ export type BatchAuditRow = {
   regime_mismatch?: boolean;
   guardrail?: GuardrailResponse;
   treasury_forecast?: TreasuryForecast;
+  // Same classify_row() output the Finance queue uses — never a second,
+  // page-specific definition of "is this row clean." See
+  // OrchestrationDecision below.
+  orchestration?: OrchestrationDecision;
   error?: string;
 };
 
@@ -328,4 +336,32 @@ export type ExportApprovedRowResponse = {
   idempotency_key_hint: string;
   payouts: CompositeBankAccountPayout[];
   treasury_forecast: TreasuryForecast;
+};
+
+// GET /api/razorpayx/balance — the real, live RazorpayX call. Shape mirrors
+// RazorpayX's actual GET /v1/banking_balances response (verified live
+// against real test-mode credentials on 2026-09-02, not assumed from docs
+// alone): amount/available_amount are in PAISE, not rupees — every
+// consumer of this type must divide by 100 before displaying or comparing
+// against a rupee figure. available_amount (net withdrawable) is the
+// figure the treasury gate compares against required funding, not amount
+// (gross), since a fund-availability question should use what's actually
+// withdrawable right now.
+export type RazorpayXBankingBalance = {
+  entity: "banking_balance";
+  currency: string;
+  account_number: string;
+  account_type: string;
+  bank_name: string | null;
+  bank_code: string | null;
+  amount: number; // paise
+  available_amount: number; // paise
+  refreshed_at: number;
+};
+
+export type RazorpayXBalanceResponse = {
+  configured: boolean;
+  live: boolean;
+  balance?: { entity: "collection"; count: number; items: RazorpayXBankingBalance[] };
+  error?: string;
 };
