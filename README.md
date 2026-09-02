@@ -385,7 +385,14 @@ guess at what the new number would be.
   real compensation data.** Persistence is now limited to two things: the
   local `review_queue.db` (SQLite) that lets an HR submission survive
   until Finance reviews it, and the local `audit_log.jsonl` decision
-  trail — nothing else. Specifically:
+  trail — nothing else. **The trail isn't just a claim in this README —
+  `GET /api/audit-log` (optionally `?limit=`) reads it back live**, so a
+  reviewer can inspect exactly what's actually been logged (every
+  optimize/submit/decide/export/balance-check call, with its own
+  timestamp and payload) rather than trusting that a file on disk says
+  what this document says it does. Not in the pitch video, since it's a
+  read-only inspection endpoint rather than a visual demo beat — the
+  route itself, and this section, are the pointer for it. Specifically:
   - **No encryption at rest.** Both files are plain SQLite/JSONL on disk.
   - **No data-retention or deletion policy.** Data lives as long as the
     demo session/database file does, with no expiry or purge mechanism.
