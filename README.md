@@ -623,15 +623,45 @@ future plans:
   row/CTC/regime/saving/guardrail columns — the explanation text was
   computed and then discarded on every single row, in every batch, before
   this was found. Fixed by skipping that AI call in batch mode specifically
-  (`explain_result(..., skip_ai=True)`); the single-candidate flow, where
-  the explanation is actually shown, is untouched. The same 20-row batch
-  now completes in under 4 seconds; a 500-row batch completes in ~34
-  seconds (~69ms/row) instead of not completing at all. `/api/optimize-batch`
-  itself no longer exists — it was the "New Hire Batch" mode's route,
-  removed as part of the redundancy fix below; the `skip_explanation_ai`
-  fix it originated carried forward into `/api/submissions` (batch source)
-  and `/api/batch-audit`, which is what this same measurement still
-  protects.
+  (originally `explain_result(..., skip_ai=True)`); the single-candidate
+  flow, where the explanation is actually shown, is untouched.
+  `/api/optimize-batch` itself no longer exists — it was the "New Hire
+  Batch" mode's route, removed as part of the redundancy fix below.
+  **This wasn't actually the full fix, discovered much later**: months
+  after this landed, a real 10-row `POST /api/submissions` batch was
+  measured at ~79s — the skip had carried forward correctly, but a
+  second, unrelated AI call (`flag_compliance()`'s compliance-flag
+  rephrasing, added after this original fix shipped) had no equivalent
+  skip and brought the batch back down to only ~55s, not fast. Profiling
+  each sub-call in isolation — not guessing which one was slow — found
+  the actual dominant cost was a *third* function, `negotiate()`
+  (~5.5s/row on its own), called unconditionally for every correction row
+  with no skip flag at all, the same "computed and silently discarded"
+  pattern as the very first fix, just in a sibling function nobody had
+  re-checked. All three are gated by one renamed `skip_ai` parameter now.
+  Net result: the same 10-row batch that took ~79s now takes ~0.1s; a
+  45-row batch (the real audit-sweep CSV's actual flagged-row count)
+  completes in ~0.4s, down from a would-be ~6 minutes.
+- **The numeric guard extended to compliance-flag and guardrail-check
+  phrasing had a bug in its own safety check, caught in code review, not
+  by a test written after the fact.** Once `orchestration.py` started
+  surfacing AI-phrased compliance/guardrail text as the stated reason for
+  a routing decision, a numbers-only guard turned out to be insufficient
+  — a rephrasing could keep a number grounded and still flip the
+  conclusion ("exceeds the ceiling" reworded as "is within the ceiling").
+  A second, polarity-aware check was added, grounded in this codebase's
+  own rationale-template vocabulary rather than a guessed keyword list.
+  The first version of that check false-positived on a *correctly
+  negated* rephrasing of a real violation — "the structure is **not**
+  compliant" contains the bare substring "compliant" and tripped the
+  guard as if it were the soft-pedal it exists to catch. Fixed with a
+  negation-aware check. A second review round caught the same bug's
+  hyphenated form ("**non-compliant**"), missed by the first fix's
+  negation-word list and character class — fixed by normalizing hyphens
+  to spaces before matching, then deliberately stopped hardening the
+  marker lists further once two related gaps had been caught in a row —
+  stated explicitly in the code as a known, bounded limitation rather
+  than implied as a closed problem.
 - The salary-revision export's honesty-label header hung the dev server
   on the first real request against it, not in testing against mocked
   data. `X-Template-Honesty-Label` carried the label text verbatim,
