@@ -251,6 +251,48 @@ function ExportPanel({ row, onCompleted }: { row: SubmissionRow; onCompleted: ()
   );
 }
 
+const SEVERITY_RANK: Record<string, number> = { Low: 1, Medium: 2, High: 3 };
+
+// One-line summary of the actual fix — visible without clicking Inspect.
+// Reuses row.diff, already computed server-side by diff_view.py's
+// build_diff() and already fetched for every row (finance-flow's own
+// refresh() calls GET /api/submissions/<id> per submission specifically
+// to get this) — no new data, just surfaced one level higher than
+// before. Deliberately returns null (renders nothing) rather than a
+// generic "review this" line when there's no real prior-offer diff to
+// point to (a plain new-hire submission) — a vague placeholder would be
+// worse than showing nothing.
+function pickSuggestedFix(row: SubmissionRow): string | null {
+  const diff = row.diff;
+  if (!diff || !diff.has_prior_offer) return null;
+
+  const severityByRule = new Map(row.computed.compliance.flags.map((f) => [f.rule_id, f.severity]));
+
+  // Among the changed fields, surface the one tied to the highest-
+  // severity compliance rule — the change actually driving the
+  // escalation, not just whichever field happens to be listed first.
+  // Field changes with no rule attribution ("tax optimization") rank
+  // lowest and only surface if nothing rule-tied exists.
+  let best: { text: string; rank: number } | null = null;
+  for (const c of diff.field_changes) {
+    const ruleMatch = c.reason.match(/^(R\d)\s/);
+    const severity = ruleMatch ? severityByRule.get(ruleMatch[1]) : undefined;
+    const rank = severity ? SEVERITY_RANK[severity] : 0;
+    if (!best || rank > best.rank) {
+      const fieldLabel = c.field.replace(/_/g, " ");
+      const beforeStr = typeof c.before === "boolean" ? String(c.before) : inr(c.before);
+      const afterStr = typeof c.after === "boolean" ? String(c.after) : inr(c.after);
+      best = { text: `${fieldLabel}: ${beforeStr} → ${afterStr} (${c.reason})`, rank };
+    }
+  }
+  if (best) return best.text;
+
+  if (diff.regime_change) {
+    return `Regime: ${diff.regime_change.before} → ${diff.regime_change.after} (${diff.regime_change.reason})`;
+  }
+  return null;
+}
+
 function RowCard({
   row,
   onDecided,
@@ -291,6 +333,7 @@ function RowCard({
   const recommendedRegime = row.computed.recommended_regime;
   const recommended = row.computed[`${recommendedRegime}_regime_best`];
   const flags = row.computed.compliance.flags;
+  const suggestedFix = pickSuggestedFix(row);
 
   return (
     <CardShell className="p-4">
@@ -318,6 +361,11 @@ function RowCard({
                 </span>
               )}
             </p>
+            {suggestedFix && (
+              <p className="mt-1 text-xs text-neutral-400">
+                <span className="text-neutral-500">Suggested fix:</span> {suggestedFix}
+              </p>
+            )}
           </div>
         </div>
         <button
