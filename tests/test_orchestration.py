@@ -11,6 +11,7 @@ stand-in for what those functions "should" return.
 import os
 import sys
 import unittest
+from unittest.mock import patch, Mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -313,6 +314,44 @@ class TestSubmissionsRouteIntegration(ReviewQueueTestCase):
         self.assertIsNotNone(orchestration)
         self.assertEqual(orchestration["route"], "escalate")
         self.assertEqual(orchestration["severity"], "High")
+
+    def test_reasons_surfaced_are_the_safe_fallback_when_upstream_guard_fires(self):
+        # The actual claim this whole guard extension is justified by:
+        # orchestration.py surfaces flag_compliance()'s "message" text as
+        # the stated reason for a routing decision — this test trips the
+        # numeric guard upstream (a fabricated rephrasing with a wrong
+        # percentage) through the REAL /api/submissions route, exactly
+        # the path a live panel re-run would take, and confirms the
+        # `reasons` text that actually reaches the response is the safe
+        # deterministic rationale, not the bad AI text, and not silently
+        # missing. Proves the guarantee end to end rather than assuming
+        # it from reading ai_layer.py and orchestration.py separately.
+        row = {
+            "employee_name": "Guard Fires On Submit", "ctc": 2_000_000, "rent_paid": 300_000, "city": "metro",
+            "current_structure": {
+                "basic": 900_000, "hra": 400_000, "lta": 0,
+                "special_allowance": 2_000_000 - 900_000 - 400_000 - 108_000,
+                "employer_pf": 108_000, "employer_nps": 0,
+            },
+        }
+        fake_response = Mock()
+        fake_response.content = [Mock(text="Basic salary is below 35% of CTC, a compliance concern.")]
+        with patch("ai_layer._client", Mock(messages=Mock(create=Mock(return_value=fake_response)))):
+            post_resp = self.client.post("/api/submissions", json={"source": "single", "row": row})
+        self.assertEqual(post_resp.status_code, 200)
+        submission_id = post_resp.get_json()["submission_id"]
+
+        get_resp = self.client.get(f"/api/submissions/{submission_id}")
+        row_data = get_resp.get_json()["rows"][0]
+        orchestration = row_data["orchestration"]
+        self.assertEqual(orchestration["route"], "escalate")  # R1 is High severity regardless of phrasing
+        reasons_text = " ".join(orchestration["reasons"])
+        self.assertIn("50%", reasons_text)  # the real, guard-verified rationale
+        self.assertNotIn("35%", reasons_text)  # never the fabricated AI text
+        # Same guarantee visible on the raw compliance flags this was built
+        # from — ai_backed is False specifically because the guard rejected
+        # the fabricated rephrasing, not because no client was configured.
+        self.assertFalse(row_data["computed"]["compliance"]["ai_backed"])
 
     def test_submitting_clean_row_with_band_returns_auto_pass_candidate(self):
         row = {

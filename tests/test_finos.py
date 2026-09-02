@@ -13,7 +13,10 @@ from optimizer import (
     theoretical_minimum_tax, naive_baseline_tax, optimization_value_pct,
     BASIC_PCT_MIN, BASIC_PCT_MAX,
 )
-from ai_layer import extract_from_text, explain_result, flag_compliance, negotiate, _check_rules, compliance_pct, ai_coverage_pct, answer_query
+from ai_layer import (
+    extract_from_text, explain_result, flag_compliance, negotiate, _check_rules,
+    compliance_pct, ai_coverage_pct, answer_query, evaluate_band_guardrail,
+)
 from unittest.mock import patch, Mock
 from app import _parse_commit_dates
 
@@ -167,6 +170,167 @@ class TestAiLayerCompliance(unittest.TestCase):
         flags = flag_compliance(s, rent_paid=0)
         ids = {f["rule_id"] for f in flags["flags"]}
         self.assertIn("R3", ids)
+
+    def _r1_structure(self):
+        # Real R1 (High-severity, Code on Wages) violation — basic well
+        # below the 50% statutory floor.
+        return SalaryStructure(
+            ctc=2_000_000, basic=900_000, hra=400_000, lta=0,
+            special_allowance=2_000_000 - 900_000 - 400_000 - 108_000,
+            employer_pf=108_000, employer_nps=0, nps_opted=False,
+        )
+
+    def test_numeric_guard_rejects_ungrounded_number_in_rephrasing(self):
+        # Real bug this closes: flag_compliance() only ever checked that
+        # the AI returned the right LINE COUNT, never that the numbers
+        # inside those lines were real. This mocks a rephrasing that
+        # restates R1's real 50% floor as an invented 35% instead.
+        s = self._r1_structure()
+        fake_response = Mock()
+        fake_response.content = [Mock(text="Basic salary is below 35% of CTC, a compliance concern.")]
+        with patch("ai_layer._client", Mock(messages=Mock(create=Mock(return_value=fake_response)))):
+            result = flag_compliance(s, rent_paid=300_000)
+        self.assertTrue(result["guard_triggered"])
+        self.assertFalse(result["ai_backed"])
+        r1 = next(f for f in result["flags"] if f["rule_id"] == "R1")
+        self.assertIn("50%", r1["message"])  # served the real rationale, not the fake "35%" text
+        self.assertNotIn("35%", r1["message"])
+
+    def test_numeric_guard_passes_legitimate_rephrasing(self):
+        s = self._r1_structure()
+        fake_response = Mock()
+        fake_response.content = [Mock(
+            text="This structure sets Basic below the 50% floor the Code on Wages 2025 requires.",
+        )]
+        with patch("ai_layer._client", Mock(messages=Mock(create=Mock(return_value=fake_response)))):
+            result = flag_compliance(s, rent_paid=300_000)
+        self.assertFalse(result["guard_triggered"])
+        self.assertTrue(result["ai_backed"])
+
+    def test_numeric_guard_catches_small_numbers_not_just_large_ones(self):
+        # The one deliberate difference from explain_result()'s guard:
+        # skip_below=0 here, not 100 — a wrong PERCENTAGE (e.g. "35" vs
+        # the real "50") is exactly the kind of small, high-stakes number
+        # compliance text turns on, and explain_result's skip-small-
+        # numbers heuristic would have let this straight through.
+        s = self._r1_structure()
+        fake_response = Mock()
+        fake_response.content = [Mock(text="Basic salary is below 35% of CTC here.")]
+        with patch("ai_layer._client", Mock(messages=Mock(create=Mock(return_value=fake_response)))):
+            result = flag_compliance(s, rent_paid=300_000)
+        self.assertTrue(result["guard_triggered"])
+
+    def test_polarity_guard_catches_soft_pedaled_violation(self):
+        # The sharper gap numeric grounding alone misses: every number in
+        # this rephrasing is real (50%), but the CONCLUSION is flipped —
+        # a real violation described as if it were fine.
+        s = self._r1_structure()
+        fake_response = Mock()
+        fake_response.content = [Mock(
+            text="Basic salary sits near the 50% mark, which is acceptable.",
+        )]
+        with patch("ai_layer._client", Mock(messages=Mock(create=Mock(return_value=fake_response)))):
+            result = flag_compliance(s, rent_paid=300_000)
+        self.assertTrue(result["guard_triggered"])
+        self.assertFalse(result["ai_backed"])
+
+    def test_polarity_guard_does_not_fire_on_negated_marker(self):
+        # The bug found and fixed during plan review: a plain substring
+        # check on "compliant" would false-positive on this correctly-
+        # negated, faithful rephrasing of a real violation.
+        s = self._r1_structure()
+        fake_response = Mock()
+        fake_response.content = [Mock(
+            text="The structure is not compliant with the 50% Basic-salary floor.",
+        )]
+        with patch("ai_layer._client", Mock(messages=Mock(create=Mock(return_value=fake_response)))):
+            result = flag_compliance(s, rent_paid=300_000)
+        self.assertFalse(result["guard_triggered"])
+        self.assertTrue(result["ai_backed"])
+
+    def test_polarity_guard_does_not_fire_on_hyphenated_negated_marker(self):
+        # Second negation gap found in a follow-up review round: "non-
+        # compliant" (hyphenated) wasn't recognized as negated by the
+        # first fix, which only handled "not compliant" (space-separated).
+        s = self._r1_structure()
+        fake_response = Mock()
+        fake_response.content = [Mock(
+            text="The structure is non-compliant with the 50% Basic-salary floor.",
+        )]
+        with patch("ai_layer._client", Mock(messages=Mock(create=Mock(return_value=fake_response)))):
+            result = flag_compliance(s, rent_paid=300_000)
+        self.assertFalse(result["guard_triggered"])
+        self.assertTrue(result["ai_backed"])
+
+
+class TestGuardrailPhrasingGuard(unittest.TestCase):
+    """
+    Numeric + polarity guard on evaluate_band_guardrail()'s AI-phrased
+    check messages — same discipline as TestAiLayerCompliance's
+    flag_compliance() tests above, and the reason guard_triggered in this
+    function's return value is no longer permanently False (it was dead
+    scaffolding — declared, never actually set anywhere — before this).
+    """
+
+    def _out_of_band_structure(self):
+        # Real, clean structure whose CTC simply falls outside a narrow
+        # approved band — the guardrail's band_cost_neutrality check
+        # fails; EPFO/Section 124 checks pass, so exactly one check is
+        # being rephrased, keeping the mock response simple.
+        return SalaryStructure(
+            ctc=1_800_000, basic=1_080_000, hra=0, lta=0, special_allowance=590_400,
+            employer_pf=129_600, employer_nps=0, nps_opted=False,
+        )
+
+    def test_numeric_guard_rejects_ungrounded_number(self):
+        s = self._out_of_band_structure()
+        fake_response = Mock()
+        fake_response.content = [Mock(
+            text="CTC of Rs 1,800,000 falls outside the approved band of Rs 100,000-Rs 500,000.",
+        )]
+        with patch("ai_layer._client", Mock(messages=Mock(create=Mock(return_value=fake_response)))):
+            result = evaluate_band_guardrail(s, "new", 2_000_000, 2_500_000)
+        self.assertTrue(result["guard_triggered"])
+        self.assertFalse(result["ai_backed"])
+        check = next(c for c in result["checks"] if c["id"] == "band_cost_neutrality")
+        self.assertIn("2,000,000", check["message"])  # real band, not the fake one
+
+    def test_numeric_guard_passes_legitimate_rephrasing(self):
+        s = self._out_of_band_structure()
+        fake_response = Mock()
+        fake_response.content = [Mock(
+            text="This CTC of Rs 1,800,000 does not fall within the approved Rs 2,000,000-Rs 2,500,000 band.",
+        )]
+        with patch("ai_layer._client", Mock(messages=Mock(create=Mock(return_value=fake_response)))):
+            result = evaluate_band_guardrail(s, "new", 2_000_000, 2_500_000)
+        self.assertFalse(result["guard_triggered"])
+        self.assertTrue(result["ai_backed"])
+
+    def test_polarity_guard_catches_flip_with_grounded_numbers(self):
+        # The gap that matters most, per review: every number here is
+        # real (the actual band), but the rephrasing states the FAILING
+        # check as if it passed — "is within" is the passing template's
+        # own pivot phrase, echoed back for a check that actually failed.
+        s = self._out_of_band_structure()
+        fake_response = Mock()
+        fake_response.content = [Mock(
+            text="CTC of Rs 1,800,000 is within the approved band of Rs 2,000,000-Rs 2,500,000.",
+        )]
+        with patch("ai_layer._client", Mock(messages=Mock(create=Mock(return_value=fake_response)))):
+            result = evaluate_band_guardrail(s, "new", 2_000_000, 2_500_000)
+        self.assertTrue(result["guard_triggered"])
+        self.assertFalse(result["ai_backed"])
+
+    def test_polarity_guard_does_not_fire_on_negated_marker(self):
+        s = self._out_of_band_structure()
+        fake_response = Mock()
+        fake_response.content = [Mock(
+            text="CTC of Rs 1,800,000 is not within the approved band of Rs 2,000,000-Rs 2,500,000.",
+        )]
+        with patch("ai_layer._client", Mock(messages=Mock(create=Mock(return_value=fake_response)))):
+            result = evaluate_band_guardrail(s, "new", 2_000_000, 2_500_000)
+        self.assertFalse(result["guard_triggered"])
+        self.assertTrue(result["ai_backed"])
 
 
 class TestNegotiationCopilot(unittest.TestCase):

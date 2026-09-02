@@ -52,7 +52,7 @@ export type OptimizeResponse = {
   recommended_regime: "old" | "new";
   annual_saving: number;
   explanation: { explanation: string; ai_backed: boolean; guard_triggered: boolean };
-  compliance: { flags: ComplianceFlag[]; ai_backed: boolean };
+  compliance: { flags: ComplianceFlag[]; ai_backed: boolean; guard_triggered?: boolean };
   compliance_checked_against: "as_offered" | "recommended";
   negotiation?: NegotiationResponse; // present iff request included current_structure
   metrics: {

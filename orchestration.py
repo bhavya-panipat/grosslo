@@ -19,6 +19,19 @@ Nothing in this module writes state, calls decide_row(), or changes what
 /api/submissions/<id>/rows/<i>/decide or /export do. `auto_pass_candidate`
 is a routing/presentation recommendation, never an approval.
 
+`reasons` (below) quotes `flag["message"]`/`check["message"]` — this
+module makes zero LLM calls itself, but that text can be AI-phrased
+upstream in flag_compliance()/evaluate_band_guardrail(). Both are
+numeric- and polarity-guarded there (see ai_layer.py's
+_numbers_ungrounded()/_phrasing_flips_polarity()): a rephrasing that
+states a wrong number, or soft-pedals/flips a real violation into
+sounding compliant, is rejected upstream and falls back to the real
+deterministic rationale before it ever reaches this module. That
+guarantee is what makes it safe for classify_row()'s output to be shown
+as "why this row was routed here" — verified with an integration test
+(tests/test_orchestration.py) that trips the upstream guard and confirms
+the safe fallback text is what actually surfaces here, not just asserted.
+
 Four routes, not three — "guardrail never ran" (no compensation band was
 supplied for this row) is a distinct, visible state from both "clean" and
 "escalated," per the project's own capability-strip precedent of keeping

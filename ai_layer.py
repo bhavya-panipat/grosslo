@@ -170,6 +170,64 @@ def _extract_numbers(text: str) -> list[float]:
     return nums
 
 
+def _numbers_ungrounded(text: str, allowed_numbers: set, skip_below: float = 100) -> bool:
+    """
+    True if `text` contains a number not present in `allowed_numbers`
+    (within tolerance 1). skip_below=100 matches explain_result's/
+    answer_query's original inline behavior — small numbers there are
+    typically prose filler ("2-4 sentences"), not rupee figures.
+    Compliance/guardrail callers pass skip_below=0: a percentage like
+    "50%" is exactly the kind of small, high-stakes number those rules
+    turn on, and skipping it would silently exempt the single most
+    safety-critical figure (e.g. R1's 50% statutory floor) from the check.
+    """
+    found = _extract_numbers(text)
+    return any(n >= skip_below and not any(abs(n - a) < 1 for a in allowed_numbers) for n in found)
+
+
+_GUARDRAIL_PASS_MARKER = "is within"  # the pivot phrase every passing
+                                        # guardrail-check rationale uses —
+                                        # see band_cost_neutrality/
+                                        # epfo_ceiling/80ccd2_cap templates
+                                        # in evaluate_band_guardrail() below
+_COMPLIANCE_SOFT_PEDAL_MARKERS = (
+    "compliant", "not a violation", "no issue", "within limits",
+    "no concern", "is acceptable",
+)
+_NEGATION_RE = re.compile(r"\b(not|non|never|no longer|isn'?t|wasn'?t|doesn'?t|didn'?t)\b[\w\s]{0,15}$")
+
+
+def _phrasing_flips_polarity(text: str, markers: tuple) -> bool:
+    """
+    True if `text` contains a marker phrase that ISN'T itself negated —
+    "within limits" flips polarity (soft-pedals a real violation), but
+    "not within limits" or "non-compliant" correctly restate one and must
+    not trip this. Hyphens are normalized to spaces first so
+    "non-compliant" and "non compliant" are checked identically — a
+    plain substring check without this catches "not compliant" but
+    misses "non-compliant" outright (no "non" in the negation word list,
+    and no hyphen allowed in the gap), and "non-compliant" is arguably
+    the more natural LLM phrasing of a violation, not a rare edge case.
+
+    Catches flips that reuse this codebase's own known template
+    vocabulary — it does not catch a semantically equivalent flip phrased
+    with a synonym these marker lists don't contain ("stays under the
+    ceiling," "a minor discrepancy"). A pragmatic pattern-matching
+    heuristic, not a general polarity classifier — deliberately not
+    hardened further than this (two negation variants found and fixed
+    already); see orchestration.py's own docstring note on what this
+    guarantees downstream.
+    """
+    lowered = text.lower().replace("-", " ")
+    for marker in markers:
+        pos = 0
+        while (idx := lowered.find(marker, pos)) != -1:
+            if not _NEGATION_RE.search(lowered[:idx]):
+                return True
+            pos = idx + 1
+    return False
+
+
 def _deterministic_explain(optimizer_result: dict, rent_paid: float, city: str) -> str:
     rec = optimizer_result["recommended"]
     delta = optimizer_result["annual_tax_saving_vs_other_regime"]
@@ -234,14 +292,8 @@ def explain_result(optimizer_result: dict, rent_paid: float, city: str, skip_ai:
                 messages=[{"role": "user", "content": json.dumps(payload)}],
             )
             candidate = response.content[0].text.strip()
-            found_numbers = _extract_numbers(candidate)
             # numeric guard: every number mentioned must be traceable to input
-            for n in found_numbers:
-                if n < 100:
-                    continue  # skip small numbers like "2-4 sentences", percentages read separately
-                if not any(abs(n - allowed) < 1 for allowed in allowed_numbers):
-                    guard_triggered = True
-                    break
+            guard_triggered = _numbers_ungrounded(candidate, allowed_numbers)
             if not guard_triggered:
                 explanation = candidate
                 ai_backed = True
@@ -372,12 +424,28 @@ def flag_compliance(structure, rent_paid: float) -> dict:
     Rule matching is always deterministic (see _check_rules). The LLM, when
     available, only rephrases the already-determined flags into cleaner
     prose — it cannot add or remove flags.
-    Returns {"flags": [...], "ai_backed": bool}.
+
+    Numeric- and polarity-guarded, same discipline as explain_result()/
+    answer_query(): every triggered flag is a real violation by
+    construction, so a rephrasing that states a wrong number
+    (_numbers_ungrounded) or soft-pedals the violation into sounding
+    compliant (_phrasing_flips_polarity) is rejected for the WHOLE batch,
+    not just the offending line — same all-or-nothing granularity the
+    length check already used. This is the actual guard behind
+    orchestration.py's classify_row(), which surfaces these flags'
+    "message" text as the stated reason for a routing decision.
+
+    Returns {"flags": [...], "ai_backed": bool, "guard_triggered": bool}.
     """
     triggered = _check_rules(structure, rent_paid)
     if not triggered:
-        return {"flags": [], "ai_backed": False}
+        return {"flags": [], "ai_backed": False, "guard_triggered": False}
 
+    allowed_numbers = set()
+    for flag in triggered:
+        allowed_numbers.update(_extract_numbers(flag["rationale"]))
+
+    guard_triggered = False
     if _client is not None:
         try:
             response = _client.messages.create(
@@ -389,16 +457,25 @@ def flag_compliance(structure, rent_paid: float) -> dict:
             phrased = response.content[0].text.strip().split("\n")
             phrased = [p.strip("- ").strip() for p in phrased if p.strip()]
             if len(phrased) == len(triggered):
-                for i, flag in enumerate(triggered):
-                    flag["message"] = phrased[i]
-                return {"flags": triggered, "ai_backed": True}
+                guard_triggered = any(
+                    _numbers_ungrounded(line, allowed_numbers, skip_below=0)
+                    or _phrasing_flips_polarity(line, _COMPLIANCE_SOFT_PEDAL_MARKERS)
+                    for line in phrased
+                )
+                if not guard_triggered:
+                    for i, flag in enumerate(triggered):
+                        flag["message"] = phrased[i]
+                    return {"flags": triggered, "ai_backed": True, "guard_triggered": False}
         except Exception:
             pass
 
-    # Fallback: use the rationale text directly as the message
+    # Fallback: use the rationale text directly as the message — hit
+    # either on no client, an API error, a line-count mismatch, or the
+    # guard above catching an ungrounded/flipped rephrasing (guard_triggered
+    # reflects specifically the last of those, not the fallback in general).
     for flag in triggered:
         flag["message"] = flag["rationale"]
-    return {"flags": triggered, "ai_backed": False}
+    return {"flags": triggered, "ai_backed": False, "guard_triggered": guard_triggered}
 
 
 # ---------------------------------------------------------------------------
@@ -436,7 +513,14 @@ def evaluate_band_guardrail(structure: SalaryStructure, regime: str,
 
     Same pattern as flag_compliance: rule matching is always deterministic;
     the LLM, when available, only rephrases already-failing checks into
-    cleaner prose. It cannot flip a pass into a fail or vice versa.
+    cleaner prose. It cannot flip a pass into a fail or vice versa in the
+    underlying data — but the rephrasing itself is now numeric- and
+    polarity-guarded (previously this function declared guard_triggered
+    but never actually set it to True anywhere; it's real now, not dead
+    scaffolding): a rephrasing that states a wrong number, or echoes a
+    passing check's own "is within..." language for a check that
+    actually failed, is rejected for the whole batch and falls back to
+    the real rationale text.
     Returns {"verdict": "pass"|"flag", "checks": [...], "ai_backed": bool,
              "guard_triggered": bool}.
     """
@@ -499,6 +583,10 @@ def evaluate_band_guardrail(structure: SalaryStructure, regime: str,
             c["message"] = c["rationale"]
         return {"verdict": verdict, "checks": checks, "ai_backed": False, "guard_triggered": False}
 
+    allowed_numbers = set()
+    for c in failing:
+        allowed_numbers.update(_extract_numbers(c["rationale"]))
+
     ai_backed = False
     guard_triggered = False
     if _client is not None:
@@ -512,9 +600,21 @@ def evaluate_band_guardrail(structure: SalaryStructure, regime: str,
             phrased = response.content[0].text.strip().split("\n")
             phrased = [p.strip("- ").strip() for p in phrased if p.strip()]
             if len(phrased) == len(failing):
-                for flag, message in zip(failing, phrased):
-                    flag["message"] = message
-                ai_backed = True
+                # Numeric- and polarity-guarded, same discipline as
+                # flag_compliance(): a rephrasing of a FAILING check that
+                # states a wrong number, or echoes the passing template's
+                # own "is within" language, is rejected for the whole
+                # batch rather than trusted — this is the guard behind
+                # orchestration.py's classify_row() reading this text.
+                guard_triggered = any(
+                    _numbers_ungrounded(message, allowed_numbers, skip_below=0)
+                    or _phrasing_flips_polarity(message, [_GUARDRAIL_PASS_MARKER])
+                    for message in phrased
+                )
+                if not guard_triggered:
+                    for flag, message in zip(failing, phrased):
+                        flag["message"] = message
+                    ai_backed = True
         except Exception:
             pass
 
@@ -647,13 +747,7 @@ def negotiate(current_structure: SalaryStructure, current_best: dict,
                 messages=[{"role": "user", "content": json.dumps(payload)}],
             )
             candidate = response.content[0].text.strip()
-            found_numbers = _extract_numbers(candidate)
-            for n in found_numbers:
-                if n < 100:
-                    continue
-                if not any(abs(n - allowed) < 1 for allowed in allowed_numbers):
-                    guard_triggered = True
-                    break
+            guard_triggered = _numbers_ungrounded(candidate, allowed_numbers)
             if not guard_triggered:
                 points = candidate
                 ai_backed = True
@@ -825,8 +919,7 @@ def answer_query(question: str, context: dict, ctc: float, rent_paid: float,
                     messages=[{"role": "user", "content": json.dumps(payload)}],
                 )
                 candidate = response.content[0].text.strip()
-                nums = _extract_numbers(candidate)
-                guard_triggered = any(n >= 100 and not any(abs(n - a) < 1 for a in allowed) for n in nums)
+                guard_triggered = _numbers_ungrounded(candidate, allowed)
                 if not guard_triggered:
                     return {"answer": candidate, "ai_backed": True, "recalculated": True, "guard_triggered": False}
             except Exception:
@@ -889,8 +982,7 @@ def answer_query(question: str, context: dict, ctc: float, rent_paid: float,
                 messages=[{"role": "user", "content": json.dumps({"question": question, "context": grounding})}],
             )
             candidate = response.content[0].text.strip()
-            nums = _extract_numbers(candidate)
-            guard_triggered = any(n >= 100 and not any(abs(n - a) < 1 for a in allowed) for n in nums)
+            guard_triggered = _numbers_ungrounded(candidate, allowed)
             if not guard_triggered:
                 return {"answer": candidate, "ai_backed": True, "recalculated": False, "guard_triggered": False}
         except Exception:
