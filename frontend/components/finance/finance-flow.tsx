@@ -640,6 +640,52 @@ export default function FinanceFlow() {
         </p>
       )}
 
+      {/* Ordered by urgency, not by how the routing logic happens to
+          compute them — most-attention-needed first. A reviewer opening
+          this page should see what's escalated before anything else,
+          not scroll past three other sections to find it. Clean is last
+          on purpose too: it's the one section that's genuinely fine to
+          address in a single bulk click, so it doesn't compete for the
+          same visual priority as rows that need a human to actually
+          read something. */}
+      {escalatedRows.length > 0 && (
+        <div className="mb-8">
+          <h3 className="mb-3 font-display text-lg font-semibold text-red-300">Escalated</h3>
+          <div className="flex flex-col gap-3">
+            {escalatedRows.map((row) => (
+              <RowCard key={`${row.submission_id}-${row.row_index}`} row={row} onDecided={refresh} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {reviewRows.length > 0 && (
+        <div className="mb-8">
+          <h3 className="mb-3 font-display text-lg font-semibold text-gold-bright">Needs review</h3>
+          {/* No checkbox rendered on any RowCard here — onToggleSelect is omitted, so there is
+              nothing to select. Individual approve/reject only. */}
+          <div className="flex flex-col gap-3">
+            {reviewRows.map((row) => (
+              <RowCard key={`${row.submission_id}-${row.row_index}`} row={row} onDecided={refresh} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {noGuardrailRows.length > 0 && (
+        <div className="mb-8">
+          <h3 className="mb-3 font-display text-lg font-semibold text-neutral-300">Guardrail not run</h3>
+          <p className="mb-3 text-xs text-neutral-500">
+            No approved compensation band was supplied for these rows — review individually.
+          </p>
+          <div className="flex flex-col gap-3">
+            {noGuardrailRows.map((row) => (
+              <RowCard key={`${row.submission_id}-${row.row_index}`} row={row} onDecided={refresh} />
+            ))}
+          </div>
+        </div>
+      )}
+
       {cleanRows.length > 0 && (
         <div className="mb-8">
           <h3 className="mb-3 font-display text-lg font-semibold text-emerald-300">
@@ -675,44 +721,6 @@ export default function FinanceFlow() {
                 selected={selectedKeys.has(keyOf(row))}
                 onToggleSelect={() => toggleSelected(keyOf(row))}
               />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {reviewRows.length > 0 && (
-        <div className="mb-8">
-          <h3 className="mb-3 font-display text-lg font-semibold text-gold-bright">Needs review</h3>
-          {/* No checkbox rendered on any RowCard here — onToggleSelect is omitted, so there is
-              nothing to select. Individual approve/reject only. */}
-          <div className="flex flex-col gap-3">
-            {reviewRows.map((row) => (
-              <RowCard key={`${row.submission_id}-${row.row_index}`} row={row} onDecided={refresh} />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {noGuardrailRows.length > 0 && (
-        <div className="mb-8">
-          <h3 className="mb-3 font-display text-lg font-semibold text-neutral-300">Guardrail not run</h3>
-          <p className="mb-3 text-xs text-neutral-500">
-            No approved compensation band was supplied for these rows — review individually.
-          </p>
-          <div className="flex flex-col gap-3">
-            {noGuardrailRows.map((row) => (
-              <RowCard key={`${row.submission_id}-${row.row_index}`} row={row} onDecided={refresh} />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {escalatedRows.length > 0 && (
-        <div className="mb-8">
-          <h3 className="mb-3 font-display text-lg font-semibold text-red-300">Escalated</h3>
-          <div className="flex flex-col gap-3">
-            {escalatedRows.map((row) => (
-              <RowCard key={`${row.submission_id}-${row.row_index}`} row={row} onDecided={refresh} />
             ))}
           </div>
         </div>
