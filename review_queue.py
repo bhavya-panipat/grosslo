@@ -91,8 +91,25 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             decided_by TEXT
         )
     """)
+    # Additive migration for the orchestration columns — CREATE TABLE IF NOT
+    # EXISTS above won't add columns to a table that already exists from
+    # before this feature shipped, so this self-heals the same way the rest
+    # of this function already does. Verified against a copy of this
+    # project's real (non-empty) review_queue.db before shipping: existing
+    # rows survive unchanged, new columns come back NULL, and running this
+    # twice on an already-migrated table is a no-op, not an error.
+    existing_cols = {row["name"] for row in conn.execute("PRAGMA table_info(submission_rows)")}
+    for col, ddl in [
+        ("orchestration_json", "ALTER TABLE submission_rows ADD COLUMN orchestration_json TEXT"),
+        ("route", "ALTER TABLE submission_rows ADD COLUMN route TEXT"),
+        ("severity", "ALTER TABLE submission_rows ADD COLUMN severity TEXT"),
+    ]:
+        if col not in existing_cols:
+            conn.execute(ddl)
+
     conn.execute("CREATE INDEX IF NOT EXISTS idx_rows_submission ON submission_rows(submission_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_rows_dedupe ON submission_rows(dedupe_hash)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_rows_route ON submission_rows(route)")
 
 
 @contextmanager
@@ -123,6 +140,10 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
     d = dict(row)
     d["input"] = json.loads(d.pop("input_json"))
     d["computed"] = json.loads(d.pop("computed_json"))
+    # None for rows created before this feature shipped — callers (the
+    # frontend, tests) must handle this, not assume every row has one.
+    raw_orchestration = d.pop("orchestration_json", None)
+    d["orchestration"] = json.loads(raw_orchestration) if raw_orchestration else None
     return d
 
 
@@ -174,12 +195,17 @@ def create_submission(source: str, rows: list[dict], submitted_by: str = "hr") -
             if existing is not None:
                 duplicates.append({"row_index": i, "matches_existing_row_id": existing["id"]})
                 continue
+            orchestration = row.get("orchestration")  # optional — omitted by fixtures/callers predating this feature
             row_cur = conn.execute(
                 """INSERT INTO submission_rows
-                   (submission_id, row_index, employee_name, ctc, dedupe_hash, input_json, computed_json, status)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')""",
+                   (submission_id, row_index, employee_name, ctc, dedupe_hash, input_json, computed_json,
+                    orchestration_json, route, severity, status)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')""",
                 (submission_id, i, name, ctc, dedupe_hash,
-                 json.dumps(row["input"]), json.dumps(row["computed"])),
+                 json.dumps(row["input"]), json.dumps(row["computed"]),
+                 json.dumps(orchestration) if orchestration else None,
+                 orchestration.get("route") if orchestration else None,
+                 orchestration.get("severity") if orchestration else None),
             )
             inserted.append(row_cur.lastrowid)
 
@@ -190,7 +216,7 @@ def create_submission(source: str, rows: list[dict], submitted_by: str = "hr") -
     }
 
 
-def list_submissions(status: str | None = None) -> list[dict]:
+def list_submissions(status: str | None = None, route: str | None = None) -> list[dict]:
     with _conn() as conn:
         submissions = conn.execute("SELECT * FROM submissions ORDER BY id DESC").fetchall()
         result = []
@@ -200,10 +226,13 @@ def list_submissions(status: str | None = None) -> list[dict]:
             if status:
                 row_query += " AND status = ?"
                 params.append(status)
+            if route:
+                row_query += " AND route = ?"
+                params.append(route)
             row_query += " ORDER BY row_index"
             rows = conn.execute(row_query, params).fetchall()
-            if status and not rows:
-                continue  # submission has no rows in this status — omit it, don't show an empty shell
+            if (status or route) and not rows:
+                continue  # submission has no rows matching the filter(s) — omit it, don't show an empty shell
             result.append({
                 "id": s["id"],
                 "created_at": s["created_at"],

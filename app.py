@@ -19,6 +19,7 @@ from tax_engine import SalaryStructure, derive_pf, derive_nps
 from payroll_breakdown import treasury_forecast
 from penalty_exposure import build_scenario_table
 from execution_trace import trace_optimize_stage, trace_guardrail_stage
+from orchestration import classify_row
 import io
 import review_queue
 from diff_view import build_diff
@@ -603,6 +604,15 @@ def api_create_submission():
             except (ValueError, TypeError):
                 pass  # malformed band just skips the guardrail check, doesn't fail the row
 
+        # Routing/presentation recommendation only — see orchestration.py's
+        # own docstring. Never writes a status, never calls decide_row():
+        # a human still clicks Approve on every row via the existing
+        # /decide endpoint below, unchanged. Computed here (not inside
+        # _build_optimize_response) because routing only has meaning where
+        # there's a queue to route into — /api/optimize's single-candidate
+        # path has no "route" concept and stays untouched.
+        orchestration = classify_row(response["compliance"], response.get("guardrail"))
+
         built_rows.append({
             "employee_name": row.get("employee_name"),
             "ctc": ctc,
@@ -620,6 +630,7 @@ def api_create_submission():
                 "email": row.get("email"),
             },
             "computed": response,
+            "orchestration": orchestration,
         })
 
     if not built_rows:

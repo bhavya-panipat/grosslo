@@ -4,9 +4,62 @@ import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { CheckCircle2, XCircle, ChevronDown, ChevronUp, Download, Upload, Copy, Loader2 } from "lucide-react";
 import CardShell from "@/components/card-shell";
-import type { Submission, SubmissionRow, DecideRowResponse, ExportApprovedRowResponse } from "@/lib/api-types";
+import type {
+  Submission,
+  SubmissionRow,
+  DecideRowResponse,
+  ExportApprovedRowResponse,
+  OrchestrationRoute,
+} from "@/lib/api-types";
 
 const inr = (v: number) => `₹${Math.round(v).toLocaleString("en-IN")}`;
+
+// A row with no orchestration data (submitted before this feature shipped)
+// defaults to "needs_review" — the fail-safe direction. Defaulting to
+// auto_pass_candidate instead would be a quiet safety bug: a legacy or
+// malformed row silently fast-tracking into the bulk-approve path.
+const routeOf = (r: SubmissionRow): OrchestrationRoute => r.orchestration?.route ?? "needs_review";
+
+function RouteBadge({ row }: { row: SubmissionRow }) {
+  const route = routeOf(row);
+  const severity = row.orchestration?.severity ?? "None";
+
+  if (route === "auto_pass_candidate" && severity === "Low") {
+    const flags = row.computed.compliance.flags;
+    const ruleIds = flags.map((f) => f.rule_id).join(", ");
+    return (
+      <span className="inline-flex items-center rounded-full border border-emerald-400/30 bg-emerald-400/[0.08] px-2 py-0.5 text-[11px] font-medium text-emerald-300">
+        Fast-tracked · {flags.length} low-severity note{flags.length === 1 ? "" : "s"}, {ruleIds}
+      </span>
+    );
+  }
+  if (route === "auto_pass_candidate") {
+    return (
+      <span className="inline-flex items-center rounded-full border border-emerald-400/30 bg-emerald-400/[0.08] px-2 py-0.5 text-[11px] font-medium text-emerald-300">
+        Clean
+      </span>
+    );
+  }
+  if (route === "guardrail_not_run") {
+    return (
+      <span className="inline-flex items-center rounded-full border border-white/15 bg-white/[0.04] px-2 py-0.5 text-[11px] font-medium text-neutral-400">
+        Guardrail not run
+      </span>
+    );
+  }
+  if (route === "escalate") {
+    return (
+      <span className="inline-flex items-center rounded-full border border-red-400/30 bg-red-400/[0.08] px-2 py-0.5 text-[11px] font-medium text-red-300">
+        Escalated
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center rounded-full border border-gold/30 bg-gold/[0.08] px-2 py-0.5 text-[11px] font-medium text-gold-bright">
+      Needs review
+    </span>
+  );
+}
 
 function DiffPanel({ row }: { row: SubmissionRow }) {
   const diff = row.diff;
@@ -244,7 +297,10 @@ function RowCard({
             />
           )}
           <div>
-            <p className="font-medium text-neutral-200">{row.employee_name || `Row ${row.row_index + 1}`}</p>
+            <p className="flex items-center gap-2 font-medium text-neutral-200">
+              {row.employee_name || `Row ${row.row_index + 1}`}
+              <RouteBadge row={row} />
+            </p>
             <p className="text-xs text-neutral-500">
               {inr(row.ctc)} · {recommendedRegime} regime · tax {inr(recommended.tax_breakdown.total_tax)}
               {flags.length > 0 && (
@@ -280,6 +336,26 @@ function RowCard({
                     <span className="font-mono text-gold-bright">{f.rule_id}</span> — {f.rationale}
                   </p>
                 ))}
+              </div>
+            )}
+            {row.orchestration && (
+              <div className="flex flex-col gap-1.5">
+                <p className="text-xs uppercase tracking-wide text-neutral-500">Routing decision</p>
+                <p className="text-sm text-neutral-300">
+                  Severity: <span className="font-mono text-neutral-200">{row.orchestration.severity}</span>
+                </p>
+                {row.orchestration.reasons.length > 0 ? (
+                  row.orchestration.reasons.map((r, i) => (
+                    <p key={i} className="text-sm text-neutral-400">{r}</p>
+                  ))
+                ) : (
+                  <p className="text-sm text-neutral-500">Nothing fired — zero compliance flags.</p>
+                )}
+                {!row.orchestration.checked.guardrail_evaluated && (
+                  <p className="text-sm text-neutral-500">
+                    Guardrail not evaluated — no compensation band was supplied for this row.
+                  </p>
+                )}
               </div>
             )}
             <div className="flex flex-col gap-1.5">
@@ -468,6 +544,14 @@ export default function FinanceFlow() {
     .flatMap((s) => s.rows.filter((r) => r.status === "approved"))
     .filter((r) => !completedKeys.has(`${r.submission_id}-${r.row_index}`));
 
+  // Four buckets. Bulk-approve is scoped to cleanRows ONLY — the other three
+  // never render a checkbox at all (see below), so there is structurally
+  // nothing to select-around, not just a disabled control with a warning.
+  const cleanRows = pendingRows.filter((r) => routeOf(r) === "auto_pass_candidate");
+  const reviewRows = pendingRows.filter((r) => routeOf(r) === "needs_review");
+  const noGuardrailRows = pendingRows.filter((r) => routeOf(r) === "guardrail_not_run");
+  const escalatedRows = pendingRows.filter((r) => routeOf(r) === "escalate");
+
   const keyOf = (r: SubmissionRow) => `${r.submission_id}-${r.row_index}`;
   const toggleSelected = (key: string) => {
     setSelectedKeys((prev) => {
@@ -477,15 +561,27 @@ export default function FinanceFlow() {
       return next;
     });
   };
-  const allPendingSelected = pendingRows.length > 0 && pendingRows.every((r) => selectedKeys.has(keyOf(r)));
-  const toggleSelectAll = () => {
-    setSelectedKeys(allPendingSelected ? new Set() : new Set(pendingRows.map(keyOf)));
+  const allCleanSelected = cleanRows.length > 0 && cleanRows.every((r) => selectedKeys.has(keyOf(r)));
+  const toggleSelectAllClean = () => {
+    setSelectedKeys(allCleanSelected ? new Set() : new Set(cleanRows.map(keyOf)));
   };
 
+  // "X of Y rows bulk-approved. Z require individual review (breakdown)." —
+  // set right after a bulk action completes, from counts captured before
+  // the action (refresh() below is async, so these are the pre-action
+  // counts, which is what "how many still need attention" should report).
+  const [bulkSummary, setBulkSummary] = useState<string | null>(null);
+
   const bulkDecide = async (decision: "approve" | "reject", reason?: string) => {
-    const targets = pendingRows.filter((r) => selectedKeys.has(keyOf(r)));
+    // Filtered through cleanRows explicitly, not just pendingRows — this is
+    // the structural guarantee that a bulk action can never touch a
+    // needs_review/guardrail_not_run/escalate row, enforced at the data
+    // layer, not only by the absence of a checkbox in those sections.
+    const targets = cleanRows.filter((r) => selectedKeys.has(keyOf(r)));
     if (targets.length === 0) return;
     setBulkDeciding(true);
+    const totalPending = pendingRows.length;
+    const remaining = reviewRows.length + noGuardrailRows.length + escalatedRows.length;
     try {
       await Promise.all(
         targets.map((r) =>
@@ -495,6 +591,14 @@ export default function FinanceFlow() {
             body: JSON.stringify({ decision, reason: decision === "reject" ? reason : undefined }),
           }),
         ),
+      );
+      const verb = decision === "approve" ? "bulk-approved" : "bulk-rejected";
+      setBulkSummary(
+        `${targets.length} of ${totalPending} rows ${verb}.` +
+          (remaining > 0
+            ? ` ${remaining} require individual review (${escalatedRows.length} high-severity/failed-guardrail, ` +
+              `${noGuardrailRows.length} guardrail not run, ${reviewRows.length} needs review).`
+            : ""),
       );
     } finally {
       setSelectedKeys(new Set());
@@ -521,40 +625,89 @@ export default function FinanceFlow() {
         <p className="text-sm text-neutral-600">Nothing pending review right now.</p>
       )}
 
-      {pendingRows.length > 1 && (
-        <label className="mb-3 flex w-fit items-center gap-2 text-xs text-neutral-500 hover:text-neutral-300">
-          <input
-            type="checkbox"
-            checked={allPendingSelected}
-            onChange={toggleSelectAll}
-            className="h-3.5 w-3.5 rounded border-white/20 bg-black/40 accent-gold-bright"
-          />
-          Select all {pendingRows.length} pending
-        </label>
+      {bulkSummary && (
+        <p className="mb-4 rounded-lg border border-gold/20 bg-gold/[0.04] px-3 py-2 text-sm text-neutral-300">
+          {bulkSummary}
+        </p>
       )}
 
-      {selectedKeys.size > 0 && (
-        <div className="mb-3">
-          <BulkActionBar
-            count={selectedKeys.size}
-            busy={bulkDeciding}
-            onApproveAll={() => bulkDecide("approve")}
-            onRejectAll={(reason) => bulkDecide("reject", reason)}
-          />
+      {cleanRows.length > 0 && (
+        <div className="mb-8">
+          <h3 className="mb-3 font-display text-lg font-semibold text-emerald-300">
+            Clean — ready to fast-track
+          </h3>
+          {cleanRows.length > 1 && (
+            <label className="mb-3 flex w-fit items-center gap-2 text-xs text-neutral-500 hover:text-neutral-300">
+              <input
+                type="checkbox"
+                checked={allCleanSelected}
+                onChange={toggleSelectAllClean}
+                className="h-3.5 w-3.5 rounded border-white/20 bg-black/40 accent-gold-bright"
+              />
+              Select all {cleanRows.length} clean
+            </label>
+          )}
+          {selectedKeys.size > 0 && (
+            <div className="mb-3">
+              <BulkActionBar
+                count={selectedKeys.size}
+                busy={bulkDeciding}
+                onApproveAll={() => bulkDecide("approve")}
+                onRejectAll={(reason) => bulkDecide("reject", reason)}
+              />
+            </div>
+          )}
+          <div className="flex flex-col gap-3">
+            {cleanRows.map((row) => (
+              <RowCard
+                key={`${row.submission_id}-${row.row_index}`}
+                row={row}
+                onDecided={refresh}
+                selected={selectedKeys.has(keyOf(row))}
+                onToggleSelect={() => toggleSelected(keyOf(row))}
+              />
+            ))}
+          </div>
         </div>
       )}
 
-      <div className="flex flex-col gap-3">
-        {pendingRows.map((row) => (
-          <RowCard
-            key={`${row.submission_id}-${row.row_index}`}
-            row={row}
-            onDecided={refresh}
-            selected={selectedKeys.has(keyOf(row))}
-            onToggleSelect={() => toggleSelected(keyOf(row))}
-          />
-        ))}
-      </div>
+      {reviewRows.length > 0 && (
+        <div className="mb-8">
+          <h3 className="mb-3 font-display text-lg font-semibold text-gold-bright">Needs review</h3>
+          {/* No checkbox rendered on any RowCard here — onToggleSelect is omitted, so there is
+              nothing to select. Individual approve/reject only. */}
+          <div className="flex flex-col gap-3">
+            {reviewRows.map((row) => (
+              <RowCard key={`${row.submission_id}-${row.row_index}`} row={row} onDecided={refresh} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {noGuardrailRows.length > 0 && (
+        <div className="mb-8">
+          <h3 className="mb-3 font-display text-lg font-semibold text-neutral-300">Guardrail not run</h3>
+          <p className="mb-3 text-xs text-neutral-500">
+            No approved compensation band was supplied for these rows — review individually.
+          </p>
+          <div className="flex flex-col gap-3">
+            {noGuardrailRows.map((row) => (
+              <RowCard key={`${row.submission_id}-${row.row_index}`} row={row} onDecided={refresh} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {escalatedRows.length > 0 && (
+        <div className="mb-8">
+          <h3 className="mb-3 font-display text-lg font-semibold text-red-300">Escalated</h3>
+          <div className="flex flex-col gap-3">
+            {escalatedRows.map((row) => (
+              <RowCard key={`${row.submission_id}-${row.row_index}`} row={row} onDecided={refresh} />
+            ))}
+          </div>
+        </div>
+      )}
 
       {approvedRows.length > 0 && (
         <div className="mt-10">

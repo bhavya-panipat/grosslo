@@ -238,6 +238,24 @@ export type BatchAuditResponse = {
 
 export type SubmissionRowStatus = "pending" | "approved" | "rejected";
 
+// Routing/presentation recommendation only — never an approval. A human
+// still clicks Approve on every row via the existing /decide endpoint,
+// regardless of route. See orchestration.py for the full routing rule.
+export type OrchestrationRoute = "auto_pass_candidate" | "needs_review" | "guardrail_not_run" | "escalate";
+export type OrchestrationSeverity = "None" | "Low" | "Medium" | "High";
+
+export type OrchestrationDecision = {
+  route: OrchestrationRoute;
+  severity: OrchestrationSeverity;
+  reasons: string[];
+  checked: {
+    compliance_rules_evaluated: number;
+    compliance_flags_triggered: number;
+    guardrail_evaluated: boolean;
+    guardrail_checks_failed: number | null;
+  };
+};
+
 export type FieldChange = {
   field: string;
   before: number | boolean;
@@ -272,6 +290,9 @@ export type SubmissionRow = {
   };
   computed: OptimizeResponse;
   diff?: SubmissionDiff;
+  // null for rows submitted before this feature shipped — every consumer
+  // must treat that as "needs_review" (fail-safe direction), never as clean.
+  orchestration?: OrchestrationDecision | null;
 };
 
 export type Submission = {
