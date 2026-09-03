@@ -244,6 +244,7 @@ export type BatchAuditResponse = {
     flagged_count: number;
     epfo_cap_exceeded_count: number;
     regime_mismatch_count: number;
+    statutory_violation_count: number;
     total_excess_contribution: number;
     total_unclaimed_savings: number;
   };

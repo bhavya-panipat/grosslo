@@ -15,11 +15,13 @@ export default function AuditSummaryCard({
   flaggedCount,
   epfoCapExceededCount,
   regimeMismatchCount,
+  statutoryViolationCount,
   totalExcessContribution,
 }: {
   flaggedCount: number;
   epfoCapExceededCount: number;
   regimeMismatchCount: number;
+  statutoryViolationCount: number;
   totalExcessContribution: number;
 }) {
   return (
@@ -34,10 +36,11 @@ export default function AuditSummaryCard({
         <span className="text-sm">Exception breakdown</span>
       </div>
       <p className="mt-2 text-xs text-neutral-600">
-        Of the {flaggedCount} flagged row{flaggedCount === 1 ? "" : "s"}: {epfoCapExceededCount} over the
-        ₹7.5L aggregate EPFO ceiling, {regimeMismatchCount} filed under the wrong regime for their own
-        structure — these can overlap on the same row, so they aren&rsquo;t claimed to sum to{" "}
-        {flaggedCount} exactly.
+        Of the {flaggedCount} flagged row{flaggedCount === 1 ? "" : "s"}: {statutoryViolationCount} in
+        outright statutory violation (Basic below the Code on Wages 2025&rsquo;s 50% floor),{" "}
+        {epfoCapExceededCount} over the ₹7.5L aggregate EPFO ceiling, {regimeMismatchCount} filed under
+        the wrong regime for their own structure — these can overlap on the same row, so they
+        aren&rsquo;t claimed to sum to {flaggedCount} exactly.
       </p>
       <div className="mt-3 flex items-center gap-2 text-gold-bright">
         <AlertTriangle className="h-4 w-4" />

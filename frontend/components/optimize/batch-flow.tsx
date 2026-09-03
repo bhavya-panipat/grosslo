@@ -251,6 +251,7 @@ export default function BatchFlow() {
               flaggedCount={auditResult.summary.flagged_count}
               epfoCapExceededCount={auditResult.summary.epfo_cap_exceeded_count}
               regimeMismatchCount={auditResult.summary.regime_mismatch_count}
+              statutoryViolationCount={auditResult.summary.statutory_violation_count}
               totalExcessContribution={auditResult.summary.total_excess_contribution}
             />
             {flaggedIndices.length > 0 && (

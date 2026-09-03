@@ -320,16 +320,21 @@ def api_batch_audit():
     second "is this row clean" definition invented for this endpoint.
 
     summary also reports clean_count/flagged_count and a breakdown by
-    exception type (epfo_cap_exceeded_count, regime_mismatch_count) — not
-    just the two currency totals — so a batch narration can point at an
-    actual on-screen count instead of a number nobody watching can verify.
-    Note this clean_count/flagged_count pair is a DIFFERENT lens than
-    orchestration.route: it's audit-optimality (is the current structure
-    at the tax-optimal split and under the EPFO ceiling), not
-    compliance-rule/guardrail-band routing. Both are real, neither is a
-    silently-competing copy of the other — the batch executive summary's
-    Compliance Clean Rate metric reads orchestration.route specifically,
-    never this pair, for exactly that reason.
+    exception type (epfo_cap_exceeded_count, regime_mismatch_count,
+    statutory_violation_count) — not just the two currency totals — so a
+    batch narration can point at an actual on-screen count instead of a
+    number nobody watching can verify. Note this clean_count/flagged_count
+    pair is a DIFFERENT lens than orchestration.route: it's
+    audit-optimality (is the current structure at the tax-optimal split
+    and under the EPFO ceiling), not compliance-rule/guardrail-band
+    routing. Both are real, neither is a silently-competing copy of the
+    other — the batch executive summary's Compliance Clean Rate metric
+    reads orchestration.route specifically, never this pair, for exactly
+    that reason. statutory_violation_count (R1: Basic below the Code on
+    Wages 2025's 50% floor) is drawn from the same skip_ai=True
+    flag_compliance() call orchestration.route already runs on this row —
+    a real subset of exception-breakdown detail, not a new rule or a
+    third lens.
     """
     data = request.get_json(force=True)
     rows = data.get("rows")
@@ -344,6 +349,7 @@ def api_batch_audit():
     clean_count = 0
     epfo_cap_exceeded_count = 0
     regime_mismatch_count = 0
+    statutory_violation_count = 0
     valid_row_count = 0
 
     for i, row in enumerate(rows):
@@ -423,6 +429,14 @@ def api_batch_audit():
             regime_mismatch_count += 1
         if excess_contribution == 0 and unclaimed_savings == 0:
             clean_count += 1
+        # R1 = Basic below the Code on Wages 2025's 50% floor — reuses the
+        # compliance flags already computed above for orchestration.route,
+        # not a second rule check. A separate category from
+        # epfo_cap_exceeded/regime_mismatch: this can co-occur with either
+        # on the same row, which is why the summary below doesn't claim
+        # these three counts sum to flagged_count.
+        if any(f["rule_id"] == "R1" for f in compliance["flags"]):
+            statutory_violation_count += 1
 
         results.append({
             "row_index": i,
@@ -450,6 +464,7 @@ def api_batch_audit():
             "flagged_count": valid_row_count - clean_count,
             "epfo_cap_exceeded_count": epfo_cap_exceeded_count,
             "regime_mismatch_count": regime_mismatch_count,
+            "statutory_violation_count": statutory_violation_count,
             "total_excess_contribution": round(total_excess_contribution, 2),
             "total_unclaimed_savings": round(total_unclaimed_savings, 2),
         },
