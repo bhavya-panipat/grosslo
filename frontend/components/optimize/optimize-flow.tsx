@@ -60,9 +60,21 @@ export default function OptimizeFlow() {
     setCurrentStructure((prev) => ({ ...(prev ?? { basic: 0 }), ...patch }));
   };
 
+  // Real bug this fixes: clearing the offer letter only ever reset the
+  // extracted structure — optimizeData (and everything derived from it:
+  // sensitivity chart, guardrail, execution trace) stayed on screen,
+  // showing results computed from a structure that no longer exists.
+  // Deliberately leaves `form` (CTC, rent, city, NPS, band) untouched —
+  // those are independent, directly-editable fields; clearing the letter
+  // shouldn't wipe a band the user typed in by hand.
   const handleClearExtraction = () => {
     setCurrentStructure(null);
     setExtraction(null);
+    setOptimizeData(null);
+    setSensitivityData(null);
+    setOptimizeStatus("idle");
+    setGuardrail(null);
+    setGuardrailTrace([]);
   };
 
   const handleOptimize = () => {
