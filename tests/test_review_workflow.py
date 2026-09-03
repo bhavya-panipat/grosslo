@@ -389,6 +389,46 @@ class TestExportApprovedRow(ReviewQueueTestCase):
         self.assertEqual(export.status_code, 200)
         self.assertIn("spreadsheet", export.content_type)
 
+    def test_exported_at_is_null_before_export_and_set_after(self):
+        # Real bug this guards: ExportPanel's downloaded/payload state
+        # (frontend) is plain useState, reset on every page mount — a
+        # fresh page load of an already-exported row showed the "Export
+        # ___" button again as if nothing had happened. exported_at is
+        # the server-side memory that lets the frontend tell "never
+        # exported" from "already have this" on load.
+        submission_id = self._submit_and_approve({
+            "employee_name": "Exported Flag Check", "ctc": 4_000_000, "rent_paid": 500_000, "city": "metro", "nps_opted": False,
+            "current_structure": {
+                "basic": 1_800_000, "hra": 900_000, "lta": 100_000,
+                "special_allowance": 300_000, "employer_pf": 900_000, "employer_nps": 0,
+            },
+        })
+        before = self.client.get(f"/api/submissions/{submission_id}").get_json()
+        self.assertIsNone(before["rows"][0]["exported_at"])
+
+        export = self.client.post(f"/api/submissions/{submission_id}/rows/0/export")
+        self.assertEqual(export.status_code, 200)
+
+        after = self.client.get(f"/api/submissions/{submission_id}").get_json()
+        self.assertIsNotNone(after["rows"][0]["exported_at"])
+
+    def test_exported_at_set_for_new_hire_payout_export_too(self):
+        # Same mechanism, the other export branch (RazorpayX payout JSON
+        # instead of XLSX) — confirms mark_exported() fires on both
+        # paths in api_export_approved_row(), not just the correction one.
+        submission_id = self._submit_and_approve({
+            "employee_name": "New Hire Exported Flag", "ctc": 1_800_000, "rent_paid": 0, "city": "metro", "nps_opted": False,
+            "bank_account_number": "1234567890", "ifsc": "HDFC0000001",
+        })
+        before = self.client.get(f"/api/submissions/{submission_id}").get_json()
+        self.assertIsNone(before["rows"][0]["exported_at"])
+
+        export = self.client.post(f"/api/submissions/{submission_id}/rows/0/export")
+        self.assertEqual(export.status_code, 200)
+
+        after = self.client.get(f"/api/submissions/{submission_id}").get_json()
+        self.assertIsNotNone(after["rows"][0]["exported_at"])
+
     def test_guardrail_runs_on_submission_when_band_supplied(self):
         # Real gap this closed: /api/submissions never ran
         # evaluate_band_guardrail() at all before the redundancy fix, so

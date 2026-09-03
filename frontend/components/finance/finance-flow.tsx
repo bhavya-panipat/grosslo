@@ -121,16 +121,26 @@ function DiffPanel({ row }: { row: SubmissionRow }) {
 // mirrors new hire's "review, then confirm" UX without pretending an API
 // call happened where only a file upload actually would.
 function ExportPanel({ row, onCompleted }: { row: SubmissionRow; onCompleted: () => void }) {
+  const isCorrection = Boolean(row.input.current_structure);
+  // row.exported_at is set server-side the first time this row's export
+  // actually ran (see review_queue.mark_exported()) — read here so a
+  // fresh page load can tell "already got this file" from "never
+  // exported," instead of every reload re-showing the same first-time
+  // "Export ___" button as if nothing had happened. Real bug this fixes:
+  // downloaded/payload below are plain useState, reset on every mount,
+  // so without this a full refresh of an already-exported row looked
+  // identical to one that had never been touched.
+  const alreadyExported = Boolean(row.exported_at);
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [payload, setPayload] = useState<ExportApprovedRowResponse | null>(null);
-  const [downloaded, setDownloaded] = useState(false);
+  const [downloaded, setDownloaded] = useState(isCorrection && alreadyExported);
   const [honestyLabel, setHonestyLabel] = useState<string | null>(null);
   const [uploaded, setUploaded] = useState(false);
   const [dispatched, setDispatched] = useState(false);
   const [copied, setCopied] = useState(false);
   const [acknowledged, setAcknowledged] = useState(false);
-  const isCorrection = Boolean(row.input.current_structure);
   // A new-hire row approved with no bank details has no possible export —
   // /rows/<i>/export always 400s on this (see app.py), so retrying the
   // same doomed call forever, with no way to leave "Approved — ready to
@@ -217,7 +227,11 @@ function ExportPanel({ row, onCompleted }: { row: SubmissionRow; onCompleted: ()
           className="inline-flex items-center gap-1.5 rounded-full border border-gold/30 bg-gold/[0.06] px-3.5 py-1.5 text-xs font-medium text-gold-bright transition-colors hover:bg-gold/[0.12] disabled:cursor-not-allowed disabled:opacity-50"
         >
           {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
-          {isCorrection ? "Export Salary Revision XLSX" : "Export RazorpayX payout"}
+          {isCorrection
+            ? "Export Salary Revision XLSX"
+            : alreadyExported
+              ? "Already exported — view payload again"
+              : "Export RazorpayX payout"}
         </button>
       )}
       {error && <p className="mt-1.5 text-xs text-red-400/80">{error}</p>}

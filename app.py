@@ -916,6 +916,7 @@ def api_export_approved_row(submission_id, row_index):
         _append_audit_log("/api/submissions/export", {
             "submission_id": submission_id, "row_index": row_index, "export_type": "salary_revision",
         })
+        review_queue.mark_exported(submission_id, row_index)
         response = send_file(
             buf, as_attachment=True, download_name="grosslo_salary_revision.xlsx",
             mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -949,6 +950,7 @@ def api_export_approved_row(submission_id, row_index):
         "submission_id": submission_id, "row_index": row_index, "export_type": "razorpayx_payout",
         "total_capital_outlay": forecast["total_capital_outlay"],
     })
+    review_queue.mark_exported(submission_id, row_index)
     return jsonify(payload)
 
 

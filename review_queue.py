@@ -123,6 +123,7 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         ("orchestration_json", "ALTER TABLE submission_rows ADD COLUMN orchestration_json TEXT"),
         ("route", "ALTER TABLE submission_rows ADD COLUMN route TEXT"),
         ("severity", "ALTER TABLE submission_rows ADD COLUMN severity TEXT"),
+        ("exported_at", "ALTER TABLE submission_rows ADD COLUMN exported_at TEXT"),
     ]:
         if col not in existing_cols:
             conn.execute(ddl)
@@ -315,3 +316,21 @@ def decide_row(submission_id: int, row_index: int, decision: str, reason: str | 
             (submission_id, row_index),
         ).fetchone()
         return {"already_decided": False, "row": _row_to_dict(row)}
+
+
+def mark_exported(submission_id: int, row_index: int) -> None:
+    """
+    Records that /rows/<i>/export has actually generated output for this
+    row at least once, so the frontend can tell "never exported yet" from
+    "already have this" on a fresh page load instead of re-showing the
+    same first-time export button forever. Unconditional UPDATE, not
+    gated on current status — export re-runs are allowed (re-downloading
+    a file you already have is normal), so this just records the latest
+    timestamp, overwriting any prior one rather than refusing a second
+    write.
+    """
+    with _conn() as conn:
+        conn.execute(
+            "UPDATE submission_rows SET exported_at = ? WHERE submission_id = ? AND row_index = ?",
+            (datetime.now(timezone.utc).isoformat(), submission_id, row_index),
+        )
