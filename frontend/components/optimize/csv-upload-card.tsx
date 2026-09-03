@@ -7,7 +7,13 @@ import CardShell from "@/components/card-shell";
 
 type Props = {
   mode: "audit";
-  onRowsParsed: (rows: Record<string, string>[]) => void;
+  onRowsParsed: (rows: Record<string, string>[], fileName: string) => void;
+  // Set when the parent is restoring a previously-parsed file from
+  // sessionStorage (see BatchFlow) — without these, the card would show
+  // "Click to choose a CSV file" while the results below it are already
+  // populated, looking like the upload silently didn't happen.
+  initialFileName?: string | null;
+  initialRowCount?: number | null;
 };
 
 const AUDIT_COLUMNS = [
@@ -19,9 +25,9 @@ const MODE_LABEL: Record<Props["mode"], string> = {
   audit: "Compliance & Savings Audit",
 };
 
-export default function CsvUploadCard({ mode, onRowsParsed }: Props) {
-  const [fileName, setFileName] = useState<string | null>(null);
-  const [rowCount, setRowCount] = useState<number | null>(null);
+export default function CsvUploadCard({ mode, onRowsParsed, initialFileName = null, initialRowCount = null }: Props) {
+  const [fileName, setFileName] = useState<string | null>(initialFileName);
+  const [rowCount, setRowCount] = useState<number | null>(initialRowCount);
   const [error, setError] = useState<string | null>(null);
   const [parsing, setParsing] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -62,7 +68,7 @@ export default function CsvUploadCard({ mode, onRowsParsed }: Props) {
           return;
         }
         setRowCount(results.data.length);
-        onRowsParsed(results.data);
+        onRowsParsed(results.data, file.name);
       },
       error: (err) => {
         setParsing(false);

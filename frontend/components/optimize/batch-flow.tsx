@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Loader2, RotateCcw } from "lucide-react";
 import CsvUploadCard from "@/components/optimize/csv-upload-card";
@@ -22,12 +22,35 @@ function toBool(v: string | undefined): boolean {
   return ["true", "1", "yes"].includes(v.trim().toLowerCase());
 }
 
+// /optimize/batch fully unmounts on navigation away (a different route
+// tree than /finance or /hr, no shared layout keeping it alive) — plain
+// useState alone loses an already-computed 60-row audit the moment
+// someone clicks to Finance and back. sessionStorage: scoped to this tab,
+// gone when it closes — appropriate for compensation figures that
+// shouldn't quietly outlive the browsing session the way localStorage would.
+const STORAGE_KEY = "grosslo:batch-audit-state";
+
+type PersistedState = {
+  rawRows: Record<string, string>[];
+  auditResult: BatchAuditResponse;
+  correctionStatus: Record<number, CorrectionStatus>;
+  fileName: string;
+  rowCount: number;
+};
+
 export default function BatchFlow() {
   const [rawRows, setRawRows] = useState<Record<string, string>[] | null>(null);
   const [auditResult, setAuditResult] = useState<BatchAuditResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [correctionStatus, setCorrectionStatus] = useState<Record<number, CorrectionStatus>>({});
+  const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
+  const [uploadedRowCount, setUploadedRowCount] = useState<number | null>(null);
+  // Gates both the initial sessionStorage read and CsvUploadCard's first
+  // mount (below) — CsvUploadCard captures initialFileName into its own
+  // local state exactly once, on mount, so it must not mount before
+  // restored values (if any) are already in uploadedFileName/uploadedRowCount.
+  const [hydrated, setHydrated] = useState(false);
   // Bumped on "Clear results" — remounts CsvUploadCard (via key=) so its own
   // internal fileName/rowCount/error state resets too, not just this
   // component's. Without it the upload widget would still show the old
@@ -35,19 +58,65 @@ export default function BatchFlow() {
   // at all: it would look like clearing didn't actually work.
   const [uploadKey, setUploadKey] = useState(0);
 
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as PersistedState;
+        setRawRows(parsed.rawRows);
+        setAuditResult(parsed.auditResult);
+        setCorrectionStatus(parsed.correctionStatus ?? {});
+        setUploadedFileName(parsed.fileName);
+        setUploadedRowCount(parsed.rowCount);
+      }
+    } catch {
+      // Corrupt or unavailable storage — start clean rather than crash the page.
+    }
+    setHydrated(true);
+  }, []);
+
+  // Persists after every relevant change, but only once initial hydration
+  // has run — otherwise this fires on mount with the pre-hydration nulls
+  // and immediately overwrites whatever the effect above just restored.
+  useEffect(() => {
+    if (!hydrated) return;
+    try {
+      if (rawRows && auditResult && uploadedFileName && uploadedRowCount != null) {
+        const toStore: PersistedState = {
+          rawRows, auditResult, correctionStatus, fileName: uploadedFileName, rowCount: uploadedRowCount,
+        };
+        sessionStorage.setItem(STORAGE_KEY, JSON.stringify(toStore));
+      } else {
+        sessionStorage.removeItem(STORAGE_KEY);
+      }
+    } catch {
+      // Storage full/unavailable (e.g. private browsing) — the page still
+      // works, it just won't survive navigating away this time.
+    }
+  }, [hydrated, rawRows, auditResult, correctionStatus, uploadedFileName, uploadedRowCount]);
+
   const handleClear = () => {
     setRawRows(null);
     setAuditResult(null);
     setError(null);
     setCorrectionStatus({});
+    setUploadedFileName(null);
+    setUploadedRowCount(null);
     setUploadKey((k) => k + 1);
+    try {
+      sessionStorage.removeItem(STORAGE_KEY);
+    } catch {
+      // Nothing to clean up if storage was never available.
+    }
   };
 
-  const handleRowsParsed = async (rows: Record<string, string>[]) => {
+  const handleRowsParsed = async (rows: Record<string, string>[], fileName: string) => {
     setRawRows(rows);
     setCorrectionStatus({});
     setAuditResult(null);
     setError(null);
+    setUploadedFileName(fileName);
+    setUploadedRowCount(rows.length);
     setLoading(true);
     try {
       const payload = {
@@ -220,7 +289,15 @@ export default function BatchFlow() {
         </div>
       </div>
 
-      <CsvUploadCard key={uploadKey} mode="audit" onRowsParsed={handleRowsParsed} />
+      {hydrated && (
+        <CsvUploadCard
+          key={uploadKey}
+          mode="audit"
+          onRowsParsed={handleRowsParsed}
+          initialFileName={uploadedFileName}
+          initialRowCount={uploadedRowCount}
+        />
+      )}
 
       {loading && (
         <div className="mt-6 flex items-center gap-2 text-sm text-neutral-500">
