@@ -954,6 +954,35 @@ def api_export_approved_row(submission_id, row_index):
     return jsonify(payload)
 
 
+@app.route("/api/submissions/<int:submission_id>/rows/<int:row_index>/complete", methods=["POST"])
+@require_role("finance")
+def api_complete_approved_row(submission_id, row_index):
+    """
+    Records Finance's final confirmation on an approved row — "Simulate
+    upload to RazorpayX Payroll," "Simulate dispatch," or "Acknowledge —
+    nothing to export yet" for a bank-detail-less new hire. Previously
+    tracked only in the frontend's own useState (completedKeys), which
+    reset on every page load, so a row Finance had already finished with
+    kept reappearing under "Approved — ready to export" — the same class
+    of gap /rows/<i>/export's exported_at already closed for the export
+    step itself; this closes it for the confirmation step after it.
+    Requires 'approved', same precondition as export — nothing to confirm
+    on a row that was never approved.
+    """
+    submission = review_queue.get_submission(submission_id)
+    if submission is None:
+        return jsonify({"error": "submission not found"}), 404
+    row = next((r for r in submission["rows"] if r["row_index"] == row_index), None)
+    if row is None:
+        return jsonify({"error": "row not found"}), 404
+    if row["status"] != "approved":
+        return jsonify({"error": f"row is '{row['status']}', not approved — nothing to confirm"}), 400
+
+    review_queue.mark_dispatched(submission_id, row_index)
+    _append_audit_log("/api/submissions/complete", {"submission_id": submission_id, "row_index": row_index})
+    return jsonify({"status": "ok"})
+
+
 @app.route("/api/export-salary-revision", methods=["POST"])
 def api_export_salary_revision():
     """

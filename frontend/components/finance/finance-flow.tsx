@@ -182,6 +182,18 @@ function ExportPanel({ row, onCompleted }: { row: SubmissionRow; onCompleted: ()
     }
   };
 
+  // Persists the final confirmation click (acknowledge / simulate upload /
+  // simulate dispatch) so the row stops reappearing under "Approved —
+  // ready to export" on a page refresh — real bug this fixes: it
+  // previously only lived in FinanceFlow's completedKeys useState, which
+  // reset on every mount. Awaited by each button below before calling
+  // onCompleted() (which refreshes the submissions list): without that
+  // ordering, refresh() could race ahead of this write and fetch the row
+  // before dispatched_at was set, leaving it visible in the list for one
+  // extra refresh instead of disappearing on this click like it used to.
+  const persistCompletion = () =>
+    fetch(`/api/submissions/${row.submission_id}/rows/${row.row_index}/complete`, { method: "POST" }).catch(() => {});
+
   const handleCopy = () => {
     if (!payload) return;
     navigator.clipboard.writeText(JSON.stringify(payload.payouts, null, 2)).then(() => {
@@ -199,8 +211,9 @@ function ExportPanel({ row, onCompleted }: { row: SubmissionRow; onCompleted: ()
           generate a payout payload yet.
         </p>
         <button
-          onClick={() => {
+          onClick={async () => {
             setAcknowledged(true);
+            await persistCompletion();
             onCompleted();
           }}
           disabled={acknowledged}
@@ -245,8 +258,9 @@ function ExportPanel({ row, onCompleted }: { row: SubmissionRow; onCompleted: ()
           </p>
           {honestyLabel && <p className="text-[11px] text-neutral-600">{honestyLabel}</p>}
           <button
-            onClick={() => {
+            onClick={async () => {
               setUploaded(true);
+              await persistCompletion();
               onCompleted();
             }}
             disabled={uploaded}
@@ -283,8 +297,9 @@ function ExportPanel({ row, onCompleted }: { row: SubmissionRow; onCompleted: ()
             ₹{Math.round(payload.treasury_forecast.total_capital_outlay).toLocaleString("en-IN")}
           </p>
           <button
-            onClick={() => {
+            onClick={async () => {
               setDispatched(true);
+              await persistCompletion();
               onCompleted();
             }}
             disabled={dispatched}
@@ -622,15 +637,6 @@ export default function FinanceFlow() {
   const [loading, setLoading] = useState(true);
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [bulkDeciding, setBulkDeciding] = useState(false);
-  // Rows whose export has been simulated-dispatched/uploaded — hidden from
-  // the approved list below so it doesn't fill up with fully-actioned rows.
-  // Client-side only, on purpose: there's nowhere in the backend that
-  // tracks "dispatched," the same way there's nowhere that tracks a real
-  // payout — this mirrors that boundary instead of inventing new backend
-  // state just to persist a UI-only completion flag. A page refresh brings
-  // a row back, consistent with every other "simulated" state in this app.
-  const [completedKeys, setCompletedKeys] = useState<Set<string>>(new Set());
-
   // Live treasury check — the one gate in this flow based on something
   // 100% real, not a demo approximation. Refetched inside the same
   // refresh() that reloads submissions, so the balance is re-checked
@@ -683,9 +689,13 @@ export default function FinanceFlow() {
   }, [refresh]);
 
   const pendingRows = submissions.flatMap((s) => s.rows.filter((r) => r.status === "pending"));
+  // dispatched_at is set server-side the moment Finance clicks the row's
+  // final confirmation (see ExportPanel's persistCompletion()) — reading
+  // it here, not a client-only completedKeys set, is what makes a
+  // confirmed row stay gone across a page refresh instead of reappearing.
   const approvedRows = submissions
     .flatMap((s) => s.rows.filter((r) => r.status === "approved"))
-    .filter((r) => !completedKeys.has(`${r.submission_id}-${r.row_index}`));
+    .filter((r) => !r.dispatched_at);
 
   // Four buckets. Bulk-approve is scoped to cleanRows ONLY — the other three
   // never render a checkbox at all (see below), so there is structurally
@@ -930,9 +940,7 @@ export default function FinanceFlow() {
                 key={`${row.submission_id}-${row.row_index}`}
                 row={row}
                 onDecided={refresh}
-                onExportCompleted={() =>
-                  setCompletedKeys((prev) => new Set(prev).add(`${row.submission_id}-${row.row_index}`))
-                }
+                onExportCompleted={refresh}
               />
             ))}
           </div>

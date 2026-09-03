@@ -429,6 +429,39 @@ class TestExportApprovedRow(ReviewQueueTestCase):
         after = self.client.get(f"/api/submissions/{submission_id}").get_json()
         self.assertIsNotNone(after["rows"][0]["exported_at"])
 
+    def test_complete_requires_approval_first(self):
+        resp = self.client.post("/api/submissions", json={
+            "source": "single",
+            "row": {"employee_name": "Pending Complete", "ctc": 1_800_000, "rent_paid": 0, "city": "metro", "nps_opted": False},
+        })
+        submission_id = resp.get_json()["submission_id"]
+        complete = self.client.post(f"/api/submissions/{submission_id}/rows/0/complete")
+        self.assertEqual(complete.status_code, 400)
+        self.assertIn("not approved", complete.get_json()["error"])
+
+    def test_dispatched_at_persists_the_final_confirmation_click(self):
+        # Real bug this guards: "Simulate upload to RazorpayX Payroll" /
+        # "Simulate dispatch" / "Acknowledge — nothing to export yet" only
+        # ever recorded the click in FinanceFlow's own completedKeys
+        # useState, which reset on every page mount — a confirmed row kept
+        # reappearing under "Approved — ready to export" on refresh. Same
+        # mechanism as exported_at above, one step later in the flow.
+        submission_id = self._submit_and_approve({
+            "employee_name": "Dispatched Flag Check", "ctc": 4_000_000, "rent_paid": 500_000, "city": "metro", "nps_opted": False,
+            "current_structure": {
+                "basic": 1_800_000, "hra": 900_000, "lta": 100_000,
+                "special_allowance": 300_000, "employer_pf": 900_000, "employer_nps": 0,
+            },
+        })
+        before = self.client.get(f"/api/submissions/{submission_id}").get_json()
+        self.assertIsNone(before["rows"][0]["dispatched_at"])
+
+        complete = self.client.post(f"/api/submissions/{submission_id}/rows/0/complete")
+        self.assertEqual(complete.status_code, 200)
+
+        after = self.client.get(f"/api/submissions/{submission_id}").get_json()
+        self.assertIsNotNone(after["rows"][0]["dispatched_at"])
+
     def test_guardrail_runs_on_submission_when_band_supplied(self):
         # Real gap this closed: /api/submissions never ran
         # evaluate_band_guardrail() at all before the redundancy fix, so

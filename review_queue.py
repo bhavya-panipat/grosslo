@@ -124,6 +124,7 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         ("route", "ALTER TABLE submission_rows ADD COLUMN route TEXT"),
         ("severity", "ALTER TABLE submission_rows ADD COLUMN severity TEXT"),
         ("exported_at", "ALTER TABLE submission_rows ADD COLUMN exported_at TEXT"),
+        ("dispatched_at", "ALTER TABLE submission_rows ADD COLUMN dispatched_at TEXT"),
     ]:
         if col not in existing_cols:
             conn.execute(ddl)
@@ -332,5 +333,26 @@ def mark_exported(submission_id: int, row_index: int) -> None:
     with _conn() as conn:
         conn.execute(
             "UPDATE submission_rows SET exported_at = ? WHERE submission_id = ? AND row_index = ?",
+            (datetime.now(timezone.utc).isoformat(), submission_id, row_index),
+        )
+
+
+def mark_dispatched(submission_id: int, row_index: int) -> None:
+    """
+    Records that Finance clicked through this row's final confirmation —
+    "Simulate upload to RazorpayX Payroll," "Simulate dispatch," or
+    "Acknowledge — nothing to export yet." Previously this was tracked only
+    in FinanceFlow's own completedKeys useState, which reset on every page
+    load — a real bug, not the documented tradeoff its own comment claimed
+    ("consistent with every other 'simulated' state in this app"): unlike
+    a real RazorpayX call (which genuinely doesn't happen and shouldn't be
+    faked), this is just remembering a click Finance already made, the same
+    class of gap exported_at already fixed for the export step. Same
+    unconditional-UPDATE shape as mark_exported() — re-confirming isn't an
+    error, it just refreshes the timestamp.
+    """
+    with _conn() as conn:
+        conn.execute(
+            "UPDATE submission_rows SET dispatched_at = ? WHERE submission_id = ? AND row_index = ?",
             (datetime.now(timezone.utc).isoformat(), submission_id, row_index),
         )

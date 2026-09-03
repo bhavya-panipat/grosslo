@@ -300,6 +300,7 @@ export type SubmissionRow = {
   decided_at: string | null;
   decided_by: string | null;
   exported_at: string | null;
+  dispatched_at: string | null;
   input: {
     ctc: number; rent_paid: number; city: string; nps_opted: boolean;
     current_structure: StructureDict | null; employee_name: string | null;
