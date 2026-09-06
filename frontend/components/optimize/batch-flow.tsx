@@ -334,7 +334,7 @@ export default function BatchFlow() {
             {flaggedIndices.length > 0 && (
               <div className="flex items-center justify-between rounded-xl border border-gold/20 bg-gold/[0.04] px-5 py-3">
                 <p className="text-sm text-neutral-300">
-                  {flaggedIndices.length} flagged row{flaggedIndices.length === 1 ? "" : "s"} not yet sent to Finance.
+                  {flaggedIndices.length} row{flaggedIndices.length === 1 ? "" : "s"} with unclaimed savings or EPFO excess not yet sent to Finance.
                 </p>
                 <button
                   onClick={handleSubmitAllFlagged}

@@ -38,7 +38,7 @@ export default function ExecutiveSummaryCard({
       icon: ShieldCheck,
       label: "Compliance Clean Rate",
       value: `${cleanRatePct.toFixed(0)}%`,
-      detail: `${cleanCount} of ${validRows.length} auto-pass candidates`,
+      detail: `${cleanCount} of ${validRows.length} clear every compliance rule and guardrail band`,
     },
     {
       icon: Landmark,
