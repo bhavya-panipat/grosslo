@@ -766,7 +766,15 @@ export default function FinanceFlow() {
     if (decision === "approve" && !canBulkApprove) return;
     setBulkDeciding(true);
     const totalPending = pendingRows.length;
-    const remaining = reviewRows.length + noGuardrailRows.length + escalatedRows.length;
+    // Bulk selection is per-row within Clean (see the individual checkbox
+    // on each RowCard below), not all-or-nothing — targets.length can be
+    // less than cleanRows.length. leftoverClean folds the unselected clean
+    // rows into "remaining" so targets.length + remaining === totalPending
+    // holds as an identity, not just when every clean row happens to get
+    // selected (real bug this fixes: those rows previously vanished from
+    // the summary — neither counted as approved nor as needing review).
+    const leftoverClean = cleanRows.length - targets.length;
+    const remaining = reviewRows.length + noGuardrailRows.length + escalatedRows.length + leftoverClean;
     try {
       await Promise.all(
         targets.map((r) =>
@@ -782,7 +790,9 @@ export default function FinanceFlow() {
         `${targets.length} of ${totalPending} rows ${verb}.` +
           (remaining > 0
             ? ` ${remaining} require individual review (${escalatedRows.length} high-severity/failed-guardrail, ` +
-              `${noGuardrailRows.length} guardrail not run, ${reviewRows.length} needs review).`
+              `${noGuardrailRows.length} guardrail not run, ${reviewRows.length} needs review` +
+              (leftoverClean > 0 ? `, ${leftoverClean} clean but not selected` : "") +
+              `).`
             : ""),
       );
     } finally {
