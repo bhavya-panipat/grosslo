@@ -399,6 +399,12 @@ export default function HrFlow() {
                 duplicate (same employee + CTC submitted earlier today) and skipped, not reprocessed.
               </span>
             )}
+            {lastResult.row_errors.length > 0 && (
+              <span className="mt-1 block text-red-300">
+                {lastResult.row_errors.length} row{lastResult.row_errors.length === 1 ? "" : "s"} rejected and not
+                queued: {lastResult.row_errors.map((e) => `row ${e.row_index + 1} (${e.error})`).join(", ")}.
+              </span>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
