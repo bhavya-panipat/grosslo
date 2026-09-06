@@ -36,11 +36,13 @@ export default function AuditSummaryCard({
         <span className="text-sm">Exception breakdown</span>
       </div>
       <p className="mt-2 text-xs text-neutral-600">
-        Of the {flaggedCount} flagged row{flaggedCount === 1 ? "" : "s"}: {statutoryViolationCount} in
-        outright statutory violation (Basic below the Code on Wages 2025&rsquo;s 50% floor),{" "}
-        {epfoCapExceededCount} over the ₹7.5L aggregate EPFO ceiling, {regimeMismatchCount} filed under
-        the wrong regime for their own structure — these can overlap on the same row, so they
-        aren&rsquo;t claimed to sum to {flaggedCount} exactly.
+        Of the {flaggedCount} flagged row{flaggedCount === 1 ? "" : "s"} (unclaimed savings or EPFO
+        excess): {epfoCapExceededCount} are over the ₹7.5L aggregate EPFO ceiling and{" "}
+        {regimeMismatchCount} are filed under the wrong regime for their own structure — these can
+        overlap on the same row, so they aren&rsquo;t claimed to sum to {flaggedCount} exactly.
+        Separately, across the full batch, {statutoryViolationCount} row{statutoryViolationCount === 1 ? "" : "s"} violate{statutoryViolationCount === 1 ? "s" : ""} the Code on Wages
+        2025&rsquo;s 50% Basic floor — a distinct statutory check, not a subset of the flagged count
+        above, since a row can already be at its tax-optimal split while still under-Basic.
       </p>
       <div className="mt-3 flex items-center gap-2 text-gold-bright">
         <AlertTriangle className="h-4 w-4" />
