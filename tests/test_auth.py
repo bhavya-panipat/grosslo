@@ -10,6 +10,7 @@ sequences are exercised for real, not mocked.
 
 import os
 import sys
+import time
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -566,3 +567,109 @@ class TestLoginIsNotAnEnumerationOracle(AuthTestCase):
         resp = self.client.post("/api/auth/login",
                                 json={"email": "finance@acme.test", "password": _TEST_PASSWORD})
         self.assertEqual(resp.status_code, 401)
+
+
+class TestLoginThrottling(AuthTestCase):
+    """
+    §3.5. Named accounts are enumerable and guessable in a way one shared code
+    was not, so login is throttled — on the ACCOUNT and on the IP, whichever
+    trips first.
+    """
+
+    def setUp(self):
+        super().setUp()
+        flask_app._LOGIN_ATTEMPTS.clear()
+
+    def tearDown(self):
+        flask_app._LOGIN_ATTEMPTS.clear()
+        super().tearDown()
+
+    def _attempt(self, email="finance@acme.test", password="wrong"):
+        return self.client.post("/api/auth/login",
+                                json={"email": email, "password": password})
+
+    def test_repeated_failures_on_one_account_are_throttled(self):
+        _ensure_user(self.tenant_id, "finance")
+        for _ in range(flask_app._LOGIN_MAX_PER_ACCOUNT):
+            self.assertEqual(self._attempt().status_code, 401)
+        throttled = self._attempt()
+        self.assertEqual(throttled.status_code, 429)
+        self.assertIn("Too many", throttled.get_json()["error"])
+
+    def test_throttling_blocks_the_CORRECT_password_too(self):
+        # Otherwise the limiter is trivially bypassed by the one guess that
+        # matters, and it would also leak which guess was right.
+        _ensure_user(self.tenant_id, "finance")
+        for _ in range(flask_app._LOGIN_MAX_PER_ACCOUNT):
+            self._attempt()
+        blocked = self._attempt(password=_TEST_PASSWORD)
+        self.assertEqual(blocked.status_code, 429)
+
+    def test_an_unknown_email_is_throttled_identically_to_a_real_one(self):
+        # If the limiter behaved differently for accounts that exist, it would
+        # itself become the enumeration oracle §3.5 exists to prevent.
+        _ensure_user(self.tenant_id, "finance")
+        for _ in range(flask_app._LOGIN_MAX_PER_ACCOUNT):
+            self._attempt(email="ghost@acme.test")
+        ghost = self._attempt(email="ghost@acme.test")
+        real = _client().post("/api/auth/login",
+                              json={"email": "finance@acme.test", "password": "wrong"})
+        self.assertEqual(ghost.status_code, 429)
+        # A different account on a fresh client is unaffected — the account key
+        # is per-account, not global.
+        self.assertEqual(real.status_code, 401)
+
+    def test_one_account_lockout_does_not_lock_another(self):
+        _ensure_user(self.tenant_id, "finance")
+        _ensure_user(self.tenant_id, "hr")
+        for _ in range(flask_app._LOGIN_MAX_PER_ACCOUNT):
+            self._attempt(email="finance@acme.test")
+        self.assertEqual(self._attempt(email="finance@acme.test").status_code, 429)
+        other = self.client.post("/api/auth/login",
+                                 json={"email": "hr@acme.test", "password": _TEST_PASSWORD})
+        self.assertEqual(other.status_code, 200,
+                         "a different person must not be locked out by someone else's typos")
+
+    def test_a_successful_login_clears_that_accounts_failures(self):
+        _ensure_user(self.tenant_id, "finance")
+        for _ in range(flask_app._LOGIN_MAX_PER_ACCOUNT - 1):
+            self._attempt()
+        ok = self._attempt(password=_TEST_PASSWORD)
+        self.assertEqual(ok.status_code, 200)
+        # Not left one typo from a lockout after succeeding.
+        self.assertEqual(self._attempt().status_code, 401)
+
+    def test_the_account_key_is_scoped_per_tenant(self):
+        # Never email alone: one tenant's traffic must not lock an account in
+        # another tenant that happens to share an address.
+        other = review_queue.create_tenant("globex", "Globex")["id"]
+        review_queue.create_tenant_settings(other, _HR_CODE_HASH, _FINANCE_CODE_HASH)
+        _ensure_user(self.tenant_id, "finance")
+        for _ in range(flask_app._LOGIN_MAX_PER_ACCOUNT):
+            self._attempt()
+        self.assertEqual(self._attempt().status_code, 429)
+        keys = [k for k in flask_app._LOGIN_ATTEMPTS if k.startswith("acct:")]
+        self.assertTrue(all(k.startswith(f"acct:{self.tenant_id}:") for k in keys), keys)
+        self.assertFalse(any(k == "acct:finance@acme.test" for k in keys),
+                         "the key must carry the tenant, not be email alone")
+
+    def test_the_shared_code_path_is_throttled_too(self):
+        # It is still a credential until the tenant bootstraps.
+        for _ in range(flask_app._LOGIN_MAX_PER_IP):
+            self.client.post("/api/auth/login", json={"role": "finance", "code": "WRONG"})
+        resp = self.client.post("/api/auth/login", json={"role": "finance", "code": "WRONG"})
+        self.assertEqual(resp.status_code, 429)
+
+    def test_throttling_is_a_timed_backoff_not_a_permanent_lock(self):
+        # A permanent lock is itself a denial of service an attacker can
+        # trigger against a named person.
+        _ensure_user(self.tenant_id, "finance")
+        for _ in range(flask_app._LOGIN_MAX_PER_ACCOUNT):
+            self._attempt()
+        self.assertEqual(self._attempt().status_code, 429)
+        # Age the recorded attempts past the window rather than sleeping.
+        expired = time.time() - flask_app._LOGIN_WINDOW_SECONDS - 1
+        for key in flask_app._LOGIN_ATTEMPTS:
+            flask_app._LOGIN_ATTEMPTS[key] = [expired] * len(flask_app._LOGIN_ATTEMPTS[key])
+        self.assertEqual(self._attempt(password=_TEST_PASSWORD).status_code, 200,
+                         "the account must recover on its own once the window passes")

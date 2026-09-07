@@ -217,6 +217,78 @@ def _rate_limited(key: str) -> bool:
     return False
 
 
+# ---------------------------------------------------------------------------
+# Login throttling (Phase 1.2 step 6, IDENTITY_DESIGN.md 3.5).
+#
+# Login was unguarded before this. That was defensible while there was one
+# shared code per role per tenant and no username to enumerate; with named
+# accounts it becomes credential stuffing against a known list of people, which
+# is a different and worse problem.
+#
+# KEYED ON BOTH THE ACCOUNT AND THE IP, whichever trips first, because either
+# alone is wrong: an attacker distributing attempts across addresses defeats an
+# IP-only limit, while an IP-only limit also punishes a whole NAT'd office for
+# one person's typos. The account key is (tenant_id, email) — never email
+# alone, or one tenant's traffic could lock an account in another.
+#
+# The backoff is TIMED, not a permanent lock. A permanent lock is itself a
+# denial of service an attacker can trigger against a named person just by
+# failing to log in as them enough times.
+#
+# In-memory and per-process, carrying exactly the limitation the submission
+# limiter above already names: this resets on restart and does not survive
+# multiple workers behind a load balancer. §6 resolved to keep it that way for
+# 1.2 — moving it to Postgres would be solving a Phase 4 scale problem inside
+# an identity phase — so it is a real, named limitation, not a claim of
+# production hardening.
+# ---------------------------------------------------------------------------
+_LOGIN_ATTEMPTS: dict[str, list[float]] = {}
+_LOGIN_WINDOW_SECONDS = 300          # 5 minutes
+_LOGIN_MAX_PER_ACCOUNT = 5
+_LOGIN_MAX_PER_IP = 20               # higher: a shared office egress is normal
+
+
+def _login_keys(tenant_id, email: str) -> list:
+    """
+    The keys one attempt counts against. The account key is recorded even for
+    an email that does not exist — otherwise the limiter's own behaviour would
+    differ between real and unknown accounts, turning it into the enumeration
+    oracle 3.5 exists to prevent.
+    """
+    ip = request.headers.get("X-Forwarded-For", request.remote_addr or "unknown").split(",")[0].strip()
+    keys = [(f"ip:{ip}", _LOGIN_MAX_PER_IP)]
+    if email:
+        keys.append((f"acct:{tenant_id}:{email}", _LOGIN_MAX_PER_ACCOUNT))
+    return keys
+
+
+def _login_throttled(tenant_id, email: str) -> bool:
+    """True if this attempt should be refused before any credential is checked."""
+    now = time.time()
+    for key, limit in _login_keys(tenant_id, email):
+        attempts = _LOGIN_ATTEMPTS.setdefault(key, [])
+        attempts[:] = [t for t in attempts if now - t < _LOGIN_WINDOW_SECONDS]
+        if len(attempts) >= limit:
+            return True
+    return False
+
+
+def _record_login_failure(tenant_id, email: str) -> None:
+    now = time.time()
+    for key, _ in _login_keys(tenant_id, email):
+        _LOGIN_ATTEMPTS.setdefault(key, []).append(now)
+
+
+def _clear_login_failures(tenant_id, email: str) -> None:
+    """
+    A successful login clears that ACCOUNT's failures, so someone who mistypes
+    twice and then succeeds is not left one typo from a lockout. The IP counter
+    is deliberately left alone: an attacker who guesses one account correctly
+    should not thereby reset the budget they are burning against every other.
+    """
+    _LOGIN_ATTEMPTS.pop(f"acct:{tenant_id}:{email}", None)
+
+
 def _structure_to_dict(s):
     return {
         "ctc": s.ctc, "basic": s.basic, "hra": s.hra, "lta": s.lta,
@@ -1378,6 +1450,14 @@ def api_auth_login():
         }), 401
 
     data = request.get_json(force=True) or {}
+    attempted_email = (data.get("email") or "").strip().lower()
+    if _login_throttled(tenant["id"], attempted_email):
+        # Checked before any credential is verified, so a throttled attempt
+        # also costs no pbkdf2 work — the limiter doubles as the defence
+        # against using login as a CPU amplifier.
+        return jsonify({
+            "error": "Too many sign-in attempts. Wait a few minutes and try again.",
+        }), 429
 
     # --- shared-code path: bootstrap only, and only once per tenant ----------
     if data.get("code") is not None and data.get("password") is None:
@@ -1387,6 +1467,7 @@ def api_auth_login():
                          "Sign in with your email and password.",
             }), 401
         if not verify_login(tenant["id"], data.get("role"), data.get("code", "")):
+            _record_login_failure(tenant["id"], attempted_email)
             return jsonify({"error": "That code doesn't match — try again."}), 401
         session.clear()
         # Deliberately NOT session["tenant_id"]: a bootstrap session must be
@@ -1405,7 +1486,7 @@ def api_auth_login():
         })
 
     # --- normal path: a real person -----------------------------------------
-    email = (data.get("email") or "").strip().lower()
+    email = attempted_email
     password = data.get("password") or ""
     user = review_queue.get_user_by_email(tenant["id"], email) if email else None
     # Identical response whether the account is absent, has no local password,
@@ -1414,6 +1495,7 @@ def api_auth_login():
     if (user is None
             or user["status"] != "active"
             or not review_queue.verify_user_password(tenant["id"], user["id"], password)):
+        _record_login_failure(tenant["id"], email)
         return jsonify({"error": "That email and password don't match — try again."}), 401
 
     session.clear()
@@ -1421,6 +1503,7 @@ def api_auth_login():
     session["tenant_id"] = tenant["id"]
     session["roles"] = user["roles"]
     session.permanent = True
+    _clear_login_failures(tenant["id"], email)
     review_queue.record_login(tenant["id"], user["id"])
     return jsonify({
         "user": {"id": user["id"], "email": user["email"],
