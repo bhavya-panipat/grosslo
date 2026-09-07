@@ -1081,8 +1081,12 @@ def api_export_approved_row(submission_id, row_index):
     # account — the credentials moved per-tenant but this consumer was missed,
     # so tenant_settings.razorpayx_account_number was written and read by
     # nobody.
-    credentials = review_queue.get_tenant_razorpayx_credentials(current_tenant_id())
-    source_account = credentials.get("account_number") if credentials else None
+    # get_tenant_source_account(), NOT get_tenant_razorpayx_credentials():
+    # the latter returns None whenever there is no API key, and this route
+    # makes no live call — it only needs to know which account the generated
+    # payload should name. Reading it through the credentials accessor made a
+    # tenant that HAD configured an account get the placeholder anyway.
+    source_account = review_queue.get_tenant_source_account(current_tenant_id())
     using_placeholder = not source_account
 
     payload = {

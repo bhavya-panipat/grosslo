@@ -617,6 +617,14 @@ def get_tenant_razorpayx_credentials(tenant_id: int) -> dict | None:
     Returns {"key_id", "key_secret", "account_number"} in PLAINTEXT for the
     caller to use immediately, or None if this tenant has no credentials
     configured. Never log or persist the returned values.
+
+    None here means "no API access for this tenant", NOT "no source account".
+    The two are separate: API keys authorise live calls (the balance route),
+    while the account number is just which account a generated payout names,
+    and a tenant can reasonably configure the second without handing over the
+    first. Callers that only need the account number must use
+    get_tenant_source_account() — routing them through here imports a gate that
+    has nothing to do with what they are asking for.
     """
     tenant_id = _checked_tenant_id(tenant_id)
     with _conn(tenant_id) as conn:
@@ -632,6 +640,32 @@ def get_tenant_razorpayx_credentials(tenant_id: int) -> dict | None:
         "key_secret": secret_store.decrypt(row["razorpayx_key_secret"]),
         "account_number": row["razorpayx_account_number"],
     }
+
+
+def get_tenant_source_account(tenant_id: int) -> str | None:
+    """
+    The account number a generated payout should name as its SOURCE, or None if
+    this tenant has not configured one.
+
+    Deliberately separate from get_tenant_razorpayx_credentials(), which
+    returns None whenever there is no API key. The export path needs only this
+    one value and makes no live call, so gating it on the presence of API keys
+    would tell a tenant that has configured an account that it has not — which
+    is exactly what happened before this existed: the export emitted its
+    "DO NOT UPLOAD" placeholder for tenants whose account number was sitting
+    right there in the row.
+
+    Not a credential and not enveloped: an account number identifies where
+    money comes from, it does not authorise moving it, so it is stored and read
+    in the clear like any other tenant setting.
+    """
+    tenant_id = _checked_tenant_id(tenant_id)
+    with _conn(tenant_id) as conn:
+        row = conn.execute(
+            "SELECT razorpayx_account_number FROM tenant_settings WHERE tenant_id = %s",
+            (tenant_id,),
+        ).fetchone()
+    return row["razorpayx_account_number"] if row else None
 
 
 def create_tenant_settings(tenant_id: int, hr_access_code_hash: str,

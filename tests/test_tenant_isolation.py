@@ -447,6 +447,29 @@ class TestPayoutSourceAccountIsPerTenant(TenantIsolationTestCase):
         # saved, or handed on.
         self.assertIn("DO NOT UPLOAD", response.headers.get("X-Source-Account-Placeholder", ""))
 
+    def test_source_account_is_not_gated_behind_having_api_keys(self):
+        """
+        A tenant may configure which account its payouts name without handing
+        the app live API keys — the keys authorise live calls (the balance
+        route), the account number does not. Reading the account through
+        get_tenant_razorpayx_credentials(), which returns None whenever there
+        is no key_id, told such a tenant it had no account and emitted the
+        DO-NOT-UPLOAD placeholder over a value sitting right there in the row.
+        """
+        review_queue.set_tenant_razorpayx_credentials(
+            self.alpha, None, None, "3333333333333333")
+        self.assertIsNone(
+            review_queue.get_tenant_razorpayx_credentials(self.alpha),
+            "no API key still means no API access — that part was correct")
+        self.assertEqual(
+            review_queue.get_tenant_source_account(self.alpha), "3333333333333333",
+            "but the source account must be readable independently of the keys")
+
+        payload = self._approved_row_for("alpha", self.alpha).get_json()
+        self.assertEqual(payload["payouts"][0]["account_number"], "3333333333333333")
+        self.assertNotIn("WARNING_DO_NOT_UPLOAD", payload,
+                         "a configured account must not be reported as a placeholder")
+
     def test_audit_trail_records_which_exports_used_a_placeholder(self):
         orig = flask_app.AUDIT_LOG_PATH
         flask_app.AUDIT_LOG_PATH = "test_source_account_audit.jsonl"
