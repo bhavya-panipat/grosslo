@@ -110,6 +110,35 @@ function DiffPanel({ row }: { row: SubmissionRow }) {
   );
 }
 
+// Who made this decision. A maker-checker trail whose whole value is
+// accountability has to name a person, not a role — before Phase 1.2 every
+// approval in this queue was attributed to the literal string "finance".
+//
+// Rows decided before accounts existed have no user and are shown as
+// UNATTRIBUTED rather than blended in with the ones that do. Rendering them
+// identically would imply the system knew who acted when it did not, which is
+// the same fabrication the backend refused when it declined to backfill
+// decided_by_user_id.
+function DecidedBy({ row }: { row: SubmissionRow }) {
+  if (!row.decided_at) return null;
+  const when = new Date(row.decided_at).toLocaleString();
+  if (row.decided_by_user_id && row.decided_by_display_name) {
+    return (
+      <p className="mt-1 text-xs text-neutral-500">
+        {row.decided_by_display_name}
+        {row.decided_by ? ` (${row.decided_by})` : ""} · {when}
+      </p>
+    );
+  }
+  return (
+    <p className="mt-1 text-xs text-neutral-500">
+      <span className="text-amber-300/80">Unattributed</span> — decided as{" "}
+      {row.decided_by ?? "an unknown role"} before this workspace had user
+      accounts · {when}
+    </p>
+  );
+}
+
 // Approved rows only. Branches on what the row actually was: a correction
 // (current_structure present) downloads an XLSX file, then offers a
 // "Simulate upload" confirmation step; a new hire gets back a RazorpayX
@@ -543,10 +572,14 @@ function RowCard({
           {row.status === "approved" ? (
             <>
               <span className="text-emerald-300">Approved — Payout SIMULATED, no live dispatch.</span>
+              <DecidedBy row={row} />
               <ExportPanel row={row} onCompleted={() => onExportCompleted?.()} />
             </>
           ) : (
-            <span className="text-red-300">Rejected: {row.reason}</span>
+            <>
+              <span className="text-red-300">Rejected: {row.reason}</span>
+              <DecidedBy row={row} />
+            </>
           )}
         </div>
       )}

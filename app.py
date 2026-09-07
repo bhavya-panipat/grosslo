@@ -76,7 +76,7 @@ AUDIT_LOG_PATH = "audit_log.jsonl"
 PROCESS_LOG_PATH = "process_log.jsonl"
 
 
-def _append_audit_log(tenant_id, route: str, event: dict) -> None:
+def _append_audit_log(tenant_id, user_id, route: str, event: dict) -> None:
     """
     Appends one JSON line per money-adjacent decision (structure computed,
     compliance/guardrail verdict, payload generated) to a local, gitignored
@@ -110,6 +110,15 @@ def _append_audit_log(tenant_id, route: str, event: dict) -> None:
     rather than degrading quietly — the degrade-gracefully rule above covers
     the filesystem being unwritable, not a caller that does not know who it is
     acting for.
+
+    user_id is required too, and unlike tenant_id it MAY be None — the two are
+    not the same kind of value (§3.4). tenant_id is the partition key and a
+    line without one belongs to nobody. user_id answers "who", and there is
+    exactly one honest None: POST /api/submissions is deliberately
+    unauthenticated, so a row submitted through the public flow genuinely has
+    no person behind it. Recording None there is the truthful answer, the same
+    one historical rows give with a NULL decided_by_user_id. It is a required
+    ARGUMENT so no call site can forget to think about it.
     """
     if tenant_id is None:
         raise ValueError(
@@ -119,7 +128,8 @@ def _append_audit_log(tenant_id, route: str, event: dict) -> None:
             "tenant — a stateless compute route with no authenticated session — use "
             "_append_process_log() instead. Do not reintroduce a nullable tenant_id here."
         )
-    _write_log_line(AUDIT_LOG_PATH, {"tenant_id": tenant_id, "route": route, **event})
+    _write_log_line(AUDIT_LOG_PATH,
+                    {"tenant_id": tenant_id, "user_id": user_id, "route": route, **event})
 
 
 def _append_process_log(route: str, event: dict) -> None:
@@ -138,7 +148,8 @@ def _append_process_log(route: str, event: dict) -> None:
     re-creating, at the HTTP layer, exactly the cross-tenant visibility the
     split exists to remove.
     """
-    _write_log_line(PROCESS_LOG_PATH, {"tenant_id": None, "route": route, **event})
+    _write_log_line(PROCESS_LOG_PATH,
+                    {"tenant_id": None, "user_id": None, "route": route, **event})
 
 
 def _log_compute_event(route: str, event: dict) -> None:
@@ -158,7 +169,7 @@ def _log_compute_event(route: str, event: dict) -> None:
     if tenant_id is None:
         _append_process_log(route, event)
     else:
-        _append_audit_log(tenant_id, route, event)
+        _append_audit_log(tenant_id, session.get("user_id"), route, event)
 
 
 def _write_log_line(path: str, payload: dict) -> None:
@@ -928,7 +939,7 @@ def api_create_submission():
 
     result = review_queue.create_submission(resolved_tenant_id(), source, built_rows,
                                             submitted_by=data.get("submitted_by", "hr"))
-    _append_audit_log(resolved_tenant_id(), "/api/submissions", {
+    _append_audit_log(resolved_tenant_id(), session.get("user_id"), "/api/submissions", {
         "submission_id": result["submission_id"], "source": source,
         "rows_submitted": len(built_rows), "duplicates_skipped": len(result["duplicates"]),
     })
@@ -987,7 +998,8 @@ def api_decide_row(submission_id, row_index):
         # this column's meaning here would blur which step introduced it.
         roles = current_roles()
         result = review_queue.decide_row(current_tenant_id(), submission_id, row_index, decision, reason,
-                                         decided_by=roles[0] if roles else "unknown")
+                                         decided_by=roles[0] if roles else "unknown",
+                                         decided_by_user_id=session.get("user_id"))
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
 
@@ -998,7 +1010,7 @@ def api_decide_row(submission_id, row_index):
             "message": f"This row was already {result['current_status']} — no second decision was recorded.",
         }), 409
 
-    _append_audit_log(current_tenant_id(), "/api/submissions/decide", {
+    _append_audit_log(current_tenant_id(), session.get("user_id"), "/api/submissions/decide", {
         "submission_id": submission_id, "row_index": row_index, "decision": decision, "reason": reason,
     })
     return jsonify({
@@ -1055,7 +1067,7 @@ def api_export_approved_row(submission_id, row_index):
         buf = io.BytesIO()
         wb.save(buf)
         buf.seek(0)
-        _append_audit_log(current_tenant_id(), "/api/submissions/export", {
+        _append_audit_log(current_tenant_id(), session.get("user_id"), "/api/submissions/export", {
             "submission_id": submission_id, "row_index": row_index, "export_type": "salary_revision",
         })
         review_queue.mark_exported(current_tenant_id(), submission_id, row_index)
@@ -1111,7 +1123,7 @@ def api_export_approved_row(submission_id, row_index):
         payload["WARNING_DO_NOT_UPLOAD"] = SOURCE_ACCOUNT_PLACEHOLDER_LABEL
         payload["source_account_is_placeholder"] = True
 
-    _append_audit_log(current_tenant_id(), "/api/submissions/export", {
+    _append_audit_log(current_tenant_id(), session.get("user_id"), "/api/submissions/export", {
         "submission_id": submission_id, "row_index": row_index, "export_type": "razorpayx_payout",
         "total_capital_outlay": forecast["total_capital_outlay"],
         # Recorded per-export: a compliance trail should say which payloads
@@ -1155,7 +1167,7 @@ def api_complete_approved_row(submission_id, row_index):
         return jsonify({"error": f"row is '{row['status']}', not approved — nothing to confirm"}), 400
 
     review_queue.mark_dispatched(current_tenant_id(), submission_id, row_index)
-    _append_audit_log(current_tenant_id(), "/api/submissions/complete", {"submission_id": submission_id, "row_index": row_index})
+    _append_audit_log(current_tenant_id(), session.get("user_id"), "/api/submissions/complete", {"submission_id": submission_id, "row_index": row_index})
     return jsonify({"status": "ok"})
 
 
@@ -1296,9 +1308,9 @@ def api_create_user():
         )
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
-    _append_audit_log(current_tenant_id(), "/api/users", {
-        "action": "create_user", "user_id": user["id"], "email": user["email"],
-        "roles": user["roles"], "actor_user_id": session.get("user_id"),
+    _append_audit_log(current_tenant_id(), session.get("user_id"), "/api/users", {
+        "action": "create_user", "target_user_id": user["id"], "email": user["email"],
+        "roles": user["roles"],
     })
     return jsonify(user), 201
 
@@ -1314,9 +1326,8 @@ def api_set_user_roles(user_id):
     user = review_queue.set_user_roles(current_tenant_id(), user_id, roles)
     if user is None:
         return jsonify({"error": "user not found"}), 404
-    _append_audit_log(current_tenant_id(), "/api/users", {
-        "action": "set_roles", "user_id": user_id, "roles": user["roles"],
-        "actor_user_id": session.get("user_id"),
+    _append_audit_log(current_tenant_id(), session.get("user_id"), "/api/users", {
+        "action": "set_roles", "target_user_id": user_id, "roles": user["roles"],
     })
     return jsonify(user)
 
@@ -1338,9 +1349,8 @@ def api_set_user_status(user_id):
         return jsonify({"error": str(e)}), 400
     if user is None:
         return jsonify({"error": "user not found"}), 404
-    _append_audit_log(current_tenant_id(), "/api/users", {
-        "action": "set_status", "user_id": user_id, "status": user["status"],
-        "actor_user_id": session.get("user_id"),
+    _append_audit_log(current_tenant_id(), session.get("user_id"), "/api/users", {
+        "action": "set_status", "target_user_id": user_id, "status": user["status"],
     })
     return jsonify(user)
 
@@ -1478,7 +1488,7 @@ def api_auth_bootstrap():
     session["roles"] = user["roles"]
     session.permanent = True
     review_queue.record_login(tenant_id, user["id"])
-    _append_audit_log(tenant_id, "/api/auth/bootstrap", {
+    _append_audit_log(tenant_id, user["id"], "/api/auth/bootstrap", {
         "action": "bootstrap_owner_created", "user_id": user["id"],
         "email": user["email"], "shared_codes_retired": True,
     })
@@ -1536,7 +1546,7 @@ def api_razorpayx_balance():
     except RazorpayXRequestError as e:
         return jsonify({"configured": True, "live": False, "error": str(e), "status_code": e.status_code}), 502
 
-    _append_audit_log(current_tenant_id(), "/api/razorpayx/balance", {"live_call": True})
+    _append_audit_log(current_tenant_id(), session.get("user_id"), "/api/razorpayx/balance", {"live_call": True})
     return jsonify({"configured": True, "live": True, "balance": balance})
 
 

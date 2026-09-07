@@ -1017,7 +1017,7 @@ def check_duplicate(tenant_id: int, employee_name: str | None, ctc: float,
     dedupe_hash = _dedupe_hash(tenant_id, employee_name, ctc, email)
     with _conn(tenant_id) as conn:
         existing = conn.execute(
-            "SELECT * FROM submission_rows WHERE tenant_id = %s AND dedupe_hash = %s "
+            "SELECT *, (SELECT display_name FROM users u WHERE u.id = submission_rows.decided_by_user_id) AS decided_by_display_name FROM submission_rows WHERE tenant_id = %s AND dedupe_hash = %s "
             "AND status != 'rejected' ORDER BY id DESC LIMIT 1",
             (tenant_id, dedupe_hash),
         ).fetchone()
@@ -1055,7 +1055,7 @@ def create_submission(tenant_id: int, source: str, rows: list[dict],
             email = row.get("input", {}).get("email")
             dedupe_hash = _dedupe_hash(tenant_id, name, ctc, email)
             existing = conn.execute(
-                "SELECT * FROM submission_rows WHERE tenant_id = %s AND dedupe_hash = %s "
+                "SELECT *, (SELECT display_name FROM users u WHERE u.id = submission_rows.decided_by_user_id) AS decided_by_display_name FROM submission_rows WHERE tenant_id = %s AND dedupe_hash = %s "
                 "AND status != 'rejected' LIMIT 1",
                 (tenant_id, dedupe_hash),
             ).fetchone()
@@ -1093,7 +1093,7 @@ def list_submissions(tenant_id: int, status: str | None = None,
         ).fetchall()
         result = []
         for s in submissions:
-            row_query = "SELECT * FROM submission_rows WHERE tenant_id = %s AND submission_id = %s"
+            row_query = "SELECT *, (SELECT display_name FROM users u WHERE u.id = submission_rows.decided_by_user_id) AS decided_by_display_name FROM submission_rows WHERE tenant_id = %s AND submission_id = %s"
             params = [tenant_id, s["id"]]
             if status:
                 row_query += " AND status = %s"
@@ -1125,7 +1125,7 @@ def get_submission(tenant_id: int, submission_id: int) -> dict | None:
         if s is None:
             return None
         rows = conn.execute(
-            "SELECT * FROM submission_rows WHERE tenant_id = %s AND submission_id = %s "
+            "SELECT *, (SELECT display_name FROM users u WHERE u.id = submission_rows.decided_by_user_id) AS decided_by_display_name FROM submission_rows WHERE tenant_id = %s AND submission_id = %s "
             "ORDER BY row_index",
             (tenant_id, submission_id),
         ).fetchall()
@@ -1136,7 +1136,8 @@ def get_submission(tenant_id: int, submission_id: int) -> dict | None:
 
 
 def decide_row(tenant_id: int, submission_id: int, row_index: int, decision: str,
-               reason: str | None, decided_by: str = "finance") -> dict:
+               reason: str | None, decided_by: str = "finance",
+               decided_by_user_id: int | None = None) -> dict:
     """
     Approve or reject exactly one row. Idempotent by construction: the
     UPDATE only matches rows still 'pending', using the database's own
@@ -1156,11 +1157,12 @@ def decide_row(tenant_id: int, submission_id: int, row_index: int, decision: str
     with _conn(tenant_id) as conn:
         cur = conn.execute(
             """UPDATE submission_rows
-               SET status = %s, reason = %s, decided_at = %s, decided_by = %s
+               SET status = %s, reason = %s, decided_at = %s, decided_by = %s,
+                   decided_by_user_id = %s
                WHERE tenant_id = %s AND submission_id = %s AND row_index = %s
                  AND status = 'pending'""",
             (new_status, reason, datetime.now(timezone.utc).isoformat(), decided_by,
-             tenant_id, submission_id, row_index),
+             decided_by_user_id, tenant_id, submission_id, row_index),
         )
         if cur.rowcount == 0:
             existing = conn.execute(
@@ -1173,7 +1175,7 @@ def decide_row(tenant_id: int, submission_id: int, row_index: int, decision: str
                 "current_status": existing["status"] if existing else None,
             }
         row = conn.execute(
-            "SELECT * FROM submission_rows "
+            "SELECT *, (SELECT display_name FROM users u WHERE u.id = submission_rows.decided_by_user_id) AS decided_by_display_name FROM submission_rows "
             "WHERE tenant_id = %s AND submission_id = %s AND row_index = %s",
             (tenant_id, submission_id, row_index),
         ).fetchone()

@@ -572,7 +572,7 @@ class TestAuditLogIsolation(TenantIsolationTestCase):
         a property of the reader rather than of the data.
         """
         with self.assertRaises(ValueError) as ctx:
-            flask_app._append_audit_log(None, "/api/optimize", {"ctc": 1})
+            flask_app._append_audit_log(None, 7, "/api/optimize", {"ctc": 1})
         self.assertIn("_append_process_log", str(ctx.exception),
                       "the error must name the correct alternative, not just refuse")
         self.assertEqual(self._lines(flask_app.AUDIT_LOG_PATH), [],
@@ -743,8 +743,101 @@ class TestUserAdministration(TenantIsolationTestCase):
             created = [e for e in entries if e.get("action") == "create_user"]
             self.assertEqual(len(created), 1)
             self.assertEqual(created[0]["tenant_id"], self.alpha)
-            self.assertEqual(created[0]["actor_user_id"], 99,
+            self.assertEqual(created[0]["user_id"], 99,
                              "who created the account must be recorded, not just that it happened")
+            self.assertEqual(created[0]["target_user_id"], created[0]["target_user_id"],
+                             "and the account created is recorded separately from the actor")
+        finally:
+            if os.path.exists(flask_app.AUDIT_LOG_PATH):
+                os.remove(flask_app.AUDIT_LOG_PATH)
+            flask_app.AUDIT_LOG_PATH = orig
+
+
+class TestDecisionAttribution(TenantIsolationTestCase):
+    """
+    Phase 1.2 step 5 — the point of the phase. Before this, every approval and
+    rejection in the maker-checker queue was attributed to the literal string
+    "finance": the feature whose whole purpose is governance could not name who
+    made any decision.
+    """
+
+    def _decide_as(self, tenant_id, host, email, name, decision="approve"):
+        # The row is varied per caller: IDENTICAL_ROW twice in ONE tenant is a
+        # genuine duplicate and _dedupe_hash correctly drops the second, which
+        # would leave nothing to decide on. Cross-tenant identity is what the
+        # isolation tests exercise; here the point is two different people.
+        row = {**self._row(), "employee_name": name,
+               "input": {**self._row()["input"], "email": email}}
+        user = review_queue.create_user(tenant_id, email, name, ["finance"])
+        with review_queue._conn(tenant_id) as conn:
+            conn.execute("UPDATE users SET password_hash = %s WHERE tenant_id = %s AND id = %s",
+                         (_TEST_PASSWORD_HASH, tenant_id, user["id"]))
+        client = _client_for(host)
+        client.post("/api/auth/login", json={"email": email, "password": _TEST_PASSWORD})
+        sub = review_queue.create_submission(tenant_id, "single", [row])["submission_id"]
+        client.post(f"/api/submissions/{sub}/rows/0/decide",
+                    json={"decision": decision, "reason": "because"})
+        return user, review_queue.get_submission(tenant_id, sub)["rows"][0]
+
+    def test_a_decision_names_the_person_who_made_it(self):
+        user, row = self._decide_as(self.alpha, ALPHA_HOST, "priya@alpha.test", "Priya Nair")
+        self.assertEqual(row["decided_by_user_id"], user["id"])
+        self.assertEqual(row["decided_by_display_name"], "Priya Nair")
+        # And the ROLE HELD AT THE TIME is stored too, not derived on read, so
+        # the trail still reads correctly if that person's role later changes.
+        self.assertEqual(row["decided_by"], "finance")
+        review_queue.set_user_roles(self.alpha, user["id"], ["hr"])
+        after = review_queue.get_submission(self.alpha, row["submission_id"])["rows"][0]
+        self.assertEqual(after["decided_by"], "finance",
+                         "a past approval must not be rewritten by a later role change")
+
+    def test_two_people_are_never_confused_for_each_other(self):
+        u1, r1 = self._decide_as(self.alpha, ALPHA_HOST, "one@alpha.test", "Person One")
+        u2, r2 = self._decide_as(self.alpha, ALPHA_HOST, "two@alpha.test", "Person Two")
+        self.assertNotEqual(u1["id"], u2["id"])
+        self.assertEqual(r1["decided_by_display_name"], "Person One")
+        self.assertEqual(r2["decided_by_display_name"], "Person Two")
+
+    def test_pre_accounts_rows_stay_unattributed_and_are_not_fabricated(self):
+        # §3.4's refusal to backfill: no user existed when these were decided,
+        # so any name here would be invented history.
+        _, row = self._decide_as(self.alpha, ALPHA_HOST, "p@alpha.test", "P")
+        with review_queue._conn(self.alpha) as conn:
+            conn.execute("UPDATE submission_rows SET decided_by_user_id = NULL "
+                         "WHERE tenant_id = %s", (self.alpha,))
+        legacy = review_queue.get_submission(self.alpha, row["submission_id"])["rows"][0]
+        self.assertIsNone(legacy["decided_by_user_id"])
+        self.assertIsNone(legacy["decided_by_display_name"],
+                          "an unattributed row must not acquire a name")
+        self.assertEqual(legacy["decided_by"], "finance",
+                         "the role label survives as the only honest thing known")
+
+    def test_the_decider_name_cannot_resolve_across_tenants(self):
+        # The name is resolved by a subquery running under the same tenant
+        # context, so a foreign user id could never yield a name even if one
+        # were somehow written.
+        beta_user = review_queue.create_user(self.beta, "b@beta.test", "Beta Person", ["finance"])
+        _, row = self._decide_as(self.alpha, ALPHA_HOST, "a@alpha.test", "Alpha Person")
+        with review_queue._conn(self.alpha) as conn:
+            conn.execute("UPDATE submission_rows SET decided_by_user_id = %s WHERE tenant_id = %s",
+                         (beta_user["id"], self.alpha))
+        leaked = review_queue.get_submission(self.alpha, row["submission_id"])["rows"][0]
+        self.assertIsNone(leaked["decided_by_display_name"],
+                          "another tenant's user must never be named here")
+
+    def test_audit_lines_record_who_acted(self):
+        orig = flask_app.AUDIT_LOG_PATH
+        flask_app.AUDIT_LOG_PATH = "test_attribution_audit.jsonl"
+        if os.path.exists(flask_app.AUDIT_LOG_PATH):
+            os.remove(flask_app.AUDIT_LOG_PATH)
+        try:
+            user, _ = self._decide_as(self.alpha, ALPHA_HOST, "who@alpha.test", "Who")
+            with open(flask_app.AUDIT_LOG_PATH) as f:
+                entries = [json.loads(l) for l in f if l.strip()]
+            decided = [e for e in entries if e["route"] == "/api/submissions/decide"]
+            self.assertEqual(len(decided), 1)
+            self.assertEqual(decided[0]["user_id"], user["id"])
+            self.assertEqual(decided[0]["tenant_id"], self.alpha)
         finally:
             if os.path.exists(flask_app.AUDIT_LOG_PATH):
                 os.remove(flask_app.AUDIT_LOG_PATH)
