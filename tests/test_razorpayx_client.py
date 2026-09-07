@@ -20,24 +20,24 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import review_queue
 
-review_queue.DB_PATH = "test_razorpayx_queue.db"
+review_queue.DB_SCHEMA = "test_razorpayx_queue"
 
 import app as flask_app
 from razorpayx_client import (
     fetch_account_balance, RazorpayXNotConfigured, RazorpayXKeyModeError, RazorpayXRequestError,
 )
 
-TEST_DB = "test_razorpayx_queue.db"
+TEST_SCHEMA = "test_razorpayx_queue"
 
 
 def tearDownModule():
-    # app.py's import-time review_queue.init_db() creates this file even
+    # app.py's import-time review_queue.init_db() creates this schema even
     # though nothing in this module writes rows to it — clean it up so it
-    # doesn't get left behind as scratch state (also gitignored via
-    # test_*.db as a second layer, but tests should clean up after
-    # themselves regardless).
-    if os.path.exists(TEST_DB):
-        os.remove(TEST_DB)
+    # doesn't get left behind as scratch state. (The old gitignore'd
+    # test_*.db file was a second layer of protection here; a Postgres
+    # schema has no such backstop, so this cleanup matters slightly more
+    # than it did before.)
+    review_queue._drop_schema()
 
 
 class TestFetchAccountBalanceGuards(unittest.TestCase):

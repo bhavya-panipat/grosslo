@@ -289,9 +289,27 @@ grosslo invented, only one the compliance engine already decided.
 
 ## Running it
 
+**Postgres is required**, for the app *and* for the test suite. Persistence
+moved from a single SQLite file to Postgres in Roadmap Phase 1.1 step 1 (see
+`MULTI_TENANT_DESIGN.md` section 7) because SQLite has no row-level security
+and no per-connection session variables to key one on:
+
+```bash
+brew install postgresql@16
+brew services start postgresql@16
+createdb grosslo                        # or set DATABASE_URL to point elsewhere
+pip3 install -r requirements.txt
+```
+
+If Postgres isn't running, the test suite fails at *collection* with a wall of
+connection errors, before a single test executes — `app.py` calls
+`review_queue.init_db()` at import time and every test module imports `app`.
+That failure means the service is down; it does not mean the code under test is
+broken. `brew services start postgresql@16` fixes it.
+
 Backend:
 ```bash
-python3 -m unittest discover -s tests   # 116 tests, all pass with no API key set
+python3 -m unittest discover -s tests   # 154 tests, all pass with no API key set
 python3 app.py 8000                     # serves the API at http://127.0.0.1:8000
 ```
 

@@ -3,12 +3,14 @@ review_queue.py — maker-checker persistence for the HR-submits /
 Finance-reviews workflow.
 
 SCOPE, stated plainly (mirrors the discipline everywhere else in this repo):
-- SQLite, not a production database. A single file (`review_queue.db`,
-  gitignored), created on first use. This is demo-scale persistence for a
-  submission to survive between HR's screen and Finance's screen — not a
-  multi-tenant company roster, and not the "real database" the README's
-  roadmap describes for a steady-state treasury baseline. That's a
-  separate, much larger piece of work and this doesn't pretend to be it.
+- Postgres, via psycopg. Ported from SQLite in Roadmap Phase 1.1 step 1
+  (MULTI_TENANT_DESIGN.md section 7) — SQLite has no row-level security and no
+  per-connection session variables to key a defence-in-depth policy on, both of
+  which step 3 needs. This module is STILL single-tenant: there is no tenant_id
+  column here yet, deliberately. Step 1 proves the database migration works in
+  isolation from the tenancy change, so a bug afterwards is attributable to one
+  or the other rather than both at once. Do not add tenant_id here ahead of
+  step 2.
 - No real authentication anywhere in this module. "HR" and "Finance" are
   role labels a caller asserts, not identities this module verifies. See
   app.py's /hr and /finance routes for how that's surfaced (or not) in the
@@ -18,6 +20,11 @@ SCOPE, stated plainly (mirrors the discipline everywhere else in this repo):
   batch-audit pipeline — this module's only job is persisting it, deciding
   on it, and reading it back. If a function here starts computing a tax
   figure, that's a scope violation, not a feature.
+
+RUNNING THIS REQUIRES A REACHABLE POSTGRES. `brew services start postgresql@16`.
+Because app.py calls init_db() at import time, a stopped server fails the test
+suite at *collection*, as a wall of connection errors — that is a missing
+service, not a bug in whatever you just changed.
 
 APPROVE DOES NOT DISPATCH ANYTHING. Approving a submission row writes a
 status change and an audit-log entry ("Approved — Payout SIMULATED, no
@@ -31,14 +38,33 @@ from __future__ import annotations
 
 import hashlib
 import json
-import sqlite3
+import os
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
-DB_PATH = "review_queue.db"
+import psycopg
+from psycopg import sql
+from psycopg.rows import dict_row
+
+# Local dev default targets the Homebrew postgresql@16 cluster over the unix
+# socket as the current OS user. DATABASE_URL overrides it (.env), which is how
+# a managed provider would be pointed at — MULTI_TENANT_DESIGN.md section 6
+# leaves the hosting choice open on purpose.
+DEFAULT_DSN = "postgresql:///grosslo"
+
+# Replaces the old module-level DB_PATH. Tests swapped that file path to get an
+# isolated database per test module; Postgres has no file to swap, so the same
+# isolation property is provided by giving each test module its own *schema*
+# inside one database. Production/dev leaves this at "public".
+DB_SCHEMA = "public"
 
 VALID_STATUSES = {"pending", "approved", "rejected"}
 VALID_SOURCES = {"single", "batch"}
+
+
+def _dsn() -> str:
+    return os.environ.get("DATABASE_URL", DEFAULT_DSN)
+
 
 # Same window-based idempotency approach used nowhere else in this repo
 # because nothing else needed one — deliberately simple, per the brief's
@@ -63,6 +89,11 @@ VALID_SOURCES = {"single", "batch"}
 # but bit-for-bit the previous formula — so dedupe_hash values already
 # stored for existing emailless rows keep matching fresh lookups instead
 # of silently stopping mid-flight.
+#
+# NOTE for step 2/3: this key is global across tenants today. Section 4 of
+# MULTI_TENANT_DESIGN.md requires tenant_id folded in here, not just added to
+# the table — two companies hiring two different people of the same name at the
+# same CTC on the same day would otherwise false-collide. Not done in step 1.
 def _dedupe_hash(employee_name: str | None, ctc: float, email: str | None = None) -> str:
     window = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     normalized_name = (employee_name or "anon").strip().lower()
@@ -74,22 +105,46 @@ def _dedupe_hash(employee_name: str | None, ctc: float, email: str | None = None
     return hashlib.sha256(key.encode()).hexdigest()
 
 
-def _ensure_schema(conn: sqlite3.Connection) -> None:
+def _ensure_schema(conn: psycopg.Connection) -> None:
     """
-    CREATE TABLE IF NOT EXISTS is cheap and idempotent — called on every
+    CREATE ... IF NOT EXISTS is cheap and idempotent — called on every
     connection, not just once at app startup. Found the hard way: an
     earlier version only ran this from init_db() at import time, so
-    deleting DB_PATH out from under a still-running server (a cleanup
+    deleting the database out from under a still-running server (a cleanup
     command run without restarting the process) left every subsequent
-    request hitting "no such table" — sqlite3.connect() happily creates a
-    new, empty, table-less file for a missing path, it doesn't recreate
-    the schema. Self-healing on every connection means a missing or
-    externally-deleted db file is never a hard crash, here or in whatever
-    happens to this file after this submission.
+    request hitting "no such table". Self-healing on every connection means a
+    missing or externally-dropped schema is never a hard crash, here or in
+    whatever happens to this file after this submission.
+
+    Column types are chosen to preserve the SQLite behaviour this was ported
+    from, not to modernise:
+      - ctc is DOUBLE PRECISION, not NUMERIC. SQLite REAL is IEEE-754 binary
+        float; NUMERIC is exact decimal and would change comparison and
+        rounding behaviour on a money field the tax engine already computed.
+      - the timestamp columns stay TEXT. Python writes ISO-8601 strings into
+        them today and callers read those strings back; TIMESTAMPTZ would
+        change the read-back format, which is a behaviour change rather than
+        a port.
+      - input_json/computed_json stay TEXT, not JSONB. JSONB normalises key
+        order and drops duplicate keys, so _row_to_dict()'s round-trip would
+        no longer return what was stored.
+      - id is GENERATED BY DEFAULT (not ALWAYS) AS IDENTITY, so the one-off
+        SQLite migration can insert explicit ids and preserve the
+        submission_rows -> submissions foreign key relationships.
     """
+    schema = sql.Identifier(DB_SCHEMA)
+    conn.execute(sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(schema))
+    # SET LOCAL, not SET: transaction-scoped, discarded at COMMIT/ROLLBACK.
+    # Nothing is pooled yet (a fresh connection per _conn()), so plain SET
+    # would also work today — but MULTI_TENANT_DESIGN.md 3.1 makes
+    # transaction-scoped the hard rule for connection state once pooling
+    # arrives in step 3, and there is no reason to establish the other habit
+    # here first and have to find every instance of it later.
+    conn.execute(sql.SQL("SET LOCAL search_path TO {}").format(schema))
+
     conn.execute("""
         CREATE TABLE IF NOT EXISTS submissions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
             created_at TEXT NOT NULL,
             source TEXT NOT NULL,
             submitted_by TEXT NOT NULL DEFAULT 'hr'
@@ -97,11 +152,11 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
     """)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS submission_rows (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
             submission_id INTEGER NOT NULL REFERENCES submissions(id),
             row_index INTEGER NOT NULL,
             employee_name TEXT,
-            ctc REAL NOT NULL,
+            ctc DOUBLE PRECISION NOT NULL,
             dedupe_hash TEXT NOT NULL,
             input_json TEXT NOT NULL,
             computed_json TEXT NOT NULL,
@@ -114,11 +169,16 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
     # Additive migration for the orchestration columns — CREATE TABLE IF NOT
     # EXISTS above won't add columns to a table that already exists from
     # before this feature shipped, so this self-heals the same way the rest
-    # of this function already does. Verified against a copy of this
-    # project's real (non-empty) review_queue.db before shipping: existing
-    # rows survive unchanged, new columns come back NULL, and running this
-    # twice on an already-migrated table is a no-op, not an error.
-    existing_cols = {row["name"] for row in conn.execute("PRAGMA table_info(submission_rows)")}
+    # of this function already does. (SQLite read these from PRAGMA
+    # table_info; the Postgres equivalent is information_schema, scoped to
+    # DB_SCHEMA so a test module's schema doesn't read another's columns.)
+    existing_cols = {
+        row["column_name"] for row in conn.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = %s AND table_name = 'submission_rows'",
+            (DB_SCHEMA,),
+        )
+    }
     for col, ddl in [
         ("orchestration_json", "ALTER TABLE submission_rows ADD COLUMN orchestration_json TEXT"),
         ("route", "ALTER TABLE submission_rows ADD COLUMN route TEXT"),
@@ -136,13 +196,14 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
 
 @contextmanager
 def _conn():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    _ensure_schema(conn)
+    conn = psycopg.connect(_dsn(), row_factory=dict_row)
     try:
+        _ensure_schema(conn)
         yield conn
         conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         conn.close()
 
@@ -158,7 +219,24 @@ def init_db() -> None:
         pass
 
 
-def _row_to_dict(row: sqlite3.Row) -> dict:
+def _drop_schema() -> None:
+    """
+    DESTRUCTIVE: drops DB_SCHEMA and everything in it.
+
+    This is the replacement for what the test suite used to do by deleting the
+    SQLite file — each test module points DB_SCHEMA at its own schema and calls
+    this to get a clean namespace between tests. There is no file to delete
+    under Postgres, and dropping a whole database per test module would be far
+    slower and would need a separate connection to `postgres` to do it.
+
+    Deliberately underscore-prefixed and never called from application code.
+    """
+    with psycopg.connect(_dsn()) as conn:
+        conn.execute(sql.SQL("DROP SCHEMA IF EXISTS {} CASCADE").format(sql.Identifier(DB_SCHEMA)))
+        conn.commit()
+
+
+def _row_to_dict(row: dict) -> dict:
     d = dict(row)
     d["input"] = json.loads(d.pop("input_json"))
     d["computed"] = json.loads(d.pop("computed_json"))
@@ -179,7 +257,7 @@ def check_duplicate(employee_name: str | None, ctc: float, email: str | None = N
     dedupe_hash = _dedupe_hash(employee_name, ctc, email)
     with _conn() as conn:
         existing = conn.execute(
-            "SELECT * FROM submission_rows WHERE dedupe_hash = ? AND status != 'rejected' ORDER BY id DESC LIMIT 1",
+            "SELECT * FROM submission_rows WHERE dedupe_hash = %s AND status != 'rejected' ORDER BY id DESC LIMIT 1",
             (dedupe_hash,),
         ).fetchone()
         return _row_to_dict(existing) if existing else None
@@ -200,11 +278,12 @@ def create_submission(source: str, rows: list[dict], submitted_by: str = "hr") -
 
     inserted, duplicates = [], []
     with _conn() as conn:
-        cur = conn.execute(
-            "INSERT INTO submissions (created_at, source, submitted_by) VALUES (?, ?, ?)",
+        # RETURNING id replaces SQLite's cur.lastrowid, which psycopg has no
+        # equivalent for.
+        submission_id = conn.execute(
+            "INSERT INTO submissions (created_at, source, submitted_by) VALUES (%s, %s, %s) RETURNING id",
             (datetime.now(timezone.utc).isoformat(), source, submitted_by),
-        )
-        submission_id = cur.lastrowid
+        ).fetchone()["id"]
 
         for i, row in enumerate(rows):
             name = row.get("employee_name")
@@ -212,25 +291,26 @@ def create_submission(source: str, rows: list[dict], submitted_by: str = "hr") -
             email = row.get("input", {}).get("email")
             dedupe_hash = _dedupe_hash(name, ctc, email)
             existing = conn.execute(
-                "SELECT * FROM submission_rows WHERE dedupe_hash = ? AND status != 'rejected' LIMIT 1",
+                "SELECT * FROM submission_rows WHERE dedupe_hash = %s AND status != 'rejected' LIMIT 1",
                 (dedupe_hash,),
             ).fetchone()
             if existing is not None:
                 duplicates.append({"row_index": i, "matches_existing_row_id": existing["id"]})
                 continue
             orchestration = row.get("orchestration")  # optional — omitted by fixtures/callers predating this feature
-            row_cur = conn.execute(
+            row_id = conn.execute(
                 """INSERT INTO submission_rows
                    (submission_id, row_index, employee_name, ctc, dedupe_hash, input_json, computed_json,
                     orchestration_json, route, severity, status)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')""",
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'pending')
+                   RETURNING id""",
                 (submission_id, i, name, ctc, dedupe_hash,
                  json.dumps(row["input"]), json.dumps(row["computed"]),
                  json.dumps(orchestration) if orchestration else None,
                  orchestration.get("route") if orchestration else None,
                  orchestration.get("severity") if orchestration else None),
-            )
-            inserted.append(row_cur.lastrowid)
+            ).fetchone()["id"]
+            inserted.append(row_id)
 
     return {
         "submission_id": submission_id,
@@ -244,13 +324,13 @@ def list_submissions(status: str | None = None, route: str | None = None) -> lis
         submissions = conn.execute("SELECT * FROM submissions ORDER BY id DESC").fetchall()
         result = []
         for s in submissions:
-            row_query = "SELECT * FROM submission_rows WHERE submission_id = ?"
+            row_query = "SELECT * FROM submission_rows WHERE submission_id = %s"
             params = [s["id"]]
             if status:
-                row_query += " AND status = ?"
+                row_query += " AND status = %s"
                 params.append(status)
             if route:
-                row_query += " AND route = ?"
+                row_query += " AND route = %s"
                 params.append(route)
             row_query += " ORDER BY row_index"
             rows = conn.execute(row_query, params).fetchall()
@@ -268,11 +348,11 @@ def list_submissions(status: str | None = None, route: str | None = None) -> lis
 
 def get_submission(submission_id: int) -> dict | None:
     with _conn() as conn:
-        s = conn.execute("SELECT * FROM submissions WHERE id = ?", (submission_id,)).fetchone()
+        s = conn.execute("SELECT * FROM submissions WHERE id = %s", (submission_id,)).fetchone()
         if s is None:
             return None
         rows = conn.execute(
-            "SELECT * FROM submission_rows WHERE submission_id = ? ORDER BY row_index", (submission_id,)
+            "SELECT * FROM submission_rows WHERE submission_id = %s ORDER BY row_index", (submission_id,)
         ).fetchall()
         return {
             "id": s["id"], "created_at": s["created_at"], "source": s["source"],
@@ -284,10 +364,12 @@ def decide_row(submission_id: int, row_index: int, decision: str, reason: str | 
                 decided_by: str = "finance") -> dict:
     """
     Approve or reject exactly one row. Idempotent by construction: the
-    UPDATE only matches rows still 'pending', using SQLite's own atomicity
-    rather than a separate idempotency-key mechanism — a double-click that
-    fires this twice finds zero matching rows on the second call and
-    returns already_decided=True instead of writing a second audit entry.
+    UPDATE only matches rows still 'pending', using the database's own
+    atomicity rather than a separate idempotency-key mechanism — a
+    double-click that fires this twice finds zero matching rows on the second
+    call and returns already_decided=True instead of writing a second audit
+    entry. (cur.rowcount means the same thing in psycopg as it did in
+    sqlite3 for an UPDATE, so this survived the port unchanged.)
     """
     if decision not in ("approve", "reject"):
         raise ValueError("decision must be 'approve' or 'reject'")
@@ -298,14 +380,14 @@ def decide_row(submission_id: int, row_index: int, decision: str, reason: str | 
     with _conn() as conn:
         cur = conn.execute(
             """UPDATE submission_rows
-               SET status = ?, reason = ?, decided_at = ?, decided_by = ?
-               WHERE submission_id = ? AND row_index = ? AND status = 'pending'""",
+               SET status = %s, reason = %s, decided_at = %s, decided_by = %s
+               WHERE submission_id = %s AND row_index = %s AND status = 'pending'""",
             (new_status, reason, datetime.now(timezone.utc).isoformat(), decided_by,
              submission_id, row_index),
         )
         if cur.rowcount == 0:
             existing = conn.execute(
-                "SELECT status FROM submission_rows WHERE submission_id = ? AND row_index = ?",
+                "SELECT status FROM submission_rows WHERE submission_id = %s AND row_index = %s",
                 (submission_id, row_index),
             ).fetchone()
             return {
@@ -313,7 +395,7 @@ def decide_row(submission_id: int, row_index: int, decision: str, reason: str | 
                 "current_status": existing["status"] if existing else None,
             }
         row = conn.execute(
-            "SELECT * FROM submission_rows WHERE submission_id = ? AND row_index = ?",
+            "SELECT * FROM submission_rows WHERE submission_id = %s AND row_index = %s",
             (submission_id, row_index),
         ).fetchone()
         return {"already_decided": False, "row": _row_to_dict(row)}
@@ -332,7 +414,7 @@ def mark_exported(submission_id: int, row_index: int) -> None:
     """
     with _conn() as conn:
         conn.execute(
-            "UPDATE submission_rows SET exported_at = ? WHERE submission_id = ? AND row_index = ?",
+            "UPDATE submission_rows SET exported_at = %s WHERE submission_id = %s AND row_index = %s",
             (datetime.now(timezone.utc).isoformat(), submission_id, row_index),
         )
 
@@ -353,6 +435,6 @@ def mark_dispatched(submission_id: int, row_index: int) -> None:
     """
     with _conn() as conn:
         conn.execute(
-            "UPDATE submission_rows SET dispatched_at = ? WHERE submission_id = ? AND row_index = ?",
+            "UPDATE submission_rows SET dispatched_at = %s WHERE submission_id = %s AND row_index = %s",
             (datetime.now(timezone.utc).isoformat(), submission_id, row_index),
         )

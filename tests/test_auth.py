@@ -16,24 +16,22 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import review_queue
 
-review_queue.DB_PATH = "test_auth_queue.db"
+review_queue.DB_SCHEMA = "test_auth_queue"
 
 import app as flask_app
 from auth import verify_login
 
-TEST_DB = "test_auth_queue.db"
+TEST_SCHEMA = "test_auth_queue"
 
 
 def tearDownModule():
-    if os.path.exists(TEST_DB):
-        os.remove(TEST_DB)
+    review_queue._drop_schema()
 
 
 class AuthTestCase(unittest.TestCase):
     def setUp(self):
-        review_queue.DB_PATH = TEST_DB
-        if os.path.exists(TEST_DB):
-            os.remove(TEST_DB)
+        review_queue.DB_SCHEMA = TEST_SCHEMA
+        review_queue._drop_schema()
         review_queue.init_db()
         self.client = flask_app.app.test_client()
         # POST /api/submissions is now rate-limited per IP (module-level,
@@ -42,8 +40,7 @@ class AuthTestCase(unittest.TestCase):
         flask_app._SUBMISSION_ATTEMPTS.clear()
 
     def tearDown(self):
-        if os.path.exists(TEST_DB):
-            os.remove(TEST_DB)
+        review_queue._drop_schema()
 
     def _login(self, role, code):
         return self.client.post("/api/auth/login", json={"role": role, "code": code})

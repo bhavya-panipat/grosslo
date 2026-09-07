@@ -2,9 +2,13 @@
 Tests for review_queue.py, diff_view.py, salary_revision_export.py, and
 the /api/submissions* + /api/export-salary-revision routes in app.py.
 
-Each test class gets its own throwaway SQLite file (never the real
-review_queue.db a demo run would create) so tests never see another test's
-state and never touch a file a live demo session might be using.
+Each test class gets its own throwaway Postgres schema (never the `public`
+schema a demo run would use) so tests never see another test's state and never
+touch data a live demo session might be using.
+
+Requires a reachable Postgres — `brew services start postgresql@16`. Because
+app.py calls review_queue.init_db() at import time, a stopped server fails this
+module at import, before a single test runs.
 """
 
 import os
@@ -18,15 +22,15 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import review_queue
 
 # Overridden before `import app` so app.py's module-level review_queue.init_db()
-# call (which runs at import time) creates tables in the test DB, not the
+# call (which runs at import time) creates tables in the test schema, not the
 # real one a demo session might be using.
-review_queue.DB_PATH = "test_review_queue.db"
+review_queue.DB_SCHEMA = "test_review_queue"
 
 import app as flask_app
 from diff_view import build_diff
 from salary_revision_export import build_salary_revision_workbook, TEMPLATE_HONESTY_LABEL
 
-TEST_DB = "test_review_queue.db"
+TEST_SCHEMA = "test_review_queue"
 
 
 def _optimize_response_for(ctc, rent_paid=0, city="metro", nps_opted=False, current_structure=None):
@@ -48,9 +52,8 @@ def _optimize_response_for(ctc, rent_paid=0, city="metro", nps_opted=False, curr
 
 class ReviewQueueTestCase(unittest.TestCase):
     def setUp(self):
-        review_queue.DB_PATH = TEST_DB
-        if os.path.exists(TEST_DB):
-            os.remove(TEST_DB)
+        review_queue.DB_SCHEMA = TEST_SCHEMA
+        review_queue._drop_schema()
         review_queue.init_db()
         # POST /api/submissions is now rate-limited per IP (module-level,
         # process-wide state) — reset before every test so unrelated tests
@@ -58,29 +61,30 @@ class ReviewQueueTestCase(unittest.TestCase):
         flask_app._SUBMISSION_ATTEMPTS.clear()
 
     def tearDown(self):
-        if os.path.exists(TEST_DB):
-            os.remove(TEST_DB)
+        review_queue._drop_schema()
 
 
 class TestSchemaSelfHeals(ReviewQueueTestCase):
-    def test_deleting_db_file_mid_session_does_not_crash_next_call(self):
+    def test_dropping_schema_mid_session_does_not_crash_next_call(self):
         # Reproduces a real bug: an earlier version only created tables in
-        # init_db() at import time. Deleting the db file while the server
-        # was still running (without restarting the process) left every
-        # subsequent request hitting "no such table" — sqlite3.connect()
-        # silently creates a new, empty, table-less file for a missing
-        # path rather than recreating the schema. This asserts the fix:
-        # every _conn() ensures the schema exists, so a deleted file
-        # self-heals on the very next call instead of 500ing.
+        # init_db() at import time. Destroying the persistence layer while
+        # the server was still running (without restarting the process) left
+        # every subsequent request hitting "no such table". This asserts the
+        # current behaviour: every _conn() ensures the schema exists, so a
+        # dropped schema self-heals on the very next call instead of 500ing.
+        #
+        # Ported from the SQLite version, which deleted the db file — there
+        # is no file to delete now, so the equivalent destruction is
+        # DROP SCHEMA CASCADE. The assertion is unchanged in substance.
         computed = _optimize_response_for(ctc=1_800_000)
         review_queue.create_submission("single", [{
             "employee_name": "Zoe", "ctc": 1_800_000,
             "input": {"ctc": 1_800_000, "rent_paid": 0, "city": "metro", "nps_opted": False, "current_structure": None},
             "computed": computed,
         }])
-        os.remove(TEST_DB)  # simulates the exact operational mistake that caused the real bug
-        # Must not raise sqlite3.OperationalError — the next call recreates
-        # the schema on its own, exactly like a fresh app startup would.
+        review_queue._drop_schema()  # simulates the exact operational mistake that caused the real bug
+        # Must not raise — the next call recreates the schema on its own,
+        # exactly like a fresh app startup would.
         result = review_queue.create_submission("single", [{
             "employee_name": "Yusuf", "ctc": 2_000_000,
             "input": {"ctc": 2_000_000, "rent_paid": 0, "city": "metro", "nps_opted": False, "current_structure": None},

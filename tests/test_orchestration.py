@@ -17,14 +17,14 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import review_queue
 
-review_queue.DB_PATH = "test_orchestration_queue.db"
+review_queue.DB_SCHEMA = "test_orchestration_queue"
 
 import app as flask_app
 from ai_layer import flag_compliance, evaluate_band_guardrail
 from tax_engine import SalaryStructure
 from orchestration import classify_row
 
-TEST_DB = "test_orchestration_queue.db"
+TEST_SCHEMA = "test_orchestration_queue"
 
 
 def _optimize_response_for(ctc, rent_paid=0, city="metro", nps_opted=False, current_structure=None):
@@ -36,9 +36,8 @@ def _optimize_response_for(ctc, rent_paid=0, city="metro", nps_opted=False, curr
 
 class ReviewQueueTestCase(unittest.TestCase):
     def setUp(self):
-        review_queue.DB_PATH = TEST_DB
-        if os.path.exists(TEST_DB):
-            os.remove(TEST_DB)
+        review_queue.DB_SCHEMA = TEST_SCHEMA
+        review_queue._drop_schema()
         review_queue.init_db()
         # POST /api/submissions is now rate-limited per IP (module-level,
         # process-wide state) — reset before every test so unrelated tests
@@ -46,8 +45,7 @@ class ReviewQueueTestCase(unittest.TestCase):
         flask_app._SUBMISSION_ATTEMPTS.clear()
 
     def tearDown(self):
-        if os.path.exists(TEST_DB):
-            os.remove(TEST_DB)
+        review_queue._drop_schema()
 
 
 # ---------------------------------------------------------------------------
