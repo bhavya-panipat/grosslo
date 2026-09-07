@@ -610,6 +610,30 @@ def api_query():
 
 DEFAULT_RAZORPAYX_ACCOUNT_NUMBER = "7878780080316316"  # demo placeholder, RazorpayX docs' own example account
 
+# The SOURCE account a payout debits, when the tenant has not configured one.
+#
+# Same principle as secret_store's "dev-plaintext:v1:" prefix and
+# salary_revision_export's TEMPLATE_HONESTY_LABEL: an incomplete setup should
+# not block the work, but a placeholder must never be mistakable for the real
+# thing. An unconfigured tenant has simply not finished onboarding — a
+# different category from a missing tenant_id or a forged Host, which are a bug
+# or an attacker and are refused outright.
+#
+# The value is deliberately NOT a bare account number. This payload is an
+# artifact a human carries to RazorpayX, and a plausible-looking 16-digit
+# string is exactly what gets pasted without a second look. Prefixed like this
+# it cannot be uploaded by accident: RazorpayX rejects it outright rather than
+# debiting RazorpayX's own documentation example account.
+PLACEHOLDER_SOURCE_ACCOUNT = "PLACEHOLDER-DO-NOT-UPLOAD-" + DEFAULT_RAZORPAYX_ACCOUNT_NUMBER
+
+SOURCE_ACCOUNT_PLACEHOLDER_LABEL = (
+    "PLACEHOLDER SOURCE ACCOUNT — DO NOT UPLOAD. This company has no RazorpayX "
+    "account number configured, so this payload names a placeholder instead of a "
+    "real source account. It will not debit the right account. Configure the "
+    "tenant's account number (scripts/set_tenant_credentials.py --account-number) "
+    "and export again."
+)
+
 
 def _build_composite_payout(structure, employee: dict, account_number: str) -> dict:
     """
@@ -1052,18 +1076,47 @@ def api_export_approved_row(submission_id, row_index):
         "ifsc": inp["ifsc"],
         "email": inp.get("email"),
     }
+    # The SOURCE account this payout debits belongs to the TENANT (step 4,
+    # section 3.5). Before this, every tenant's payload named one hardcoded
+    # account — the credentials moved per-tenant but this consumer was missed,
+    # so tenant_settings.razorpayx_account_number was written and read by
+    # nobody.
+    credentials = review_queue.get_tenant_razorpayx_credentials(current_tenant_id())
+    source_account = credentials.get("account_number") if credentials else None
+    using_placeholder = not source_account
+
     payload = {
         "treasury_forecast": forecast,
         "guardrail": computed.get("guardrail"),
         "idempotency_key_hint": str(uuid.uuid4()),
-        "payouts": [_build_composite_payout(recommended.structure, employee, DEFAULT_RAZORPAYX_ACCOUNT_NUMBER)],
+        "payouts": [_build_composite_payout(
+            recommended.structure, employee,
+            PLACEHOLDER_SOURCE_ACCOUNT if using_placeholder else source_account,
+        )],
     }
+    if using_placeholder:
+        # Loud in the body, and again in a header so the warning survives being
+        # piped, saved, or handed on — the same two-surface treatment
+        # TEMPLATE_HONESTY_LABEL already gets on the workbook export.
+        payload["WARNING_DO_NOT_UPLOAD"] = SOURCE_ACCOUNT_PLACEHOLDER_LABEL
+        payload["source_account_is_placeholder"] = True
+
     _append_audit_log(current_tenant_id(), "/api/submissions/export", {
         "submission_id": submission_id, "row_index": row_index, "export_type": "razorpayx_payout",
         "total_capital_outlay": forecast["total_capital_outlay"],
+        # Recorded per-export: a compliance trail should say which payloads
+        # named a real source account and which named a placeholder.
+        "source_account_is_placeholder": using_placeholder,
     })
     review_queue.mark_exported(current_tenant_id(), submission_id, row_index)
-    return jsonify(payload)
+    response = jsonify(payload)
+    if using_placeholder:
+        # Latin-1 only in header values, same constraint the workbook export
+        # already works around for its own label.
+        response.headers["X-Source-Account-Placeholder"] = (
+            SOURCE_ACCOUNT_PLACEHOLDER_LABEL.replace("—", "-")
+        )
+    return response
 
 
 @app.route("/api/submissions/<int:submission_id>/rows/<int:row_index>/complete", methods=["POST"])

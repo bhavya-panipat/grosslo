@@ -381,6 +381,90 @@ class TestRlsAsIndependentLayer(TenantIsolationTestCase):
         conn.close()
 
 
+class TestPayoutSourceAccountIsPerTenant(TenantIsolationTestCase):
+    """
+    The source account a payout DEBITS must be the exporting tenant's own.
+
+    This was missed when step 4 moved RazorpayX credentials per-tenant: key_id
+    and key_secret reached the balance route, but tenant_settings.
+    razorpayx_account_number was written, read back, and consumed by nobody —
+    so every tenant's export payload named one hardcoded account. Neither
+    step's own tests could catch it, because step 4 tested the balance route
+    and the export path was step 3's, already green. It surfaced only on a read
+    of the assembled diff.
+    """
+
+    def _approved_row_for(self, slug, tenant_id):
+        client = _client_for(f"http://{slug}.grosslo.app/")
+        client.post("/api/submissions", json={"source": "single", "row": {
+            "ctc": 1_800_000, "rent_paid": 0, "city": "metro", "nps_opted": False,
+            "employee_name": "E", "bank_account_number": "9999", "ifsc": "HDFC0001",
+            "email": "e@example.com",
+        }})
+        client.post("/api/auth/login", json={"role": "finance", "code": "FINANCE2026"})
+        sub = review_queue.list_submissions(tenant_id)[0]["id"]
+        client.post(f"/api/submissions/{sub}/rows/0/decide", json={"decision": "approve"})
+        return client.post(f"/api/submissions/{sub}/rows/0/export")
+
+    def test_each_tenant_payload_names_its_own_configured_source_account(self):
+        review_queue.set_tenant_razorpayx_credentials(
+            self.alpha, "rzp_test_A", "secretA", "1111111111111111")
+        review_queue.set_tenant_razorpayx_credentials(
+            self.beta, "rzp_test_B", "secretB", "2222222222222222")
+
+        a = self._approved_row_for("alpha", self.alpha).get_json()
+        b = self._approved_row_for("beta", self.beta).get_json()
+        self.assertEqual(a["payouts"][0]["account_number"], "1111111111111111")
+        self.assertEqual(b["payouts"][0]["account_number"], "2222222222222222")
+        self.assertNotEqual(a["payouts"][0]["account_number"],
+                            b["payouts"][0]["account_number"],
+                            "two tenants must not share one source account")
+        for payload in (a, b):
+            self.assertNotIn("WARNING_DO_NOT_UPLOAD", payload)
+            self.assertFalse(payload.get("source_account_is_placeholder", False))
+
+    def test_unconfigured_tenant_still_exports_but_is_loudly_marked(self):
+        """
+        An unconfigured tenant has not finished onboarding — that is not the
+        same category as a missing tenant_id or a forged Host, which are a bug
+        or an attacker and get refused. So the export still works, and the
+        placeholder is impossible to mistake for a real account.
+        """
+        response = self._approved_row_for("alpha", self.alpha)  # no credentials set
+        self.assertEqual(response.status_code, 200, "incomplete setup must not block the export")
+        payload = response.get_json()
+
+        account = payload["payouts"][0]["account_number"]
+        self.assertIn("DO-NOT-UPLOAD", account)
+        # Not a bare 16-digit string: a plausible-looking one is exactly what
+        # gets pasted into RazorpayX without a second look.
+        self.assertFalse(account.isdigit(), f"placeholder must not look like an account: {account!r}")
+        self.assertNotEqual(account, flask_app.DEFAULT_RAZORPAYX_ACCOUNT_NUMBER)
+
+        self.assertTrue(payload["source_account_is_placeholder"])
+        self.assertIn("DO NOT UPLOAD", payload["WARNING_DO_NOT_UPLOAD"])
+        # Second surface, so the warning survives the payload being piped,
+        # saved, or handed on.
+        self.assertIn("DO NOT UPLOAD", response.headers.get("X-Source-Account-Placeholder", ""))
+
+    def test_audit_trail_records_which_exports_used_a_placeholder(self):
+        orig = flask_app.AUDIT_LOG_PATH
+        flask_app.AUDIT_LOG_PATH = "test_source_account_audit.jsonl"
+        if os.path.exists(flask_app.AUDIT_LOG_PATH):
+            os.remove(flask_app.AUDIT_LOG_PATH)
+        try:
+            self._approved_row_for("alpha", self.alpha)
+            with open(flask_app.AUDIT_LOG_PATH) as f:
+                exports = [json.loads(l) for l in f
+                           if l.strip() and json.loads(l).get("export_type") == "razorpayx_payout"]
+            self.assertTrue(exports)
+            self.assertTrue(exports[-1]["source_account_is_placeholder"])
+        finally:
+            if os.path.exists(flask_app.AUDIT_LOG_PATH):
+                os.remove(flask_app.AUDIT_LOG_PATH)
+            flask_app.AUDIT_LOG_PATH = orig
+
+
 class TestAuditLogIsolation(TenantIsolationTestCase):
     """
     §3.4, which §7 never sequenced into any step — that omission is the reason
