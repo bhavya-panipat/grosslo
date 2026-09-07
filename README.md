@@ -298,8 +298,16 @@ and no per-connection session variables to key one on:
 brew install postgresql@16
 brew services start postgresql@16
 createdb grosslo                        # or set DATABASE_URL to point elsewhere
+psql -d grosslo -f scripts/setup_app_role.sql   # once; needs superuser
 pip3 install -r requirements.txt
 ```
+
+That third command creates `grosslo_app`, the unprivileged role the
+application connects as. It is not optional and not cosmetic: PostgreSQL
+exempts superusers and `BYPASSRLS` roles from every row-level-security policy,
+and the Homebrew default connection role is a superuser — so connecting as
+yourself would leave the tenant-isolation policies present in the schema and
+enforcing nothing, while every test still passed.
 
 If Postgres isn't running, the test suite fails at *collection* with a wall of
 connection errors, before a single test executes — `app.py` calls

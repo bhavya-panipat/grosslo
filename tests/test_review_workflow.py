@@ -50,11 +50,31 @@ def _optimize_response_for(ctc, rent_paid=0, city="metro", nps_opted=False, curr
     return response
 
 
+def _grant_tenant(client, tenant_id):
+    """
+    Puts tenant_id into the signed session directly.
+
+    SCAFFOLD — STEP 5 DELETES THIS. /api/auth/login does not resolve a tenant
+    yet; that is section 7 step 5's job. Without this, every route test would
+    401 at require_tenant with no legitimate way to obtain a tenant context,
+    and step 3's actual subject — required tenant_id, unconditional
+    WHERE tenant_id, and the RLS policies — would go unexercised until step 5.
+    Injecting the session value here tests step 3 now. When login resolves the
+    tenant for real, these calls are removed and the assertions around them
+    stay exactly as they are.
+    """
+    with client.session_transaction() as sess:
+        sess["tenant_id"] = tenant_id
+
+
 class ReviewQueueTestCase(unittest.TestCase):
     def setUp(self):
         review_queue.DB_SCHEMA = TEST_SCHEMA
         review_queue._drop_schema(TEST_SCHEMA)
         review_queue.init_db()
+        # tenant_id is a NOT NULL FK as of step 2 and a required argument as of
+        # step 3, so every tenant-scoped call needs a real tenant to reference.
+        self.tenant_id = review_queue.create_tenant("acme", "Acme Corp")["id"]
         # POST /api/submissions is now rate-limited per IP (module-level,
         # process-wide state) — reset before every test so unrelated tests
         # in this file don't trip each other's limit via the shared dict.
@@ -82,7 +102,7 @@ class TestMissingSchemaFailsLoudly(ReviewQueueTestCase):
     """
 
     def _seed_one_row(self):
-        review_queue.create_submission("single", [{
+        review_queue.create_submission(self.tenant_id, "single", [{
             "employee_name": "Zoe", "ctc": 1_800_000,
             "input": {"ctc": 1_800_000, "rent_paid": 0, "city": "metro", "nps_opted": False, "current_structure": None},
             "computed": _optimize_response_for(ctc=1_800_000),
@@ -92,7 +112,7 @@ class TestMissingSchemaFailsLoudly(ReviewQueueTestCase):
         self._seed_one_row()
         review_queue._drop_schema(TEST_SCHEMA)  # the operational mistake the old test tolerated
         with self.assertRaises(review_queue.SchemaMissingError):
-            review_queue.create_submission("single", [{
+            review_queue.create_submission(self.tenant_id, "single", [{
                 "employee_name": "Yusuf", "ctc": 2_000_000,
                 "input": {"ctc": 2_000_000, "rent_paid": 0, "city": "metro", "nps_opted": False, "current_structure": None},
                 "computed": _optimize_response_for(ctc=2_000_000),
@@ -103,19 +123,19 @@ class TestMissingSchemaFailsLoudly(ReviewQueueTestCase):
         # silently returns [] is the one that gets mistaken for "no data yet",
         # so it is asserted separately rather than assumed to follow.
         self._seed_one_row()
-        self.assertEqual(len(review_queue.list_submissions()), 1)
+        self.assertEqual(len(review_queue.list_submissions(self.tenant_id)), 1)
         review_queue._drop_schema(TEST_SCHEMA)
         with self.assertRaises(review_queue.SchemaMissingError):
-            review_queue.list_submissions()
+            review_queue.list_submissions(self.tenant_id)
         with self.assertRaises(review_queue.SchemaMissingError):
-            review_queue.get_submission(1)
+            review_queue.get_submission(self.tenant_id, 1)
 
     def test_error_is_specific_not_a_bare_exception_and_names_the_schema(self):
         # A generic Exception here would be indistinguishable from an
         # unrelated bug in a real log, which is the whole point of naming it.
         review_queue._drop_schema(TEST_SCHEMA)
         with self.assertRaises(review_queue.SchemaMissingError) as ctx:
-            review_queue.list_submissions()
+            review_queue.list_submissions(self.tenant_id)
         message = str(ctx.exception)
         self.assertIn(TEST_SCHEMA, message)
         self.assertIn("submissions", message)
@@ -126,32 +146,32 @@ class TestMissingSchemaFailsLoudly(ReviewQueueTestCase):
         # The recovery path is deliberate, not automatic.
         review_queue._drop_schema(TEST_SCHEMA)
         with self.assertRaises(review_queue.SchemaMissingError):
-            review_queue.list_submissions()
+            review_queue.list_submissions(self.tenant_id)
         review_queue.init_db()
-        self.assertEqual(review_queue.list_submissions(), [])
+        self.assertEqual(review_queue.list_submissions(self.tenant_id), [])
 
 
 class TestMakerChecker(ReviewQueueTestCase):
     def test_submission_persists_and_is_retrievable(self):
         computed = _optimize_response_for(ctc=1_800_000, rent_paid=400_000)
-        result = review_queue.create_submission("single", [{
+        result = review_queue.create_submission(self.tenant_id, "single", [{
             "employee_name": "Alice", "ctc": 1_800_000,
             "input": {"ctc": 1_800_000, "rent_paid": 400_000, "city": "metro", "nps_opted": False, "current_structure": None},
             "computed": computed,
         }])
-        submission = review_queue.get_submission(result["submission_id"])
+        submission = review_queue.get_submission(self.tenant_id, result["submission_id"])
         self.assertIsNotNone(submission)
         self.assertEqual(submission["rows"][0]["employee_name"], "Alice")
         self.assertEqual(submission["rows"][0]["status"], "pending")
 
     def test_approve_writes_correct_status_no_dispatch_language(self):
         computed = _optimize_response_for(ctc=1_800_000)
-        result = review_queue.create_submission("single", [{
+        result = review_queue.create_submission(self.tenant_id, "single", [{
             "employee_name": "Bob", "ctc": 1_800_000,
             "input": {"ctc": 1_800_000, "rent_paid": 0, "city": "metro", "nps_opted": False, "current_structure": None},
             "computed": computed,
         }])
-        decision = review_queue.decide_row(result["submission_id"], 0, "approve", None)
+        decision = review_queue.decide_row(self.tenant_id, result["submission_id"], 0, "approve", None)
         self.assertFalse(decision["already_decided"])
         self.assertEqual(decision["row"]["status"], "approved")
 
@@ -159,17 +179,17 @@ class TestMakerChecker(ReviewQueueTestCase):
 class TestReject(ReviewQueueTestCase):
     def test_reject_requires_a_reason(self):
         with self.assertRaises(ValueError):
-            review_queue.decide_row(1, 0, "reject", None)
+            review_queue.decide_row(self.tenant_id, 1, 0, "reject", None)
 
     def test_rejected_row_visible_with_reason_in_queue(self):
         computed = _optimize_response_for(ctc=1_800_000)
-        result = review_queue.create_submission("single", [{
+        result = review_queue.create_submission(self.tenant_id, "single", [{
             "employee_name": "Carol", "ctc": 1_800_000,
             "input": {"ctc": 1_800_000, "rent_paid": 0, "city": "metro", "nps_opted": False, "current_structure": None},
             "computed": computed,
         }])
-        review_queue.decide_row(result["submission_id"], 0, "reject", "basic looks off")
-        rejected = review_queue.list_submissions(status="rejected")
+        review_queue.decide_row(self.tenant_id, result["submission_id"], 0, "reject", "basic looks off")
+        rejected = review_queue.list_submissions(self.tenant_id, status="rejected")
         self.assertEqual(len(rejected), 1)
         self.assertEqual(rejected[0]["rows"][0]["reason"], "basic looks off")
         self.assertEqual(rejected[0]["rows"][0]["status"], "rejected")
@@ -244,14 +264,14 @@ class TestPartialApproval(ReviewQueueTestCase):
                 "input": {"ctc": ctc, "rent_paid": 0, "city": "metro", "nps_opted": False, "current_structure": None},
                 "computed": computed,
             })
-        result = review_queue.create_submission("batch", rows)
+        result = review_queue.create_submission(self.tenant_id, "batch", rows)
         sid = result["submission_id"]
 
-        review_queue.decide_row(sid, 0, "approve", None)
-        review_queue.decide_row(sid, 1, "reject", "over budget")
+        review_queue.decide_row(self.tenant_id, sid, 0, "approve", None)
+        review_queue.decide_row(self.tenant_id, sid, 1, "reject", "over budget")
         # row 2 (Frank) left pending on purpose
 
-        submission = review_queue.get_submission(sid)
+        submission = review_queue.get_submission(self.tenant_id, sid)
         statuses = {r["row_index"]: r["status"] for r in submission["rows"]}
         self.assertEqual(statuses, {0: "approved", 1: "rejected", 2: "pending"})
 
@@ -264,10 +284,10 @@ class TestIdempotency(ReviewQueueTestCase):
             "input": {"ctc": 1_800_000, "rent_paid": 0, "city": "metro", "nps_opted": False, "current_structure": None},
             "computed": computed,
         }
-        first = review_queue.create_submission("single", [row])
+        first = review_queue.create_submission(self.tenant_id, "single", [row])
         self.assertEqual(len(first["duplicates"]), 0)
 
-        second = review_queue.create_submission("single", [row])
+        second = review_queue.create_submission(self.tenant_id, "single", [row])
         self.assertEqual(len(second["duplicates"]), 1)
         self.assertEqual(len(second["inserted_row_ids"]), 0)
 
@@ -291,10 +311,10 @@ class TestIdempotency(ReviewQueueTestCase):
                       "current_structure": None, "email": "aarav.kumar@company-b.example"},
             "computed": computed,
         }
-        first = review_queue.create_submission("single", [row_a])
+        first = review_queue.create_submission(self.tenant_id, "single", [row_a])
         self.assertEqual(len(first["duplicates"]), 0)
 
-        second = review_queue.create_submission("single", [row_b])
+        second = review_queue.create_submission(self.tenant_id, "single", [row_b])
         self.assertEqual(len(second["duplicates"]), 0)
         self.assertEqual(len(second["inserted_row_ids"]), 1)
 
@@ -310,23 +330,23 @@ class TestIdempotency(ReviewQueueTestCase):
                       "current_structure": None, "email": "priya.singh@company.example"},
             "computed": computed,
         }
-        first = review_queue.create_submission("single", [row])
+        first = review_queue.create_submission(self.tenant_id, "single", [row])
         self.assertEqual(len(first["duplicates"]), 0)
 
-        second = review_queue.create_submission("single", [row])
+        second = review_queue.create_submission(self.tenant_id, "single", [row])
         self.assertEqual(len(second["duplicates"]), 1)
         self.assertEqual(len(second["inserted_row_ids"]), 0)
 
     def test_double_approve_does_not_double_write(self):
         computed = _optimize_response_for(ctc=1_800_000)
-        result = review_queue.create_submission("single", [{
+        result = review_queue.create_submission(self.tenant_id, "single", [{
             "employee_name": "Heidi", "ctc": 1_800_000,
             "input": {"ctc": 1_800_000, "rent_paid": 0, "city": "metro", "nps_opted": False, "current_structure": None},
             "computed": computed,
         }])
         sid = result["submission_id"]
-        first = review_queue.decide_row(sid, 0, "approve", None)
-        second = review_queue.decide_row(sid, 0, "approve", None)
+        first = review_queue.decide_row(self.tenant_id, sid, 0, "approve", None)
+        second = review_queue.decide_row(self.tenant_id, sid, 0, "approve", None)
         self.assertFalse(first["already_decided"])
         self.assertTrue(second["already_decided"])
         self.assertEqual(second["current_status"], "approved")
@@ -376,6 +396,7 @@ class TestExportApprovedRow(ReviewQueueTestCase):
         # GET/decide/export now require a real Finance session (see auth.py) —
         # every test in this class exercises at least one of those.
         self.client.post("/api/auth/login", json={"role": "finance", "code": "FINANCE2026"})
+        _grant_tenant(self.client, self.tenant_id)
 
     def _submit_and_approve(self, row):
         resp = self.client.post("/api/submissions", json={"source": "single", "row": row})
@@ -730,6 +751,11 @@ class TestSubmissionRateLimit(ReviewQueueTestCase):
     def setUp(self):
         super().setUp()
         self.client = flask_app.app.test_client()
+        # These tests are about the limiter, not about who may submit. Since
+        # step 3 POST /api/submissions is tenant-scoped and 401s without a
+        # tenant context, so give the client one and leave the rate-limit
+        # assertions below measuring exactly what they measured before.
+        _grant_tenant(self.client, self.tenant_id)
 
     def _submit(self):
         # source="batch" so this goes through skip_ai=True (see

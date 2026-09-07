@@ -6,29 +6,40 @@ SCOPE, stated plainly (mirrors the discipline everywhere else in this repo):
 - Postgres, via psycopg. Ported from SQLite in Roadmap Phase 1.1 step 1
   (MULTI_TENANT_DESIGN.md section 7) — SQLite has no row-level security and no
   per-connection session variables to key a defence-in-depth policy on, both of
-  which step 3 needs.
-- AS OF STEP 2 the tables carry tenant_id NOT NULL, but NOTHING SUPPLIES IT
-  YET — the function signatures below are still the single-tenant ones. Step 3
-  is what makes them require tenant_id. Between those two commits every INSERT
-  fails its NOT NULL constraint and the test suite is red on purpose. The fix
-  is step 3, never a DEFAULT on the column: a default would silently satisfy an
-  INSERT that forgot tenant_id, which is precisely the failure mode
-  MULTI_TENANT_DESIGN.md 3.1's "required argument, never optional" rule exists
-  to prevent.
+  which the tenancy work needs.
+- TENANT-SCOPED as of step 3. Every public function takes `tenant_id` as a
+  REQUIRED FIRST POSITIONAL ARGUMENT, and every statement carries
+  `WHERE tenant_id = %s` unconditionally. tenant_id is deliberately NOT a
+  member of any optional filter dict: section 3.1's guarantee is that no
+  code path CAN return another tenant's row, not merely that none currently
+  does, and an optional filter is one forgetful call site away from failing
+  that. A caller that has no tenant_id cannot call these functions at all.
 - No real authentication anywhere in this module. "HR" and "Finance" are
-  role labels a caller asserts, not identities this module verifies. See
-  app.py's /hr and /finance routes for how that's surfaced (or not) in the
-  UI — this module just records whatever role string it's given.
+  role labels a caller asserts, not identities this module verifies. The
+  session carries tenant_id; see auth.require_tenant for the fail-closed gate.
 - Zero new tax/compliance logic. Every row this module stores is the
   already-computed output of _build_optimize_response() (app.py) or the
   batch-audit pipeline — this module's only job is persisting it, deciding
   on it, and reading it back. If a function here starts computing a tax
   figure, that's a scope violation, not a feature.
 
+TWO INDEPENDENT ENFORCEMENT LAYERS, on purpose (section 3.1). The first is the
+required-argument + unconditional-WHERE discipline above. The second is
+row-level security in the database itself, keyed on a transaction-scoped
+`app.tenant_id` setting. The second exists precisely because the first is
+application code that a future function can forget; "an invariant that held
+everywhere it was checked, until a new code path didn't check it" is the exact
+bug class this design is written against.
+
 RUNNING THIS REQUIRES A REACHABLE POSTGRES. `brew services start postgresql@16`.
 Because app.py calls init_db() at import time, a stopped server fails the test
 suite at *collection*, as a wall of connection errors — that is a missing
 service, not a bug in whatever you just changed.
+
+IT ALSO REQUIRES THE UNPRIVILEGED grosslo_app ROLE (scripts/setup_app_role.sql).
+Superusers and BYPASSRLS roles ignore every RLS policy, so connecting as the
+developer's own OS superuser would leave the second layer enforcing nothing
+while still appearing to be configured.
 
 A MISSING SCHEMA IS NOT REPAIRED AUTOMATICALLY. init_db() creates it; every
 other entry point raises SchemaMissingError if it isn't there. The SQLite
@@ -57,10 +68,10 @@ from psycopg import sql
 from psycopg.rows import dict_row
 
 # Local dev default targets the Homebrew postgresql@16 cluster over the unix
-# socket as the current OS user. DATABASE_URL overrides it (.env), which is how
-# a managed provider would be pointed at — MULTI_TENANT_DESIGN.md section 6
-# leaves the hosting choice open on purpose.
-DEFAULT_DSN = "postgresql:///grosslo"
+# socket AS grosslo_app, not as the developer's own OS role. That is not a
+# cosmetic choice: see the module docstring and scripts/setup_app_role.sql —
+# a superuser connection silently disables every RLS policy below.
+DEFAULT_DSN = "postgresql:///grosslo?user=grosslo_app"
 
 # Replaces the old module-level DB_PATH. Tests swapped that file path to get an
 # isolated database per test module; Postgres has no file to swap, so the same
@@ -70,6 +81,14 @@ DB_SCHEMA = "public"
 
 VALID_STATUSES = {"pending", "approved", "rejected"}
 VALID_SOURCES = {"single", "batch"}
+
+# Tables that hold tenant-owned rows and therefore carry tenant_id + RLS.
+# `tenants` is the registry itself, not tenant-owned data. `tenant_settings` is
+# deliberately NOT in this list yet: the login flow has to read a tenant's
+# access-code hashes BEFORE any tenant context exists to key a policy on, so
+# putting it behind RLS would make login unable to authenticate anyone. Its
+# protection is that no route exposes it; revisit when step 5 wires up login.
+_TENANT_SCOPED_TABLES = ("submissions", "submission_rows")
 
 
 class SchemaMissingError(RuntimeError):
@@ -82,8 +101,42 @@ class SchemaMissingError(RuntimeError):
     """
 
 
+class TenantContextMissing(ValueError):
+    """
+    Raised when a persistence call is made without a usable tenant_id.
+
+    Fails closed and fails loudly, exactly as auth.require_tenant does at the
+    HTTP boundary: there is no default tenant, and no query is ever run with a
+    NULL or absent tenant. Returning an empty result instead would read to the
+    caller as "this tenant has no rows", which is a materially worse and more
+    misleading failure than "you did not say which tenant".
+    """
+
+
 def _dsn() -> str:
     return os.environ.get("DATABASE_URL", DEFAULT_DSN)
+
+
+def _checked_tenant_id(tenant_id) -> int:
+    """
+    The single chokepoint every tenant-scoped call passes through. Deliberately
+    strict: None, a string, or a bool is rejected outright rather than coerced,
+    because every one of those means the caller does not actually know which
+    tenant it is acting for, and guessing on their behalf is how a
+    cross-tenant write happens.
+    """
+    if tenant_id is None:
+        raise TenantContextMissing(
+            "tenant_id is required and was None. There is no default tenant — see "
+            "MULTI_TENANT_DESIGN.md 3.1. If this came from a request handler, the "
+            "session had no tenant_id and auth.require_tenant should have 401'd first."
+        )
+    # bool is an int subclass; True would otherwise sail through as tenant 1.
+    if isinstance(tenant_id, bool) or not isinstance(tenant_id, int):
+        raise TenantContextMissing(
+            f"tenant_id must be an int, got {type(tenant_id).__name__}: {tenant_id!r}"
+        )
+    return tenant_id
 
 
 # Same window-based idempotency approach used nowhere else in this repo
@@ -101,34 +154,33 @@ def _dsn() -> str:
 # no code-level fix before this. `email` was already an optional field on
 # every submission row (collected for the RazorpayX export payload, see
 # app.py's built_rows), so this reuses it rather than adding a column.
-# When email IS supplied, two candidates with the same name+CTC now hash
-# differently as long as their emails differ, while a same-candidate
-# same-day revised offer (same email) still collides as intended. When
-# email is absent, the key is deliberately built with the exact old
-# name+ctc+window shape (no empty email segment) — not just a lower bar,
-# but bit-for-bit the previous formula — so dedupe_hash values already
-# stored for existing emailless rows keep matching fresh lookups instead
-# of silently stopping mid-flight.
 #
-# NOTE for step 2/3: this key is global across tenants today. Section 4 of
-# MULTI_TENANT_DESIGN.md requires tenant_id folded in here, not just added to
-# the table — two companies hiring two different people of the same name at the
-# same CTC on the same day would otherwise false-collide. Not done in step 1.
-def _dedupe_hash(employee_name: str | None, ctc: float, email: str | None = None) -> str:
+# tenant_id leads the key as of step 3, per section 4: without it the dedupe
+# window is global across tenants, so two different companies hiring two
+# different "Anika Verma"s at the same CTC on the same day false-collide and
+# the second company's submission is silently rejected as a duplicate of a row
+# it is not allowed to see. Adding the column to the table would not have fixed
+# that on its own — the hash itself had to change. This does mean dedupe_hash
+# values stored before step 3 no longer match freshly computed ones; that is
+# harmless here because step 2 truncated both tables, and is noted so it is not
+# mistaken later for dedupe silently stopping.
+def _dedupe_hash(tenant_id: int, employee_name: str | None, ctc: float,
+                 email: str | None = None) -> str:
+    tenant_id = _checked_tenant_id(tenant_id)
     window = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     normalized_name = (employee_name or "anon").strip().lower()
     normalized_email = (email or "").strip().lower()
     if normalized_email:
-        key = f"{normalized_name}|{normalized_email}|{round(ctc)}|{window}"
+        key = f"{tenant_id}|{normalized_name}|{normalized_email}|{round(ctc)}|{window}"
     else:
-        key = f"{normalized_name}|{round(ctc)}|{window}"
+        key = f"{tenant_id}|{normalized_name}|{round(ctc)}|{window}"
     return hashlib.sha256(key.encode()).hexdigest()
 
 
 def _ensure_schema(conn: psycopg.Connection) -> None:
     """
-    Creates the schema, tables and indexes. Called ONLY from init_db() —
-    explicit startup and migration — never from _conn().
+    Creates the schema, tables, indexes and RLS policies. Called ONLY from
+    init_db() — explicit startup and migration — never from _conn().
 
     This deliberately reverses the SQLite version's behaviour, which ran this
     on every single connection so that a missing schema was silently rebuilt.
@@ -157,12 +209,6 @@ def _ensure_schema(conn: psycopg.Connection) -> None:
     """
     schema = sql.Identifier(DB_SCHEMA)
     conn.execute(sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(schema))
-    # SET LOCAL, not SET: transaction-scoped, discarded at COMMIT/ROLLBACK.
-    # Nothing is pooled yet (a fresh connection per _conn()), so plain SET
-    # would also work today — but MULTI_TENANT_DESIGN.md 3.1 makes
-    # transaction-scoped the hard rule for connection state once pooling
-    # arrives in step 3, and there is no reason to establish the other habit
-    # here first and have to find every instance of it later.
     conn.execute(sql.SQL("SET LOCAL search_path TO {}").format(schema))
 
     # tenants / tenant_settings come first: both tenant_id columns below are FKs
@@ -193,9 +239,7 @@ def _ensure_schema(conn: psycopg.Connection) -> None:
     # tenant_id is NOT NULL with NO DEFAULT, deliberately. A default would
     # silently satisfy an INSERT that forgot to supply it, which is the exact
     # failure MULTI_TENANT_DESIGN.md 3.1's "required argument, never optional"
-    # rule exists to prevent. Nothing supplies tenant_id until step 3, so this
-    # column is what makes the suite red between step 2 and step 3 — that is
-    # the intended state, not a bug to paper over with a default.
+    # rule exists to prevent.
     conn.execute("""
         CREATE TABLE IF NOT EXISTS submissions (
             id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
@@ -255,6 +299,45 @@ def _ensure_schema(conn: psycopg.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_rows_dedupe ON submission_rows(tenant_id, dedupe_hash)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_rows_route ON submission_rows(tenant_id, route)")
 
+    _ensure_rls(conn)
+
+
+def _ensure_rls(conn: psycopg.Connection) -> None:
+    """
+    The SECOND, INDEPENDENT enforcement layer (section 3.1).
+
+    Everything here is redundant with the application layer's mandatory
+    `WHERE tenant_id = %s` — and that redundancy is the entire point. The
+    application layer is code a future function can forget to write; this one
+    holds even for a query with no tenant predicate at all, which is exactly
+    what the section 7 step 6 test connects directly to prove.
+
+    FORCE, not merely ENABLE: a table's owner is exempt from its own policies
+    unless forced, and grosslo_app owns these tables (it creates them, and owns
+    each test schema). ENABLE alone would leave the policy inert for the very
+    role the application uses — configured, visible in \\d, and enforcing
+    nothing.
+
+    current_setting(..., true) returns NULL rather than raising when the
+    setting is absent, so an unset tenant context matches no rows instead of
+    matching all of them. Absent context yielding zero rows is the correct
+    fail-closed behaviour for a row filter; the loud failure for a missing
+    tenant belongs one layer up, where auth.require_tenant 401s and
+    _checked_tenant_id raises rather than letting a caller reach here at all.
+    """
+    for table in _TENANT_SCOPED_TABLES:
+        ident = sql.Identifier(table)
+        conn.execute(sql.SQL("ALTER TABLE {} ENABLE ROW LEVEL SECURITY").format(ident))
+        conn.execute(sql.SQL("ALTER TABLE {} FORCE ROW LEVEL SECURITY").format(ident))
+        # No CREATE POLICY IF NOT EXISTS in Postgres 16, so drop-then-create
+        # keeps init_db() idempotent.
+        conn.execute(sql.SQL("DROP POLICY IF EXISTS tenant_isolation ON {}").format(ident))
+        conn.execute(sql.SQL(
+            "CREATE POLICY tenant_isolation ON {} "
+            "USING (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::int) "
+            "WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::int)"
+        ).format(ident))
+
 
 def _require_schema(conn: psycopg.Connection) -> None:
     """
@@ -273,14 +356,7 @@ def _require_schema(conn: psycopg.Connection) -> None:
 
     Run init_db() (app.py does, at startup) to create the schema deliberately.
     """
-    schema = sql.Identifier(DB_SCHEMA)
-    # SET LOCAL, not SET: transaction-scoped, discarded at COMMIT/ROLLBACK.
-    # Nothing is pooled yet (a fresh connection per _conn()), so plain SET
-    # would also work today — but MULTI_TENANT_DESIGN.md 3.1 makes
-    # transaction-scoped the hard rule for connection state once pooling
-    # arrives in step 3, and there is no reason to establish the other habit
-    # here first and have to find every instance of it later.
-    conn.execute(sql.SQL("SET LOCAL search_path TO {}").format(schema))
+    conn.execute(sql.SQL("SET LOCAL search_path TO {}").format(sql.Identifier(DB_SCHEMA)))
     present = conn.execute(
         "SELECT to_regclass(%s) AS submissions, to_regclass(%s) AS submission_rows",
         (f"{DB_SCHEMA}.submissions", f"{DB_SCHEMA}.submission_rows"),
@@ -297,10 +373,56 @@ def _require_schema(conn: psycopg.Connection) -> None:
 
 
 @contextmanager
-def _conn():
+def _conn(tenant_id: int):
+    """
+    The only way into the database for tenant-scoped work, and the reason
+    tenant_id is a required argument everywhere above.
+
+    Opens a transaction, pins `app.tenant_id` to it, and hands back a
+    connection every subsequent statement runs inside. Section 3.1 makes this
+    the module's hard contract: every query runs inside a transaction that
+    opened with a transaction-scoped tenant setting, and no query ever runs on
+    a connection outside that boundary.
+
+    set_config(..., is_local => true) IS `SET LOCAL`, in a form that takes a
+    bound parameter instead of interpolating a value into DDL text. It is
+    transaction-scoped and discarded at COMMIT or ROLLBACK regardless of what a
+    pool later does with the physical connection.
+
+    DO NOT "SIMPLIFY" THIS TO A SESSION-SCOPED SET. Nothing is pooled today —
+    this opens a fresh connection per call — but with any pool in front of it a
+    session-scoped `SET app.tenant_id` persists on the physical connection
+    after it is returned, so a checkout that is not perfectly reset carries one
+    request's tenant into the next. The failure is silent: the second request
+    gets a 200 containing the first tenant's data, nothing errors, nothing
+    logs. That is a documented category of RLS production bug, not a
+    hypothetical, and it is worse than a crash.
+    """
+    tenant_id = _checked_tenant_id(tenant_id)
     conn = psycopg.connect(_dsn(), row_factory=dict_row)
     try:
         _require_schema(conn)
+        conn.execute("SELECT set_config('app.tenant_id', %s, true)", (str(tenant_id),))
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+@contextmanager
+def _admin_conn():
+    """
+    Connection for work that is genuinely not tenant-scoped: creating the
+    schema, and provisioning rows in `tenants` itself. Sets no app.tenant_id,
+    and must never be used to read or write submissions/submission_rows — the
+    RLS policies would match zero rows there anyway, which is the intended
+    outcome rather than something to work around.
+    """
+    conn = psycopg.connect(_dsn(), row_factory=dict_row)
+    try:
         yield conn
         conn.commit()
     except Exception:
@@ -317,15 +439,8 @@ def init_db() -> None:
     creating, so this call is required at startup rather than being the
     convenience it was under SQLite. app.py calls it at import time.
     """
-    conn = psycopg.connect(_dsn(), row_factory=dict_row)
-    try:
+    with _admin_conn() as conn:
         _ensure_schema(conn)
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
 
 
 def _drop_schema(schema: str | None = None) -> None:
@@ -350,10 +465,58 @@ def _drop_schema(schema: str | None = None) -> None:
     Deliberately underscore-prefixed and never called from application code.
     """
     target = schema or DB_SCHEMA
-    with psycopg.connect(_dsn()) as conn:
+    with _admin_conn() as conn:
         conn.execute(sql.SQL("DROP SCHEMA IF EXISTS {} CASCADE").format(sql.Identifier(target)))
-        conn.commit()
 
+
+# ---------------------------------------------------------------------------
+# Tenant provisioning. Admin-created only, per section 6's resolved decision —
+# there is no self-serve signup endpoint in 1.1, and nothing here is reachable
+# from a route. scripts/create_tenant.py is the CLI wrapper.
+# ---------------------------------------------------------------------------
+
+def create_tenant(slug: str, display_name: str) -> dict:
+    """
+    Creates a tenant and returns it. Does NOT create its tenant_settings row:
+    that holds the per-tenant access-code hashes the login flow needs, and
+    wiring login up is step 5's job, not step 3's.
+    """
+    if not slug or not slug.strip():
+        raise ValueError("slug is required")
+    if not display_name or not display_name.strip():
+        raise ValueError("display_name is required")
+    with _admin_conn() as conn:
+        _require_schema(conn)
+        return conn.execute(
+            "INSERT INTO tenants (slug, display_name) VALUES (%s, %s) "
+            "RETURNING id, slug, display_name, created_at",
+            (slug.strip().lower(), display_name.strip()),
+        ).fetchone()
+
+
+def get_tenant_by_slug(slug: str) -> dict | None:
+    """Resolves a subdomain slug to a tenant row, or None (section 3.3)."""
+    with _admin_conn() as conn:
+        _require_schema(conn)
+        return conn.execute(
+            "SELECT id, slug, display_name, created_at FROM tenants WHERE slug = %s",
+            ((slug or "").strip().lower(),),
+        ).fetchone()
+
+
+def list_tenants() -> list[dict]:
+    """Cross-tenant by definition — admin/ops listing of the registry itself."""
+    with _admin_conn() as conn:
+        _require_schema(conn)
+        return conn.execute(
+            "SELECT id, slug, display_name, created_at FROM tenants ORDER BY id"
+        ).fetchall()
+
+
+# ---------------------------------------------------------------------------
+# Tenant-scoped persistence. tenant_id is the required first argument on every
+# one of these, and every statement filters on it unconditionally.
+# ---------------------------------------------------------------------------
 
 def _row_to_dict(row: dict) -> dict:
     d = dict(row)
@@ -366,23 +529,26 @@ def _row_to_dict(row: dict) -> dict:
     return d
 
 
-def check_duplicate(employee_name: str | None, ctc: float, email: str | None = None) -> dict | None:
+def check_duplicate(tenant_id: int, employee_name: str | None, ctc: float,
+                    email: str | None = None) -> dict | None:
     """
     Returns the existing pending/approved row this would duplicate, or
     None. Callers decide what to do with a duplicate (block, per the
     brief's "flag or block, don't silently reprocess") — this function
     only detects.
     """
-    dedupe_hash = _dedupe_hash(employee_name, ctc, email)
-    with _conn() as conn:
+    dedupe_hash = _dedupe_hash(tenant_id, employee_name, ctc, email)
+    with _conn(tenant_id) as conn:
         existing = conn.execute(
-            "SELECT * FROM submission_rows WHERE dedupe_hash = %s AND status != 'rejected' ORDER BY id DESC LIMIT 1",
-            (dedupe_hash,),
+            "SELECT * FROM submission_rows WHERE tenant_id = %s AND dedupe_hash = %s "
+            "AND status != 'rejected' ORDER BY id DESC LIMIT 1",
+            (tenant_id, dedupe_hash),
         ).fetchone()
         return _row_to_dict(existing) if existing else None
 
 
-def create_submission(source: str, rows: list[dict], submitted_by: str = "hr") -> dict:
+def create_submission(tenant_id: int, source: str, rows: list[dict],
+                      submitted_by: str = "hr") -> dict:
     """
     rows: list of {employee_name, ctc, input: {...raw row input...},
     computed: {...full _build_optimize_response() output...}}. Each row is
@@ -392,26 +558,29 @@ def create_submission(source: str, rows: list[dict], submitted_by: str = "hr") -
     Returns {"submission_id": int, "rows": [...inserted rows...],
              "duplicates": [...skipped rows, with the existing row they matched...]}.
     """
+    tenant_id = _checked_tenant_id(tenant_id)
     if source not in VALID_SOURCES:
         raise ValueError(f"source must be one of {VALID_SOURCES}")
 
     inserted, duplicates = [], []
-    with _conn() as conn:
+    with _conn(tenant_id) as conn:
         # RETURNING id replaces SQLite's cur.lastrowid, which psycopg has no
         # equivalent for.
         submission_id = conn.execute(
-            "INSERT INTO submissions (created_at, source, submitted_by) VALUES (%s, %s, %s) RETURNING id",
-            (datetime.now(timezone.utc).isoformat(), source, submitted_by),
+            "INSERT INTO submissions (tenant_id, created_at, source, submitted_by) "
+            "VALUES (%s, %s, %s, %s) RETURNING id",
+            (tenant_id, datetime.now(timezone.utc).isoformat(), source, submitted_by),
         ).fetchone()["id"]
 
         for i, row in enumerate(rows):
             name = row.get("employee_name")
             ctc = row["ctc"]
             email = row.get("input", {}).get("email")
-            dedupe_hash = _dedupe_hash(name, ctc, email)
+            dedupe_hash = _dedupe_hash(tenant_id, name, ctc, email)
             existing = conn.execute(
-                "SELECT * FROM submission_rows WHERE dedupe_hash = %s AND status != 'rejected' LIMIT 1",
-                (dedupe_hash,),
+                "SELECT * FROM submission_rows WHERE tenant_id = %s AND dedupe_hash = %s "
+                "AND status != 'rejected' LIMIT 1",
+                (tenant_id, dedupe_hash),
             ).fetchone()
             if existing is not None:
                 duplicates.append({"row_index": i, "matches_existing_row_id": existing["id"]})
@@ -419,11 +588,11 @@ def create_submission(source: str, rows: list[dict], submitted_by: str = "hr") -
             orchestration = row.get("orchestration")  # optional — omitted by fixtures/callers predating this feature
             row_id = conn.execute(
                 """INSERT INTO submission_rows
-                   (submission_id, row_index, employee_name, ctc, dedupe_hash, input_json, computed_json,
-                    orchestration_json, route, severity, status)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'pending')
+                   (tenant_id, submission_id, row_index, employee_name, ctc, dedupe_hash,
+                    input_json, computed_json, orchestration_json, route, severity, status)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'pending')
                    RETURNING id""",
-                (submission_id, i, name, ctc, dedupe_hash,
+                (tenant_id, submission_id, i, name, ctc, dedupe_hash,
                  json.dumps(row["input"]), json.dumps(row["computed"]),
                  json.dumps(orchestration) if orchestration else None,
                  orchestration.get("route") if orchestration else None,
@@ -438,13 +607,17 @@ def create_submission(source: str, rows: list[dict], submitted_by: str = "hr") -
     }
 
 
-def list_submissions(status: str | None = None, route: str | None = None) -> list[dict]:
-    with _conn() as conn:
-        submissions = conn.execute("SELECT * FROM submissions ORDER BY id DESC").fetchall()
+def list_submissions(tenant_id: int, status: str | None = None,
+                     route: str | None = None) -> list[dict]:
+    tenant_id = _checked_tenant_id(tenant_id)
+    with _conn(tenant_id) as conn:
+        submissions = conn.execute(
+            "SELECT * FROM submissions WHERE tenant_id = %s ORDER BY id DESC", (tenant_id,)
+        ).fetchall()
         result = []
         for s in submissions:
-            row_query = "SELECT * FROM submission_rows WHERE submission_id = %s"
-            params = [s["id"]]
+            row_query = "SELECT * FROM submission_rows WHERE tenant_id = %s AND submission_id = %s"
+            params = [tenant_id, s["id"]]
             if status:
                 row_query += " AND status = %s"
                 params.append(status)
@@ -465,13 +638,19 @@ def list_submissions(status: str | None = None, route: str | None = None) -> lis
         return result
 
 
-def get_submission(submission_id: int) -> dict | None:
-    with _conn() as conn:
-        s = conn.execute("SELECT * FROM submissions WHERE id = %s", (submission_id,)).fetchone()
+def get_submission(tenant_id: int, submission_id: int) -> dict | None:
+    tenant_id = _checked_tenant_id(tenant_id)
+    with _conn(tenant_id) as conn:
+        s = conn.execute(
+            "SELECT * FROM submissions WHERE tenant_id = %s AND id = %s",
+            (tenant_id, submission_id),
+        ).fetchone()
         if s is None:
             return None
         rows = conn.execute(
-            "SELECT * FROM submission_rows WHERE submission_id = %s ORDER BY row_index", (submission_id,)
+            "SELECT * FROM submission_rows WHERE tenant_id = %s AND submission_id = %s "
+            "ORDER BY row_index",
+            (tenant_id, submission_id),
         ).fetchall()
         return {
             "id": s["id"], "created_at": s["created_at"], "source": s["source"],
@@ -479,8 +658,8 @@ def get_submission(submission_id: int) -> dict | None:
         }
 
 
-def decide_row(submission_id: int, row_index: int, decision: str, reason: str | None,
-                decided_by: str = "finance") -> dict:
+def decide_row(tenant_id: int, submission_id: int, row_index: int, decision: str,
+               reason: str | None, decided_by: str = "finance") -> dict:
     """
     Approve or reject exactly one row. Idempotent by construction: the
     UPDATE only matches rows still 'pending', using the database's own
@@ -490,37 +669,41 @@ def decide_row(submission_id: int, row_index: int, decision: str, reason: str | 
     entry. (cur.rowcount means the same thing in psycopg as it did in
     sqlite3 for an UPDATE, so this survived the port unchanged.)
     """
+    tenant_id = _checked_tenant_id(tenant_id)
     if decision not in ("approve", "reject"):
         raise ValueError("decision must be 'approve' or 'reject'")
     if decision == "reject" and not reason:
         raise ValueError("a rejection requires a reason")
 
     new_status = "approved" if decision == "approve" else "rejected"
-    with _conn() as conn:
+    with _conn(tenant_id) as conn:
         cur = conn.execute(
             """UPDATE submission_rows
                SET status = %s, reason = %s, decided_at = %s, decided_by = %s
-               WHERE submission_id = %s AND row_index = %s AND status = 'pending'""",
+               WHERE tenant_id = %s AND submission_id = %s AND row_index = %s
+                 AND status = 'pending'""",
             (new_status, reason, datetime.now(timezone.utc).isoformat(), decided_by,
-             submission_id, row_index),
+             tenant_id, submission_id, row_index),
         )
         if cur.rowcount == 0:
             existing = conn.execute(
-                "SELECT status FROM submission_rows WHERE submission_id = %s AND row_index = %s",
-                (submission_id, row_index),
+                "SELECT status FROM submission_rows "
+                "WHERE tenant_id = %s AND submission_id = %s AND row_index = %s",
+                (tenant_id, submission_id, row_index),
             ).fetchone()
             return {
                 "already_decided": True,
                 "current_status": existing["status"] if existing else None,
             }
         row = conn.execute(
-            "SELECT * FROM submission_rows WHERE submission_id = %s AND row_index = %s",
-            (submission_id, row_index),
+            "SELECT * FROM submission_rows "
+            "WHERE tenant_id = %s AND submission_id = %s AND row_index = %s",
+            (tenant_id, submission_id, row_index),
         ).fetchone()
         return {"already_decided": False, "row": _row_to_dict(row)}
 
 
-def mark_exported(submission_id: int, row_index: int) -> None:
+def mark_exported(tenant_id: int, submission_id: int, row_index: int) -> None:
     """
     Records that /rows/<i>/export has actually generated output for this
     row at least once, so the frontend can tell "never exported yet" from
@@ -531,14 +714,16 @@ def mark_exported(submission_id: int, row_index: int) -> None:
     timestamp, overwriting any prior one rather than refusing a second
     write.
     """
-    with _conn() as conn:
+    tenant_id = _checked_tenant_id(tenant_id)
+    with _conn(tenant_id) as conn:
         conn.execute(
-            "UPDATE submission_rows SET exported_at = %s WHERE submission_id = %s AND row_index = %s",
-            (datetime.now(timezone.utc).isoformat(), submission_id, row_index),
+            "UPDATE submission_rows SET exported_at = %s "
+            "WHERE tenant_id = %s AND submission_id = %s AND row_index = %s",
+            (datetime.now(timezone.utc).isoformat(), tenant_id, submission_id, row_index),
         )
 
 
-def mark_dispatched(submission_id: int, row_index: int) -> None:
+def mark_dispatched(tenant_id: int, submission_id: int, row_index: int) -> None:
     """
     Records that Finance clicked through this row's final confirmation —
     "Simulate upload to RazorpayX Payroll," "Simulate dispatch," or
@@ -552,8 +737,10 @@ def mark_dispatched(submission_id: int, row_index: int) -> None:
     unconditional-UPDATE shape as mark_exported() — re-confirming isn't an
     error, it just refreshes the timestamp.
     """
-    with _conn() as conn:
+    tenant_id = _checked_tenant_id(tenant_id)
+    with _conn(tenant_id) as conn:
         conn.execute(
-            "UPDATE submission_rows SET dispatched_at = %s WHERE submission_id = %s AND row_index = %s",
-            (datetime.now(timezone.utc).isoformat(), submission_id, row_index),
+            "UPDATE submission_rows SET dispatched_at = %s "
+            "WHERE tenant_id = %s AND submission_id = %s AND row_index = %s",
+            (datetime.now(timezone.utc).isoformat(), tenant_id, submission_id, row_index),
         )

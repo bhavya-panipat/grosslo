@@ -34,11 +34,31 @@ def _optimize_response_for(ctc, rent_paid=0, city="metro", nps_opted=False, curr
     return response
 
 
+def _grant_tenant(client, tenant_id):
+    """
+    Puts tenant_id into the signed session directly.
+
+    SCAFFOLD — STEP 5 DELETES THIS. /api/auth/login does not resolve a tenant
+    yet; that is section 7 step 5's job. Without this, every route test would
+    401 at require_tenant with no legitimate way to obtain a tenant context,
+    and step 3's actual subject — required tenant_id, unconditional
+    WHERE tenant_id, and the RLS policies — would go unexercised until step 5.
+    Injecting the session value here tests step 3 now. When login resolves the
+    tenant for real, these calls are removed and the assertions around them
+    stay exactly as they are.
+    """
+    with client.session_transaction() as sess:
+        sess["tenant_id"] = tenant_id
+
+
 class ReviewQueueTestCase(unittest.TestCase):
     def setUp(self):
         review_queue.DB_SCHEMA = TEST_SCHEMA
         review_queue._drop_schema(TEST_SCHEMA)
         review_queue.init_db()
+        # tenant_id is a NOT NULL FK as of step 2 and a required argument as of
+        # step 3, so every tenant-scoped call needs a real tenant to reference.
+        self.tenant_id = review_queue.create_tenant("acme", "Acme Corp")["id"]
         # POST /api/submissions is now rate-limited per IP (module-level,
         # process-wide state) — reset before every test so unrelated tests
         # in this file don't trip each other's limit via the shared dict.
@@ -234,8 +254,8 @@ class TestSchemaAndPersistence(ReviewQueueTestCase):
             "input": {"ctc": 1_800_000, "rent_paid": 0, "city": "metro"},
             "computed": {"compliance": {"flags": []}},
         }
-        result = review_queue.create_submission("single", [row])
-        submission = review_queue.get_submission(result["submission_id"])
+        result = review_queue.create_submission(self.tenant_id, "single", [row])
+        submission = review_queue.get_submission(self.tenant_id, result["submission_id"])
         self.assertIsNone(submission["rows"][0]["orchestration"])
 
     def test_create_submission_with_orchestration_persists_and_reads_back(self):
@@ -252,8 +272,8 @@ class TestSchemaAndPersistence(ReviewQueueTestCase):
                 },
             },
         }
-        result = review_queue.create_submission("single", [row])
-        submission = review_queue.get_submission(result["submission_id"])
+        result = review_queue.create_submission(self.tenant_id, "single", [row])
+        submission = review_queue.get_submission(self.tenant_id, result["submission_id"])
         orchestration = submission["rows"][0]["orchestration"]
         self.assertEqual(orchestration["route"], "escalate")
         self.assertEqual(orchestration["severity"], "High")
@@ -273,14 +293,14 @@ class TestSchemaAndPersistence(ReviewQueueTestCase):
                                "checked": {"compliance_rules_evaluated": 6, "compliance_flags_triggered": 1,
                                            "guardrail_evaluated": False, "guardrail_checks_failed": None}},
         }
-        review_queue.create_submission("batch", [clean_row, escalated_row])
+        review_queue.create_submission(self.tenant_id, "batch", [clean_row, escalated_row])
 
-        escalated_only = review_queue.list_submissions(route="escalate")
+        escalated_only = review_queue.list_submissions(self.tenant_id, route="escalate")
         self.assertEqual(len(escalated_only), 1)
         self.assertEqual(len(escalated_only[0]["rows"]), 1)
         self.assertEqual(escalated_only[0]["rows"][0]["employee_name"], "Escalated")
 
-        clean_only = review_queue.list_submissions(route="auto_pass_candidate")
+        clean_only = review_queue.list_submissions(self.tenant_id, route="auto_pass_candidate")
         self.assertEqual(len(clean_only), 1)
         self.assertEqual(clean_only[0]["rows"][0]["employee_name"], "Clean")
 
@@ -296,6 +316,7 @@ class TestSubmissionsRouteIntegration(ReviewQueueTestCase):
         # GET /api/submissions/<id> now requires a real hr/finance session
         # (see auth.py) — POST (create) deliberately stays open, unaffected.
         self.client.post("/api/auth/login", json={"role": "finance", "code": "FINANCE2026"})
+        _grant_tenant(self.client, self.tenant_id)
 
     def test_submitting_r1_row_persists_and_returns_escalate_route(self):
         row = {

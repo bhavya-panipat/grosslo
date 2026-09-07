@@ -26,7 +26,7 @@ from orchestration import classify_row
 from razorpayx_client import (
     fetch_account_balance, RazorpayXNotConfigured, RazorpayXKeyModeError, RazorpayXRequestError,
 )
-from auth import verify_login, require_role
+from auth import verify_login, require_role, require_tenant, current_tenant_id
 import io
 import review_queue
 from diff_view import build_diff
@@ -665,6 +665,7 @@ def _get_commit_history() -> dict:
 
 
 @app.route("/api/submissions", methods=["POST"])
+@require_tenant
 def api_create_submission():
     """
     HR's "Submit to Finance for Review" action — the sole path for
@@ -794,7 +795,8 @@ def api_create_submission():
     if not built_rows:
         return jsonify({"error": "no valid rows to submit", "row_errors": row_errors}), 400
 
-    result = review_queue.create_submission(source, built_rows, submitted_by=data.get("submitted_by", "hr"))
+    result = review_queue.create_submission(current_tenant_id(), source, built_rows,
+                                            submitted_by=data.get("submitted_by", "hr"))
     _append_audit_log("/api/submissions", {
         "submission_id": result["submission_id"], "source": source,
         "rows_submitted": len(built_rows), "duplicates_skipped": len(result["duplicates"]),
@@ -804,16 +806,18 @@ def api_create_submission():
 
 @app.route("/api/submissions", methods=["GET"])
 @require_role("hr", "finance")
+@require_tenant
 def api_list_submissions():
     status = request.args.get("status")
-    return jsonify({"submissions": review_queue.list_submissions(status)})
+    return jsonify({"submissions": review_queue.list_submissions(current_tenant_id(), status)})
 
 
 @app.route("/api/submissions/<int:submission_id>", methods=["GET"])
 @require_role("hr", "finance")
+@require_tenant
 def api_get_submission(submission_id):
     """Finance's detail view — includes the before/after diff per row, built over already-computed data only."""
-    submission = review_queue.get_submission(submission_id)
+    submission = review_queue.get_submission(current_tenant_id(), submission_id)
     if submission is None:
         return jsonify({"error": "submission not found"}), 404
     for row in submission["rows"]:
@@ -823,6 +827,7 @@ def api_get_submission(submission_id):
 
 @app.route("/api/submissions/<int:submission_id>/rows/<int:row_index>/decide", methods=["POST"])
 @require_role("finance")
+@require_tenant
 def api_decide_row(submission_id, row_index):
     """
     Finance's approve/reject action on one row. Idempotent: a second call
@@ -845,8 +850,8 @@ def api_decide_row(submission_id, row_index):
         # input — @require_role("finance") guarantees this is "finance" in
         # practice, but it's genuinely server-verified now rather than an
         # unenforced client-supplied string.
-        result = review_queue.decide_row(submission_id, row_index, decision, reason,
-                                          decided_by=session["role"])
+        result = review_queue.decide_row(current_tenant_id(), submission_id, row_index, decision, reason,
+                                         decided_by=session["role"])
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
 
@@ -870,6 +875,7 @@ def api_decide_row(submission_id, row_index):
 
 @app.route("/api/submissions/<int:submission_id>/rows/<int:row_index>/export", methods=["POST"])
 @require_role("finance")
+@require_tenant
 def api_export_approved_row(submission_id, row_index):
     """
     Closes the loop after Finance approves: generates the correct kind of
@@ -888,7 +894,7 @@ def api_export_approved_row(submission_id, row_index):
     Only ever runs on a row that's actually 'approved' — exporting a
     pending or rejected row is refused, not just discouraged.
     """
-    submission = review_queue.get_submission(submission_id)
+    submission = review_queue.get_submission(current_tenant_id(), submission_id)
     if submission is None:
         return jsonify({"error": "submission not found"}), 404
     row = next((r for r in submission["rows"] if r["row_index"] == row_index), None)
@@ -916,7 +922,7 @@ def api_export_approved_row(submission_id, row_index):
         _append_audit_log("/api/submissions/export", {
             "submission_id": submission_id, "row_index": row_index, "export_type": "salary_revision",
         })
-        review_queue.mark_exported(submission_id, row_index)
+        review_queue.mark_exported(current_tenant_id(), submission_id, row_index)
         response = send_file(
             buf, as_attachment=True, download_name="grosslo_salary_revision.xlsx",
             mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -950,12 +956,13 @@ def api_export_approved_row(submission_id, row_index):
         "submission_id": submission_id, "row_index": row_index, "export_type": "razorpayx_payout",
         "total_capital_outlay": forecast["total_capital_outlay"],
     })
-    review_queue.mark_exported(submission_id, row_index)
+    review_queue.mark_exported(current_tenant_id(), submission_id, row_index)
     return jsonify(payload)
 
 
 @app.route("/api/submissions/<int:submission_id>/rows/<int:row_index>/complete", methods=["POST"])
 @require_role("finance")
+@require_tenant
 def api_complete_approved_row(submission_id, row_index):
     """
     Records Finance's final confirmation on an approved row — "Simulate
@@ -969,7 +976,7 @@ def api_complete_approved_row(submission_id, row_index):
     Requires 'approved', same precondition as export — nothing to confirm
     on a row that was never approved.
     """
-    submission = review_queue.get_submission(submission_id)
+    submission = review_queue.get_submission(current_tenant_id(), submission_id)
     if submission is None:
         return jsonify({"error": "submission not found"}), 404
     row = next((r for r in submission["rows"] if r["row_index"] == row_index), None)
@@ -978,7 +985,7 @@ def api_complete_approved_row(submission_id, row_index):
     if row["status"] != "approved":
         return jsonify({"error": f"row is '{row['status']}', not approved — nothing to confirm"}), 400
 
-    review_queue.mark_dispatched(submission_id, row_index)
+    review_queue.mark_dispatched(current_tenant_id(), submission_id, row_index)
     _append_audit_log("/api/submissions/complete", {"submission_id": submission_id, "row_index": row_index})
     return jsonify({"status": "ok"})
 
@@ -1025,6 +1032,7 @@ def api_commit_history():
 
 
 @app.route("/api/audit-log")
+@require_tenant
 def api_audit_log():
     """
     Read-only view of the local audit trail _append_audit_log() writes on

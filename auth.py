@@ -54,3 +54,44 @@ def require_role(*allowed_roles: str):
             return fn(*args, **kwargs)
         return wrapper
     return decorator
+
+
+def current_tenant_id():
+    """
+    The ONLY sanctioned way for a route to learn which tenant it is acting for:
+    the signed session cookie, never the request body or query string.
+
+    MULTI_TENANT_DESIGN.md 3.3 rejects trusting a client-supplied tenant id
+    outright — it is an unverified value, so any authenticated session could
+    name a different tenant and read its data. That is the isolation guarantee
+    failing at the very first hop rather than a hardening gap to find later.
+    """
+    return session.get("tenant_id")
+
+
+def require_tenant(fn):
+    """
+    Route decorator: 401s immediately unless the session carries a tenant_id.
+    Same shape and same failure mode as require_role above, deliberately —
+    MULTI_TENANT_DESIGN.md 3.1 asks for this to be stated as explicitly as
+    require_role rather than left implicit.
+
+    Fails closed on all three of: a stale session, a bug in the login flow that
+    never set tenant_id, and a request that skipped login entirely. All three
+    get an identical hard 401, BEFORE any query runs and before a tenant
+    context is established on a connection.
+
+    What it must never do:
+      - compute or fall back to a default tenant, and
+      - treat a missing tenant_id as "act on nothing" and return an empty list.
+        An empty list reads to the caller as "you have zero rows", which is a
+        materially different and worse failure than "you are not authorised" —
+        the same reasoning as classify_row()'s None route defaulting to
+        needs_review rather than auto-pass.
+    """
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        if session.get("tenant_id") is None:
+            return jsonify({"error": "No tenant context for this session."}), 401
+        return fn(*args, **kwargs)
+    return wrapper
