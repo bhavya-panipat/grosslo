@@ -20,6 +20,8 @@ import review_queue
 review_queue.DB_SCHEMA = "test_orchestration_queue"
 
 import app as flask_app
+from flask.testing import FlaskClient
+from auth import hash_access_code
 from ai_layer import flag_compliance, evaluate_band_guardrail
 from tax_engine import SalaryStructure
 from orchestration import classify_row
@@ -34,21 +36,52 @@ def _optimize_response_for(ctc, rent_paid=0, city="metro", nps_opted=False, curr
     return response
 
 
-def _grant_tenant(client, tenant_id):
-    """
-    Puts tenant_id into the signed session directly.
+# Every request in these tests arrives on a tenant subdomain, the way a real
+# one does (MULTI_TENANT_DESIGN.md 3.3), so tenant resolution runs for real
+# rather than being stubbed.
+TENANT_HOST = "http://acme.grosslo.app/"
 
-    SCAFFOLD — STEP 5 DELETES THIS. /api/auth/login does not resolve a tenant
-    yet; that is section 7 step 5's job. Without this, every route test would
-    401 at require_tenant with no legitimate way to obtain a tenant context,
-    and step 3's actual subject — required tenant_id, unconditional
-    WHERE tenant_id, and the RLS policies — would go unexercised until step 5.
-    Injecting the session value here tests step 3 now. When login resolves the
-    tenant for real, these calls are removed and the assertions around them
-    stay exactly as they are.
+
+class _TenantTestClient(FlaskClient):
     """
-    with client.session_transaction() as sess:
-        sess["tenant_id"] = tenant_id
+    Sends every request to the tenant subdomain, so tenant resolution runs the
+    way it does in production (MULTI_TENANT_DESIGN.md 3.3) instead of being
+    stubbed. Set on the client rather than passed per call: a request that
+    silently went to a host with no tenant label would 401 in a way that looks
+    like a real authorisation bug, and one forgotten base_url= is all it takes.
+    A test that deliberately wants a different host still passes base_url.
+    """
+
+    def open(self, *args, **kwargs):
+        kwargs.setdefault("base_url", TENANT_HOST)
+        return super().open(*args, **kwargs)
+
+
+def _client():
+    flask_app.app.test_client_class = _TenantTestClient
+    return flask_app.app.test_client()
+
+
+# Hashed once per module, not once per setUp: pbkdf2 is deliberately slow
+# (~0.5s a hash), which is right in production and would add minutes across a
+# suite that rebuilds its schema for every test. The value under test is that
+# login checks a stored HASH, not how many times this suite recomputes one.
+_HR_CODE_HASH = hash_access_code("HR2026")
+_FINANCE_CODE_HASH = hash_access_code("FINANCE2026")
+
+
+
+def _login_as(client, role, code):
+    """
+    Logs in for real: the tenant comes from the request's subdomain and the
+    code is checked against THAT TENANT's stored hash (step 5).
+
+    This replaces step 3's _grant_tenant() scaffold, which injected tenant_id
+    into the session directly because login could not yet resolve a tenant.
+    The scaffold is gone; the assertions it supported are unchanged.
+    """
+    return client.post("/api/auth/login",
+                       json={"role": role, "code": code})
 
 
 class ReviewQueueTestCase(unittest.TestCase):
@@ -59,6 +92,8 @@ class ReviewQueueTestCase(unittest.TestCase):
         # tenant_id is a NOT NULL FK as of step 2 and a required argument as of
         # step 3, so every tenant-scoped call needs a real tenant to reference.
         self.tenant_id = review_queue.create_tenant("acme", "Acme Corp")["id"]
+        review_queue.create_tenant_settings(
+            self.tenant_id, _HR_CODE_HASH, _FINANCE_CODE_HASH)
         # POST /api/submissions is now rate-limited per IP (module-level,
         # process-wide state) — reset before every test so unrelated tests
         # in this file don't trip each other's limit via the shared dict.
@@ -312,11 +347,10 @@ class TestSchemaAndPersistence(ReviewQueueTestCase):
 class TestSubmissionsRouteIntegration(ReviewQueueTestCase):
     def setUp(self):
         super().setUp()
-        self.client = flask_app.app.test_client()
+        self.client = _client()
         # GET /api/submissions/<id> now requires a real hr/finance session
         # (see auth.py) — POST (create) deliberately stays open, unaffected.
         self.client.post("/api/auth/login", json={"role": "finance", "code": "FINANCE2026"})
-        _grant_tenant(self.client, self.tenant_id)
 
     def test_submitting_r1_row_persists_and_returns_escalate_route(self):
         row = {

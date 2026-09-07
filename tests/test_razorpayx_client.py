@@ -25,6 +25,37 @@ import secret_store
 review_queue.DB_SCHEMA = "test_razorpayx_queue"
 
 import app as flask_app
+from flask.testing import FlaskClient
+from auth import hash_access_code
+
+TENANT_HOST = "http://acme.grosslo.app/"
+
+class _TenantTestClient(FlaskClient):
+    """
+    Sends every request to the tenant subdomain, so tenant resolution runs the
+    way it does in production (MULTI_TENANT_DESIGN.md 3.3) instead of being
+    stubbed. Set on the client rather than passed per call: a request that
+    silently went to a host with no tenant label would 401 in a way that looks
+    like a real authorisation bug, and one forgotten base_url= is all it takes.
+    A test that deliberately wants a different host still passes base_url.
+    """
+
+    def open(self, *args, **kwargs):
+        kwargs.setdefault("base_url", TENANT_HOST)
+        return super().open(*args, **kwargs)
+
+
+def _client():
+    flask_app.app.test_client_class = _TenantTestClient
+    return flask_app.app.test_client()
+
+
+# Hashed once per module, not once per setUp: pbkdf2 is deliberately slow
+# (~0.5s a hash), which is right in production and would add minutes across a
+# suite that rebuilds its schema for every test. The value under test is that
+# login checks a stored HASH, not how many times this suite recomputes one.
+_HR_CODE_HASH = hash_access_code("HR2026")
+_FINANCE_CODE_HASH = hash_access_code("FINANCE2026")
 from razorpayx_client import (
     fetch_account_balance, RazorpayXNotConfigured, RazorpayXKeyModeError, RazorpayXRequestError,
 )
@@ -134,11 +165,12 @@ class TestRazorpayXBalanceRoute(unittest.TestCase):
         review_queue._drop_schema(TEST_SCHEMA)
         review_queue.init_db()
         self.tenant_id = review_queue.create_tenant("acme", "Acme Corp")["id"]
-        review_queue.create_tenant_settings(self.tenant_id, "hr-hash", "finance-hash")
-        self.client = flask_app.app.test_client()
-        self.client.post("/api/auth/login", json={"role": "finance", "code": "FINANCE2026"})
-        with self.client.session_transaction() as sess:
-            sess["tenant_id"] = self.tenant_id  # scaffold, removed in step 5
+        review_queue.create_tenant_settings(
+            self.tenant_id, _HR_CODE_HASH, _FINANCE_CODE_HASH)
+        self.client = _client()
+        # Real login on the tenant subdomain — the step 3 session scaffold is gone.
+        self.client.post("/api/auth/login",
+                         json={"role": "finance", "code": "FINANCE2026"})
 
     def tearDown(self):
         review_queue._drop_schema(TEST_SCHEMA)

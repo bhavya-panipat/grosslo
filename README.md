@@ -315,11 +315,28 @@ connection errors, before a single test executes — `app.py` calls
 That failure means the service is down; it does not mean the code under test is
 broken. `brew services start postgresql@16` fixes it.
 
+Provision at least one tenant — the app is multi-tenant as of Roadmap Phase
+1.1, and a request that resolves to no tenant cannot log in or submit:
+
+```bash
+python3 scripts/create_tenant.py --slug acme --name "Acme Corp" --hr-code HR2026 --finance-code FINANCE2026
+```
+
+Tenants are resolved from the subdomain (`acme.grosslo.app`), never from a
+request body — a client-supplied tenant id is unverified, and trusting one
+would let any authenticated session read another company's data. Access codes
+are per tenant and stored hashed; the old process-wide `HR_ACCESS_CODE` /
+`FINANCE_ACCESS_CODE` are gone, because one shared pair would have opened every
+company's review queue.
+
 Backend:
 ```bash
-python3 -m unittest discover -s tests   # 154 tests, all pass with no API key set
+python3 -m unittest discover -s tests   # 168 tests, all pass with no API key set
 python3 app.py 8000                     # serves the API at http://127.0.0.1:8000
 ```
+
+For local access on a subdomain, add the tenant host to `/etc/hosts`:
+`127.0.0.1  acme.grosslo.app`.
 
 Frontend (Next.js — Node isn't bundled with this repo, install it separately):
 ```bash

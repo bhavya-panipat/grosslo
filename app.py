@@ -26,7 +26,10 @@ from orchestration import classify_row
 from razorpayx_client import (
     fetch_account_balance, RazorpayXNotConfigured, RazorpayXKeyModeError, RazorpayXRequestError,
 )
-from auth import verify_login, require_role, require_tenant, current_tenant_id
+from auth import (
+    verify_login, require_role, require_tenant, require_resolved_tenant,
+    current_tenant_id, resolved_tenant_id, tenant_from_request, TENANT_DOMAIN_SUFFIX,
+)
 import io
 import review_queue
 from diff_view import build_diff
@@ -665,7 +668,7 @@ def _get_commit_history() -> dict:
 
 
 @app.route("/api/submissions", methods=["POST"])
-@require_tenant
+@require_resolved_tenant
 def api_create_submission():
     """
     HR's "Submit to Finance for Review" action — the sole path for
@@ -687,6 +690,23 @@ def api_create_submission():
     submitted PII/bank details, and approving/exporting a payout — is
     gated below. Do not "fix" this route into requiring auth for
     consistency; that regresses the audit page.
+
+    IT IS @require_resolved_tenant-gated, which is a different thing and is
+    not a walking-back of the above. Tenancy means a submitted row has to
+    belong to some company, and there is no honest tenant for a request that
+    arrived from nowhere. The tenant comes from the SUBDOMAIN
+    ({slug}.grosslo.app), per MULTI_TENANT_DESIGN.md 3.3 — which needs no
+    login, so the public flow keeps working — and never from a tenant field in
+    the body, which would be an unverified client-supplied value any caller
+    could point at another company.
+
+    Step 3 genuinely did close this route, because subdomain resolution did not
+    exist yet and a NOT NULL tenant_id had to come from somewhere. That was a
+    real, logged regression for two commits, not an oversight; this is where it
+    is repaired. What a caller gains from a subdomain is only the ability to
+    submit into that tenant's queue — the same thing this route already offered
+    the public — and no read access at all. Reads take their tenant from the
+    signed session (current_tenant_id), so a forged Host reaches nothing.
 
     Rate-limited instead (see _rate_limited()): staying unauthenticated
     doesn't mean staying unguarded. A submitted row can carry
@@ -795,7 +815,7 @@ def api_create_submission():
     if not built_rows:
         return jsonify({"error": "no valid rows to submit", "row_errors": row_errors}), 400
 
-    result = review_queue.create_submission(current_tenant_id(), source, built_rows,
+    result = review_queue.create_submission(resolved_tenant_id(), source, built_rows,
                                             submitted_by=data.get("submitted_by", "hr"))
     _append_audit_log("/api/submissions", {
         "submission_id": result["submission_id"], "source": source,
@@ -1064,15 +1084,31 @@ def api_auth_login():
     cookie; role-gate.tsx reads GET /api/auth/session on load instead of
     checking sessionStorage.
     """
+    tenant = tenant_from_request()
+    if tenant is None:
+        # No default tenant, and deliberately no tenant field read from the
+        # body — MULTI_TENANT_DESIGN.md 3.3 rejects a client-supplied tenant id
+        # outright. A request that arrives on a host with no recognised tenant
+        # label simply cannot log in.
+        return jsonify({
+            "error": "Unknown workspace. Sign in on your company's subdomain "
+                     "(e.g. acme." + TENANT_DOMAIN_SUFFIX + ").",
+        }), 401
+
     data = request.get_json(force=True)
     role = data.get("role")
     code = data.get("code", "")
-    if not verify_login(role, code):
+    if not verify_login(tenant["id"], role, code):
         return jsonify({"error": "That code doesn't match — try again."}), 401
     session.clear()
     session["role"] = role
+    # The seam 1.2 inherits (3.3/5): 1.1's only job is getting tenant_id into
+    # the session correctly. 1.2 replaces `role` with real per-user role data
+    # without touching how tenant_id got here.
+    session["tenant_id"] = tenant["id"]
     session.permanent = True
-    return jsonify({"role": role})
+    return jsonify({"role": role, "tenant": {"id": tenant["id"], "slug": tenant["slug"],
+                                             "display_name": tenant["display_name"]}})
 
 
 @app.route("/api/auth/logout", methods=["POST"])
@@ -1083,7 +1119,7 @@ def api_auth_logout():
 
 @app.route("/api/auth/session", methods=["GET"])
 def api_auth_session():
-    return jsonify({"role": session.get("role")})
+    return jsonify({"role": session.get("role"), "tenant_id": session.get("tenant_id")})
 
 
 @app.route("/api/razorpayx/balance", methods=["GET"])
