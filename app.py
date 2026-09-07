@@ -63,7 +63,7 @@ app.config["SESSION_COOKIE_SECURE"] = False
 AUDIT_LOG_PATH = "audit_log.jsonl"
 
 
-def _append_audit_log(route: str, event: dict) -> None:
+def _append_audit_log(tenant_id, route: str, event: dict) -> None:
     """
     Appends one JSON line per money-adjacent decision (structure computed,
     compliance/guardrail verdict, payload generated) to a local, gitignored
@@ -77,11 +77,24 @@ def _append_audit_log(route: str, event: dict) -> None:
     access control, no tamper-evidence. Never let a logging failure break
     the actual response, same degrade-gracefully pattern as
     _get_commit_history().
+
+    tenant_id is a REQUIRED FIRST POSITIONAL ARGUMENT (MULTI_TENANT_DESIGN.md
+    3.4), for the same reason it is one throughout review_queue.py: one file
+    with a mandatory partition key, not per-tenant files, and required rather
+    than filtered so a future call site cannot quietly omit it. One shared
+    pattern applied consistently beats inventing a second one for this file.
+
+    It may legitimately be None, for the stateless compute routes
+    (/api/optimize, /api/batch-audit) that touch no tenant data and can be
+    reached on a host that names no tenant. Such lines belong to nobody and
+    api_audit_log() returns them to nobody — fail closed, since showing an
+    unattributed line to a tenant is exactly the leak this is guarding.
     """
     try:
         with open(AUDIT_LOG_PATH, "a") as f:
             f.write(json.dumps({
                 "timestamp": datetime.now(timezone.utc).isoformat(),
+                "tenant_id": tenant_id,
                 "route": route,
                 **event,
             }) + "\n")
@@ -299,7 +312,7 @@ def api_optimize():
         current_extracted, bool(data.get("extraction_ai_backed", False)),
     )
     response["execution_trace"] = trace_optimize_stage(response, extraction_ran=isinstance(current_extracted, dict))
-    _append_audit_log("/api/optimize", {
+    _append_audit_log(current_tenant_id(), "/api/optimize", {
         "ctc": ctc, "recommended_regime": response["recommended_regime"],
         "annual_saving": response["annual_saving"],
         "compliance_flags": [f["rule_id"] for f in response["compliance"]["flags"]],
@@ -453,7 +466,7 @@ def api_batch_audit():
             "treasury_forecast": forecast,
             "orchestration": orchestration,
         })
-        _append_audit_log("/api/batch-audit", {
+        _append_audit_log(current_tenant_id(), "/api/batch-audit", {
             "row_index": i, "current_regime": current_best["regime"],
             "unclaimed_savings": unclaimed_savings, "excess_contribution": excess_contribution,
             "guardrail_verdict": guardrail.get("verdict"),
@@ -620,7 +633,7 @@ def api_export_razorpayx():
             for employee in employees
         ]
 
-    _append_audit_log("/api/export-razorpayx", {
+    _append_audit_log(current_tenant_id(), "/api/export-razorpayx", {
         "ctc": ctc, "band_min": band_min, "band_max": band_max,
         "guardrail_verdict": guardrail.get("verdict"),
         "payout_payloads_generated": len(employees) if employees is not None else 0,
@@ -817,7 +830,7 @@ def api_create_submission():
 
     result = review_queue.create_submission(resolved_tenant_id(), source, built_rows,
                                             submitted_by=data.get("submitted_by", "hr"))
-    _append_audit_log("/api/submissions", {
+    _append_audit_log(resolved_tenant_id(), "/api/submissions", {
         "submission_id": result["submission_id"], "source": source,
         "rows_submitted": len(built_rows), "duplicates_skipped": len(result["duplicates"]),
     })
@@ -882,7 +895,7 @@ def api_decide_row(submission_id, row_index):
             "message": f"This row was already {result['current_status']} — no second decision was recorded.",
         }), 409
 
-    _append_audit_log("/api/submissions/decide", {
+    _append_audit_log(current_tenant_id(), "/api/submissions/decide", {
         "submission_id": submission_id, "row_index": row_index, "decision": decision, "reason": reason,
     })
     return jsonify({
@@ -939,7 +952,7 @@ def api_export_approved_row(submission_id, row_index):
         buf = io.BytesIO()
         wb.save(buf)
         buf.seek(0)
-        _append_audit_log("/api/submissions/export", {
+        _append_audit_log(current_tenant_id(), "/api/submissions/export", {
             "submission_id": submission_id, "row_index": row_index, "export_type": "salary_revision",
         })
         review_queue.mark_exported(current_tenant_id(), submission_id, row_index)
@@ -972,7 +985,7 @@ def api_export_approved_row(submission_id, row_index):
         "idempotency_key_hint": str(uuid.uuid4()),
         "payouts": [_build_composite_payout(recommended.structure, employee, DEFAULT_RAZORPAYX_ACCOUNT_NUMBER)],
     }
-    _append_audit_log("/api/submissions/export", {
+    _append_audit_log(current_tenant_id(), "/api/submissions/export", {
         "submission_id": submission_id, "row_index": row_index, "export_type": "razorpayx_payout",
         "total_capital_outlay": forecast["total_capital_outlay"],
     })
@@ -1006,7 +1019,7 @@ def api_complete_approved_row(submission_id, row_index):
         return jsonify({"error": f"row is '{row['status']}', not approved — nothing to confirm"}), 400
 
     review_queue.mark_dispatched(current_tenant_id(), submission_id, row_index)
-    _append_audit_log("/api/submissions/complete", {"submission_id": submission_id, "row_index": row_index})
+    _append_audit_log(current_tenant_id(), "/api/submissions/complete", {"submission_id": submission_id, "row_index": row_index})
     return jsonify({"status": "ok"})
 
 
@@ -1031,7 +1044,7 @@ def api_export_salary_revision():
     wb.save(buf)
     buf.seek(0)
 
-    _append_audit_log("/api/export-salary-revision", {"employee_count": len(employees)})
+    _append_audit_log(current_tenant_id(), "/api/export-salary-revision", {"employee_count": len(employees)})
 
     response = send_file(
         buf, as_attachment=True, download_name="grosslo_salary_revision.xlsx",
@@ -1061,15 +1074,39 @@ def api_audit_log():
     browser), not just a claim about a file on disk. Same degrade-gracefully
     pattern as _get_commit_history(): an empty/missing log file is a valid,
     non-error state (nothing has run yet), not a crash.
+
+    FILTERED TO THE REQUESTING TENANT (MULTI_TENANT_DESIGN.md 3.4). One file
+    with a mandatory tenant_id per line, not per-tenant files — the same
+    "required, not filtered" principle the database layer uses, applied
+    consistently rather than inventing a second pattern for this one file.
+
+    3.4 singles this endpoint out as a place where a silent leak would be
+    worse than most, because it is explicitly a compliance and trust surface
+    rather than an internal debug tool: a reviewer reading someone else's
+    decisions here would have no way to tell.
+
+    Fails closed on lines that name no tenant. Entries written before 3.4
+    shipped have no tenant_id at all, and the stateless compute routes can
+    legitimately write None — neither belongs to the requesting tenant, so
+    neither is returned to it. total_logged counts what this tenant may see,
+    not the file's length, which would itself disclose other tenants' volume.
     """
     limit = min(int(request.args.get("limit", 50)), 500)
+    tenant_id = current_tenant_id()
     entries = []
     try:
         with open(AUDIT_LOG_PATH) as f:
             for line in f:
                 line = line.strip()
-                if line:
-                    entries.append(json.loads(line))
+                if not line:
+                    continue
+                entry = json.loads(line)
+                # Explicit equality against a non-None tenant, never a
+                # truthiness check: `entry.get("tenant_id")` being absent must
+                # not match, and tenant_id is guaranteed non-None here by
+                # @require_tenant.
+                if entry.get("tenant_id") == tenant_id:
+                    entries.append(entry)
     except (OSError, json.JSONDecodeError):
         pass
     return jsonify({"entries": entries[-limit:], "total_logged": len(entries)})
@@ -1154,7 +1191,7 @@ def api_razorpayx_balance():
     except RazorpayXRequestError as e:
         return jsonify({"configured": True, "live": False, "error": str(e), "status_code": e.status_code}), 502
 
-    _append_audit_log("/api/razorpayx/balance", {"live_call": True})
+    _append_audit_log(current_tenant_id(), "/api/razorpayx/balance", {"live_call": True})
     return jsonify({"configured": True, "live": True, "balance": balance})
 
 

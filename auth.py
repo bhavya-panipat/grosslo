@@ -29,7 +29,7 @@ from __future__ import annotations
 import os
 from functools import wraps
 
-from flask import session, jsonify, request
+from flask import session, jsonify, request, g
 from werkzeug.security import generate_password_hash, check_password_hash
 
 import review_queue
@@ -102,11 +102,19 @@ def tenant_slug_from_host(host: str | None) -> str | None:
 
 
 def tenant_from_request():
-    """Resolves the request's tenant from its subdomain, or None."""
+    """
+    Resolves the request's tenant from its subdomain, or None.
+
+    Cached on flask.g for the life of the request: this hits the database, and
+    a single submission would otherwise resolve the same slug three times
+    (the decorator, the write, and the audit-log line).
+    """
+    if "_resolved_tenant" in g:
+        return g._resolved_tenant
     slug = tenant_slug_from_host(request.host)
-    if slug is None:
-        return None
-    return review_queue.get_tenant_by_slug(slug)
+    tenant = review_queue.get_tenant_by_slug(slug) if slug else None
+    g._resolved_tenant = tenant
+    return tenant
 
 
 def verify_login(tenant_id: int, role: str, code: str) -> bool:
