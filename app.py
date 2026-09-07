@@ -26,7 +26,10 @@ from orchestration import classify_row
 from razorpayx_client import (
     fetch_account_balance, RazorpayXNotConfigured, RazorpayXKeyModeError, RazorpayXRequestError,
 )
-from auth import verify_login, require_role
+from auth import (
+    verify_login, require_role, require_tenant, require_resolved_tenant,
+    current_tenant_id, resolved_tenant_id, tenant_from_request, TENANT_DOMAIN_SUFFIX,
+)
 import io
 import review_queue
 from diff_view import build_diff
@@ -59,8 +62,20 @@ app.config["SESSION_COOKIE_SECURE"] = False
 
 AUDIT_LOG_PATH = "audit_log.jsonl"
 
+# Two sinks, because there are two different things being recorded and merging
+# them was a conflation, not a simplification (see _append_audit_log and
+# _append_process_log below).
+#
+# audit_log.jsonl   — the tenant compliance trail. Every line belongs to
+#                     exactly one tenant. /api/audit-log serves it.
+# process_log.jsonl — tenant-agnostic operational events from the stateless
+#                     compute routes when nobody is authenticated. Belongs to
+#                     no tenant, served to nobody, exists so those events are
+#                     still recorded somewhere rather than dropped.
+PROCESS_LOG_PATH = "process_log.jsonl"
 
-def _append_audit_log(route: str, event: dict) -> None:
+
+def _append_audit_log(tenant_id, route: str, event: dict) -> None:
     """
     Appends one JSON line per money-adjacent decision (structure computed,
     compliance/guardrail verdict, payload generated) to a local, gitignored
@@ -74,13 +89,87 @@ def _append_audit_log(route: str, event: dict) -> None:
     access control, no tamper-evidence. Never let a logging failure break
     the actual response, same degrade-gracefully pattern as
     _get_commit_history().
+
+    tenant_id is a REQUIRED FIRST POSITIONAL ARGUMENT (MULTI_TENANT_DESIGN.md
+    3.4), for the same reason it is one throughout review_queue.py: one file
+    with a mandatory partition key, not per-tenant files, and required rather
+    than filtered so a future call site cannot quietly omit it. One shared
+    pattern applied consistently beats inventing a second one for this file.
+
+    AND IT MUST NOT BE None. An earlier version accepted None from the
+    stateless compute routes and relied on api_audit_log() filtering those
+    lines out at read time. That made "required" mean "required but nullable",
+    which is a materially weaker claim, and left one file serving two unrelated
+    jobs — a per-tenant compliance trail and a process activity log. Callers
+    with no tenant use _append_process_log() instead, so the invariant this
+    file's whole value rests on ("every line here has an owner") is now
+    enforced where it is written rather than patched over where it is read.
+
+    A None here is a programming error, not a logging failure, so it raises
+    rather than degrading quietly — the degrade-gracefully rule above covers
+    the filesystem being unwritable, not a caller that does not know who it is
+    acting for.
+    """
+    if tenant_id is None:
+        raise ValueError(
+            "_append_audit_log() requires a real tenant_id; got None. The audit log is a "
+            "per-tenant compliance surface and every line in it must have an owner "
+            "(MULTI_TENANT_DESIGN.md 3.4). For an event that genuinely belongs to no "
+            "tenant — a stateless compute route with no authenticated session — use "
+            "_append_process_log() instead. Do not reintroduce a nullable tenant_id here."
+        )
+    _write_log_line(AUDIT_LOG_PATH, {"tenant_id": tenant_id, "route": route, **event})
+
+
+def _append_process_log(route: str, event: dict) -> None:
+    """
+    The other half of the split: operational events that belong to no tenant.
+
+    The stateless compute routes (/api/optimize, /api/batch-audit,
+    /api/export-razorpayx, /api/export-salary-revision) are pure calculators.
+    They persist nothing, require no session, and can be reached on a host that
+    names no tenant at all — so an anonymous call to one is genuinely not a
+    tenant's compliance event and has no business in a tenant's trail. It is
+    also not nothing, so it lands here rather than being dropped.
+
+    Deliberately NOT served by any route. /api/audit-log is a tenant-scoped
+    surface and this file has no tenant to scope to; exposing it would be
+    re-creating, at the HTTP layer, exactly the cross-tenant visibility the
+    split exists to remove.
+    """
+    _write_log_line(PROCESS_LOG_PATH, {"tenant_id": None, "route": route, **event})
+
+
+def _log_compute_event(route: str, event: dict) -> None:
+    """
+    Routes a stateless-compute event to whichever sink it belongs in, so the
+    choice is made once, explicitly, with the rule written down — instead of
+    every call site passing a possibly-None tenant into a function that claims
+    to require one.
+
+    The rule: if the caller is authenticated, this computation was performed on
+    that tenant's behalf and stays in their compliance trail, exactly as before
+    this split. If nobody is authenticated, it belongs to no tenant and goes to
+    the process log. Coverage for authenticated users is therefore unchanged —
+    this refactor moves anonymous lines out of the audit log, and nothing else.
+    """
+    tenant_id = current_tenant_id()
+    if tenant_id is None:
+        _append_process_log(route, event)
+    else:
+        _append_audit_log(tenant_id, route, event)
+
+
+def _write_log_line(path: str, payload: dict) -> None:
+    """
+    Shared append. Never let a logging failure break the actual response, same
+    degrade-gracefully pattern as _get_commit_history().
     """
     try:
-        with open(AUDIT_LOG_PATH, "a") as f:
+        with open(path, "a") as f:
             f.write(json.dumps({
                 "timestamp": datetime.now(timezone.utc).isoformat(),
-                "route": route,
-                **event,
+                **payload,
             }) + "\n")
     except OSError:
         pass
@@ -296,7 +385,7 @@ def api_optimize():
         current_extracted, bool(data.get("extraction_ai_backed", False)),
     )
     response["execution_trace"] = trace_optimize_stage(response, extraction_ran=isinstance(current_extracted, dict))
-    _append_audit_log("/api/optimize", {
+    _log_compute_event("/api/optimize", {
         "ctc": ctc, "recommended_regime": response["recommended_regime"],
         "annual_saving": response["annual_saving"],
         "compliance_flags": [f["rule_id"] for f in response["compliance"]["flags"]],
@@ -450,7 +539,7 @@ def api_batch_audit():
             "treasury_forecast": forecast,
             "orchestration": orchestration,
         })
-        _append_audit_log("/api/batch-audit", {
+        _log_compute_event("/api/batch-audit", {
             "row_index": i, "current_regime": current_best["regime"],
             "unclaimed_savings": unclaimed_savings, "excess_contribution": excess_contribution,
             "guardrail_verdict": guardrail.get("verdict"),
@@ -520,6 +609,30 @@ def api_query():
 
 
 DEFAULT_RAZORPAYX_ACCOUNT_NUMBER = "7878780080316316"  # demo placeholder, RazorpayX docs' own example account
+
+# The SOURCE account a payout debits, when the tenant has not configured one.
+#
+# Same principle as secret_store's "dev-plaintext:v1:" prefix and
+# salary_revision_export's TEMPLATE_HONESTY_LABEL: an incomplete setup should
+# not block the work, but a placeholder must never be mistakable for the real
+# thing. An unconfigured tenant has simply not finished onboarding — a
+# different category from a missing tenant_id or a forged Host, which are a bug
+# or an attacker and are refused outright.
+#
+# The value is deliberately NOT a bare account number. This payload is an
+# artifact a human carries to RazorpayX, and a plausible-looking 16-digit
+# string is exactly what gets pasted without a second look. Prefixed like this
+# it cannot be uploaded by accident: RazorpayX rejects it outright rather than
+# debiting RazorpayX's own documentation example account.
+PLACEHOLDER_SOURCE_ACCOUNT = "PLACEHOLDER-DO-NOT-UPLOAD-" + DEFAULT_RAZORPAYX_ACCOUNT_NUMBER
+
+SOURCE_ACCOUNT_PLACEHOLDER_LABEL = (
+    "PLACEHOLDER SOURCE ACCOUNT — DO NOT UPLOAD. This company has no RazorpayX "
+    "account number configured, so this payload names a placeholder instead of a "
+    "real source account. It will not debit the right account. Configure the "
+    "tenant's account number (scripts/set_tenant_credentials.py --account-number) "
+    "and export again."
+)
 
 
 def _build_composite_payout(structure, employee: dict, account_number: str) -> dict:
@@ -617,7 +730,7 @@ def api_export_razorpayx():
             for employee in employees
         ]
 
-    _append_audit_log("/api/export-razorpayx", {
+    _log_compute_event("/api/export-razorpayx", {
         "ctc": ctc, "band_min": band_min, "band_max": band_max,
         "guardrail_verdict": guardrail.get("verdict"),
         "payout_payloads_generated": len(employees) if employees is not None else 0,
@@ -665,6 +778,7 @@ def _get_commit_history() -> dict:
 
 
 @app.route("/api/submissions", methods=["POST"])
+@require_resolved_tenant
 def api_create_submission():
     """
     HR's "Submit to Finance for Review" action — the sole path for
@@ -686,6 +800,23 @@ def api_create_submission():
     submitted PII/bank details, and approving/exporting a payout — is
     gated below. Do not "fix" this route into requiring auth for
     consistency; that regresses the audit page.
+
+    IT IS @require_resolved_tenant-gated, which is a different thing and is
+    not a walking-back of the above. Tenancy means a submitted row has to
+    belong to some company, and there is no honest tenant for a request that
+    arrived from nowhere. The tenant comes from the SUBDOMAIN
+    ({slug}.grosslo.app), per MULTI_TENANT_DESIGN.md 3.3 — which needs no
+    login, so the public flow keeps working — and never from a tenant field in
+    the body, which would be an unverified client-supplied value any caller
+    could point at another company.
+
+    Step 3 genuinely did close this route, because subdomain resolution did not
+    exist yet and a NOT NULL tenant_id had to come from somewhere. That was a
+    real, logged regression for two commits, not an oversight; this is where it
+    is repaired. What a caller gains from a subdomain is only the ability to
+    submit into that tenant's queue — the same thing this route already offered
+    the public — and no read access at all. Reads take their tenant from the
+    signed session (current_tenant_id), so a forged Host reaches nothing.
 
     Rate-limited instead (see _rate_limited()): staying unauthenticated
     doesn't mean staying unguarded. A submitted row can carry
@@ -794,8 +925,9 @@ def api_create_submission():
     if not built_rows:
         return jsonify({"error": "no valid rows to submit", "row_errors": row_errors}), 400
 
-    result = review_queue.create_submission(source, built_rows, submitted_by=data.get("submitted_by", "hr"))
-    _append_audit_log("/api/submissions", {
+    result = review_queue.create_submission(resolved_tenant_id(), source, built_rows,
+                                            submitted_by=data.get("submitted_by", "hr"))
+    _append_audit_log(resolved_tenant_id(), "/api/submissions", {
         "submission_id": result["submission_id"], "source": source,
         "rows_submitted": len(built_rows), "duplicates_skipped": len(result["duplicates"]),
     })
@@ -804,16 +936,18 @@ def api_create_submission():
 
 @app.route("/api/submissions", methods=["GET"])
 @require_role("hr", "finance")
+@require_tenant
 def api_list_submissions():
     status = request.args.get("status")
-    return jsonify({"submissions": review_queue.list_submissions(status)})
+    return jsonify({"submissions": review_queue.list_submissions(current_tenant_id(), status)})
 
 
 @app.route("/api/submissions/<int:submission_id>", methods=["GET"])
 @require_role("hr", "finance")
+@require_tenant
 def api_get_submission(submission_id):
     """Finance's detail view — includes the before/after diff per row, built over already-computed data only."""
-    submission = review_queue.get_submission(submission_id)
+    submission = review_queue.get_submission(current_tenant_id(), submission_id)
     if submission is None:
         return jsonify({"error": "submission not found"}), 404
     for row in submission["rows"]:
@@ -823,6 +957,7 @@ def api_get_submission(submission_id):
 
 @app.route("/api/submissions/<int:submission_id>/rows/<int:row_index>/decide", methods=["POST"])
 @require_role("finance")
+@require_tenant
 def api_decide_row(submission_id, row_index):
     """
     Finance's approve/reject action on one row. Idempotent: a second call
@@ -845,8 +980,8 @@ def api_decide_row(submission_id, row_index):
         # input — @require_role("finance") guarantees this is "finance" in
         # practice, but it's genuinely server-verified now rather than an
         # unenforced client-supplied string.
-        result = review_queue.decide_row(submission_id, row_index, decision, reason,
-                                          decided_by=session["role"])
+        result = review_queue.decide_row(current_tenant_id(), submission_id, row_index, decision, reason,
+                                         decided_by=session["role"])
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
 
@@ -857,7 +992,7 @@ def api_decide_row(submission_id, row_index):
             "message": f"This row was already {result['current_status']} — no second decision was recorded.",
         }), 409
 
-    _append_audit_log("/api/submissions/decide", {
+    _append_audit_log(current_tenant_id(), "/api/submissions/decide", {
         "submission_id": submission_id, "row_index": row_index, "decision": decision, "reason": reason,
     })
     return jsonify({
@@ -870,6 +1005,7 @@ def api_decide_row(submission_id, row_index):
 
 @app.route("/api/submissions/<int:submission_id>/rows/<int:row_index>/export", methods=["POST"])
 @require_role("finance")
+@require_tenant
 def api_export_approved_row(submission_id, row_index):
     """
     Closes the loop after Finance approves: generates the correct kind of
@@ -888,7 +1024,7 @@ def api_export_approved_row(submission_id, row_index):
     Only ever runs on a row that's actually 'approved' — exporting a
     pending or rejected row is refused, not just discouraged.
     """
-    submission = review_queue.get_submission(submission_id)
+    submission = review_queue.get_submission(current_tenant_id(), submission_id)
     if submission is None:
         return jsonify({"error": "submission not found"}), 404
     row = next((r for r in submission["rows"] if r["row_index"] == row_index), None)
@@ -913,10 +1049,10 @@ def api_export_approved_row(submission_id, row_index):
         buf = io.BytesIO()
         wb.save(buf)
         buf.seek(0)
-        _append_audit_log("/api/submissions/export", {
+        _append_audit_log(current_tenant_id(), "/api/submissions/export", {
             "submission_id": submission_id, "row_index": row_index, "export_type": "salary_revision",
         })
-        review_queue.mark_exported(submission_id, row_index)
+        review_queue.mark_exported(current_tenant_id(), submission_id, row_index)
         response = send_file(
             buf, as_attachment=True, download_name="grosslo_salary_revision.xlsx",
             mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -940,22 +1076,56 @@ def api_export_approved_row(submission_id, row_index):
         "ifsc": inp["ifsc"],
         "email": inp.get("email"),
     }
+    # The SOURCE account this payout debits belongs to the TENANT (step 4,
+    # section 3.5). Before this, every tenant's payload named one hardcoded
+    # account — the credentials moved per-tenant but this consumer was missed,
+    # so tenant_settings.razorpayx_account_number was written and read by
+    # nobody.
+    # get_tenant_source_account(), NOT get_tenant_razorpayx_credentials():
+    # the latter returns None whenever there is no API key, and this route
+    # makes no live call — it only needs to know which account the generated
+    # payload should name. Reading it through the credentials accessor made a
+    # tenant that HAD configured an account get the placeholder anyway.
+    source_account = review_queue.get_tenant_source_account(current_tenant_id())
+    using_placeholder = not source_account
+
     payload = {
         "treasury_forecast": forecast,
         "guardrail": computed.get("guardrail"),
         "idempotency_key_hint": str(uuid.uuid4()),
-        "payouts": [_build_composite_payout(recommended.structure, employee, DEFAULT_RAZORPAYX_ACCOUNT_NUMBER)],
+        "payouts": [_build_composite_payout(
+            recommended.structure, employee,
+            PLACEHOLDER_SOURCE_ACCOUNT if using_placeholder else source_account,
+        )],
     }
-    _append_audit_log("/api/submissions/export", {
+    if using_placeholder:
+        # Loud in the body, and again in a header so the warning survives being
+        # piped, saved, or handed on — the same two-surface treatment
+        # TEMPLATE_HONESTY_LABEL already gets on the workbook export.
+        payload["WARNING_DO_NOT_UPLOAD"] = SOURCE_ACCOUNT_PLACEHOLDER_LABEL
+        payload["source_account_is_placeholder"] = True
+
+    _append_audit_log(current_tenant_id(), "/api/submissions/export", {
         "submission_id": submission_id, "row_index": row_index, "export_type": "razorpayx_payout",
         "total_capital_outlay": forecast["total_capital_outlay"],
+        # Recorded per-export: a compliance trail should say which payloads
+        # named a real source account and which named a placeholder.
+        "source_account_is_placeholder": using_placeholder,
     })
-    review_queue.mark_exported(submission_id, row_index)
-    return jsonify(payload)
+    review_queue.mark_exported(current_tenant_id(), submission_id, row_index)
+    response = jsonify(payload)
+    if using_placeholder:
+        # Latin-1 only in header values, same constraint the workbook export
+        # already works around for its own label.
+        response.headers["X-Source-Account-Placeholder"] = (
+            SOURCE_ACCOUNT_PLACEHOLDER_LABEL.replace("—", "-")
+        )
+    return response
 
 
 @app.route("/api/submissions/<int:submission_id>/rows/<int:row_index>/complete", methods=["POST"])
 @require_role("finance")
+@require_tenant
 def api_complete_approved_row(submission_id, row_index):
     """
     Records Finance's final confirmation on an approved row — "Simulate
@@ -969,7 +1139,7 @@ def api_complete_approved_row(submission_id, row_index):
     Requires 'approved', same precondition as export — nothing to confirm
     on a row that was never approved.
     """
-    submission = review_queue.get_submission(submission_id)
+    submission = review_queue.get_submission(current_tenant_id(), submission_id)
     if submission is None:
         return jsonify({"error": "submission not found"}), 404
     row = next((r for r in submission["rows"] if r["row_index"] == row_index), None)
@@ -978,8 +1148,8 @@ def api_complete_approved_row(submission_id, row_index):
     if row["status"] != "approved":
         return jsonify({"error": f"row is '{row['status']}', not approved — nothing to confirm"}), 400
 
-    review_queue.mark_dispatched(submission_id, row_index)
-    _append_audit_log("/api/submissions/complete", {"submission_id": submission_id, "row_index": row_index})
+    review_queue.mark_dispatched(current_tenant_id(), submission_id, row_index)
+    _append_audit_log(current_tenant_id(), "/api/submissions/complete", {"submission_id": submission_id, "row_index": row_index})
     return jsonify({"status": "ok"})
 
 
@@ -1004,7 +1174,7 @@ def api_export_salary_revision():
     wb.save(buf)
     buf.seek(0)
 
-    _append_audit_log("/api/export-salary-revision", {"employee_count": len(employees)})
+    _log_compute_event("/api/export-salary-revision", {"employee_count": len(employees)})
 
     response = send_file(
         buf, as_attachment=True, download_name="grosslo_salary_revision.xlsx",
@@ -1025,6 +1195,7 @@ def api_commit_history():
 
 
 @app.route("/api/audit-log")
+@require_tenant
 def api_audit_log():
     """
     Read-only view of the local audit trail _append_audit_log() writes on
@@ -1033,15 +1204,45 @@ def api_audit_log():
     browser), not just a claim about a file on disk. Same degrade-gracefully
     pattern as _get_commit_history(): an empty/missing log file is a valid,
     non-error state (nothing has run yet), not a crash.
+
+    FILTERED TO THE REQUESTING TENANT (MULTI_TENANT_DESIGN.md 3.4). One file
+    with a mandatory tenant_id per line, not per-tenant files — the same
+    "required, not filtered" principle the database layer uses, applied
+    consistently rather than inventing a second pattern for this one file.
+
+    3.4 singles this endpoint out as a place where a silent leak would be
+    worse than most, because it is explicitly a compliance and trust surface
+    rather than an internal debug tool: a reviewer reading someone else's
+    decisions here would have no way to tell.
+
+    Fails closed on lines that name no tenant. Since the audit/process split,
+    nothing new writes an unowned line here — _append_audit_log() rejects a
+    None tenant outright — but entries written before 3.4 shipped have no
+    tenant_id at all, and this file is append-only with no migration. Those
+    legacy lines belong to no one and are returned to no one. The check stays
+    even though the writer now enforces the same invariant, because a read-side
+    guard on a compliance surface should not depend on every past writer having
+    been correct.
+
+    total_logged counts what this tenant may see, not the file's length, which
+    would itself disclose other tenants' volume.
     """
     limit = min(int(request.args.get("limit", 50)), 500)
+    tenant_id = current_tenant_id()
     entries = []
     try:
         with open(AUDIT_LOG_PATH) as f:
             for line in f:
                 line = line.strip()
-                if line:
-                    entries.append(json.loads(line))
+                if not line:
+                    continue
+                entry = json.loads(line)
+                # Explicit equality against a non-None tenant, never a
+                # truthiness check: `entry.get("tenant_id")` being absent must
+                # not match, and tenant_id is guaranteed non-None here by
+                # @require_tenant.
+                if entry.get("tenant_id") == tenant_id:
+                    entries.append(entry)
     except (OSError, json.JSONDecodeError):
         pass
     return jsonify({"entries": entries[-limit:], "total_logged": len(entries)})
@@ -1056,15 +1257,31 @@ def api_auth_login():
     cookie; role-gate.tsx reads GET /api/auth/session on load instead of
     checking sessionStorage.
     """
+    tenant = tenant_from_request()
+    if tenant is None:
+        # No default tenant, and deliberately no tenant field read from the
+        # body — MULTI_TENANT_DESIGN.md 3.3 rejects a client-supplied tenant id
+        # outright. A request that arrives on a host with no recognised tenant
+        # label simply cannot log in.
+        return jsonify({
+            "error": "Unknown workspace. Sign in on your company's subdomain "
+                     "(e.g. acme." + TENANT_DOMAIN_SUFFIX + ").",
+        }), 401
+
     data = request.get_json(force=True)
     role = data.get("role")
     code = data.get("code", "")
-    if not verify_login(role, code):
+    if not verify_login(tenant["id"], role, code):
         return jsonify({"error": "That code doesn't match — try again."}), 401
     session.clear()
     session["role"] = role
+    # The seam 1.2 inherits (3.3/5): 1.1's only job is getting tenant_id into
+    # the session correctly. 1.2 replaces `role` with real per-user role data
+    # without touching how tenant_id got here.
+    session["tenant_id"] = tenant["id"]
     session.permanent = True
-    return jsonify({"role": role})
+    return jsonify({"role": role, "tenant": {"id": tenant["id"], "slug": tenant["slug"],
+                                             "display_name": tenant["display_name"]}})
 
 
 @app.route("/api/auth/logout", methods=["POST"])
@@ -1075,11 +1292,12 @@ def api_auth_logout():
 
 @app.route("/api/auth/session", methods=["GET"])
 def api_auth_session():
-    return jsonify({"role": session.get("role")})
+    return jsonify({"role": session.get("role"), "tenant_id": session.get("tenant_id")})
 
 
 @app.route("/api/razorpayx/balance", methods=["GET"])
 @require_role("finance")
+@require_tenant
 def api_razorpayx_balance():
     """
     The one route in this codebase that makes a real, live call to
@@ -1088,9 +1306,20 @@ def api_razorpayx_balance():
     keys only, no override). Every other export/payout route in this file
     stays payload-construction-only, unchanged. Finance-only: real
     financial visibility, same sensitivity class as the review queue.
+
+    Credentials are resolved from the REQUESTING TENANT (step 4, section 3.5),
+    not from process environment. Before this, one key pair served the whole
+    process, so every company would have been reading the balance of the same
+    real bank account.
     """
+    credentials = review_queue.get_tenant_razorpayx_credentials(current_tenant_id())
+    if credentials is None:
+        return jsonify({
+            "configured": False, "live": False,
+            "error": "This tenant has no RazorpayX credentials configured.",
+        }), 503
     try:
-        balance = fetch_account_balance()
+        balance = fetch_account_balance(credentials["key_id"], credentials["key_secret"])
     except RazorpayXNotConfigured as e:
         return jsonify({"configured": False, "live": False, "error": str(e)}), 503
     except RazorpayXKeyModeError as e:
@@ -1098,7 +1327,7 @@ def api_razorpayx_balance():
     except RazorpayXRequestError as e:
         return jsonify({"configured": True, "live": False, "error": str(e), "status_code": e.status_code}), 502
 
-    _append_audit_log("/api/razorpayx/balance", {"live_call": True})
+    _append_audit_log(current_tenant_id(), "/api/razorpayx/balance", {"live_call": True})
     return jsonify({"configured": True, "live": True, "balance": balance})
 
 

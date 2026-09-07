@@ -6,8 +6,10 @@ __pycache__/
 *.bak2
 .env
 audit_log.jsonl
+process_log.jsonl
 review_queue.db
 test_*.db
+test_*.jsonl
 
 # frontend (Next.js)
 frontend/node_modules/

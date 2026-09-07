@@ -20,9 +20,10 @@ Uses stdlib only (urllib.request + base64) — no new dependency justified
 for one GET request.
 """
 
+from __future__ import annotations
+
 import base64
 import json
-import os
 import urllib.error
 import urllib.request
 
@@ -35,7 +36,7 @@ RAZORPAYX_BALANCE_URL = "https://api.razorpay.com/v1/banking_balances"
 
 
 class RazorpayXNotConfigured(Exception):
-    """RAZORPAYX_KEY_ID / RAZORPAYX_KEY_SECRET aren't set in the environment."""
+    """This tenant has no RazorpayX credentials configured."""
 
 
 class RazorpayXKeyModeError(Exception):
@@ -51,31 +52,41 @@ class RazorpayXRequestError(Exception):
         super().__init__(f"RazorpayX returned HTTP {status_code}: {body}")
 
 
-def fetch_account_balance() -> dict:
+def fetch_account_balance(key_id: str | None, key_secret: str | None) -> dict:
     """
     GET /v1/banking_balances — RazorpayX's real Fetch Account Balances API.
     Basic Auth over Key ID : Key Secret, per RazorpayX's documented auth
     scheme (same key pair as the Payment Gateway, per their own docs).
+
+    CREDENTIALS ARE ARGUMENTS, NOT ENVIRONMENT (step 4, section 3.5). This used
+    to read RAZORPAYX_KEY_ID / RAZORPAYX_KEY_SECRET from os.environ, which
+    meant one bank account for the entire running process — every tenant
+    reading the balance of, and paying out of, the same real account. The
+    caller now resolves the pair from the requesting tenant and passes it in;
+    this module no longer knows how credentials are stored.
 
     Refuses to run against a live-mode key (Key ID not starting with
     "rzp_test_") — this project's whole pitch rests on never touching real
     money without an explicit, deliberate decision, and a live key used by
     accident in a demo context is exactly the kind of mistake that boundary
     exists to prevent. Raises RazorpayXKeyModeError rather than silently
-    proceeding; there is no override flag, on purpose.
+    proceeding; there is no override flag, on purpose. As a side effect of
+    per-tenant credentials this guard is now enforceable PER TENANT, which
+    matters once real tenants exist where some legitimately hold rzp_live_
+    keys and others are still on rzp_test_.
     """
-    key_id = os.environ.get("RAZORPAYX_KEY_ID")
-    key_secret = os.environ.get("RAZORPAYX_KEY_SECRET")
     if not key_id or not key_secret:
         raise RazorpayXNotConfigured(
-            "RAZORPAYX_KEY_ID / RAZORPAYX_KEY_SECRET are not set in the environment. "
-            "Generate a test-mode key pair from the RazorpayX Dashboard "
-            "(Test Mode on -> Account & Settings -> API Keys) and add both to .env."
+            "This tenant has no RazorpayX credentials configured. Generate a "
+            "test-mode key pair from the RazorpayX Dashboard (Test Mode on -> "
+            "Account & Settings -> API Keys) and attach it to the tenant with "
+            "scripts/set_tenant_credentials.py."
         )
     if not key_id.startswith("rzp_test_"):
         raise RazorpayXKeyModeError(
-            "Refusing to call RazorpayX: RAZORPAYX_KEY_ID does not start with "
-            "'rzp_test_'. This project never calls RazorpayX with a live-mode key."
+            "Refusing to call RazorpayX: this tenant's RazorpayX Key ID does not "
+            "start with 'rzp_test_'. This project never calls RazorpayX with a "
+            "live-mode key."
         )
 
     credentials = base64.b64encode(f"{key_id}:{key_secret}".encode()).decode()

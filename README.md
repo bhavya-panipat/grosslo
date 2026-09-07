@@ -289,17 +289,73 @@ grosslo invented, only one the compliance engine already decided.
 
 ## Running it
 
+**Postgres is required**, for the app *and* for the test suite. Persistence
+moved from a single SQLite file to Postgres in Roadmap Phase 1.1 step 1 (see
+`MULTI_TENANT_DESIGN.md` section 7) because SQLite has no row-level security
+and no per-connection session variables to key one on:
+
+```bash
+brew install postgresql@16
+brew services start postgresql@16
+createdb grosslo                        # or set DATABASE_URL to point elsewhere
+psql -d grosslo -f scripts/setup_app_role.sql   # once; needs superuser
+pip3 install -r requirements.txt
+```
+
+That third command creates `grosslo_app`, the unprivileged role the
+application connects as. It is not optional and not cosmetic: PostgreSQL
+exempts superusers and `BYPASSRLS` roles from every row-level-security policy,
+and the Homebrew default connection role is a superuser — so connecting as
+yourself would leave the tenant-isolation policies present in the schema and
+enforcing nothing, while every test still passed.
+
+If Postgres isn't running, the test suite fails at *collection* with a wall of
+connection errors, before a single test executes — `app.py` calls
+`review_queue.init_db()` at import time and every test module imports `app`.
+That failure means the service is down; it does not mean the code under test is
+broken. `brew services start postgresql@16` fixes it.
+
+Provision at least one tenant — the app is multi-tenant as of Roadmap Phase
+1.1, and a request that resolves to no tenant cannot log in or submit:
+
+```bash
+python3 scripts/create_tenant.py --slug acme --name "Acme Corp" --hr-code HR2026 --finance-code FINANCE2026
+```
+
+Tenants are resolved from the subdomain (`acme.grosslo.app`), never from a
+request body — a client-supplied tenant id is unverified, and trusting one
+would let any authenticated session read another company's data. Access codes
+are per tenant and stored hashed; the old process-wide `HR_ACCESS_CODE` /
+`FINANCE_ACCESS_CODE` are gone, because one shared pair would have opened every
+company's review queue.
+
 Backend:
 ```bash
-python3 -m unittest discover -s tests   # 116 tests, all pass with no API key set
+python3 -m unittest discover -s tests   # 199 tests, all pass with no API key set
 python3 app.py 8000                     # serves the API at http://127.0.0.1:8000
+```
+
+**You must reach the app on a tenant subdomain — plain `localhost` will not
+log in.** The tenant comes from the host, so `http://localhost:3000` resolves
+to no tenant and `/api/auth/login` returns 401 "Unknown workspace". That is
+correct behaviour, not a misconfiguration, but it will stop you dead if you
+open the URL the frontend prints. Two ways round it:
+
+```bash
+# Easiest — no /etc/hosts edit needed; *.localhost resolves to 127.0.0.1 already
+echo 'TENANT_DOMAIN_SUFFIX=localhost' >> .env   # then use http://acme.localhost:3000
+
+# Or keep the real suffix and add the host yourself
+echo '127.0.0.1  acme.grosslo.app' | sudo tee -a /etc/hosts   # then http://acme.grosslo.app:3000
 ```
 
 Frontend (Next.js — Node isn't bundled with this repo, install it separately):
 ```bash
 cd frontend
 npm install
-npm run dev                             # http://localhost:3000, proxies /api/* to Flask on :8000
+npm run dev                             # prints http://localhost:3000 — open it on a
+                                        # tenant subdomain instead (see above);
+                                        # proxies /api/* to Flask on :8000
 ```
 
 To enable the real LLM-backed extraction/explanation/compliance-phrasing/query
