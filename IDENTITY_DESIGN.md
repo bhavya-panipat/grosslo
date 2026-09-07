@@ -349,3 +349,18 @@ only has this file.
    - **Shared-code retirement:** the code works exactly once, creates exactly
      one owner, and every subsequent attempt fails — including after the owner
      is deleted.
+   - **OUTSTANDING — compile and exercise the frontend attribution UI.** Step
+     5 added `DecidedBy` to `finance-flow.tsx` and two fields to
+     `api-types.ts`, and **neither has ever been compiled or run**: there is no
+     `node` binary in the environment this phase was built in, so `tsc` and the
+     dev server were both unavailable. That code is reviewed by eye only and
+     must not be trusted at the same level as the rest of this phase's work,
+     all of which was verified by running it.
+
+     The first environment with Node available must: type-check the project,
+     render a decided row and confirm the decider's name appears, and render a
+     row with a NULL `decided_by_user_id` and confirm it shows as
+     *Unattributed* rather than silently blank or, worse, attributed to
+     someone. Until that happens this item stays open, and the honest
+     description of the phase is "backend verified, one UI component
+     unverified".
