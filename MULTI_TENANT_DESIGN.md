@@ -260,20 +260,24 @@ CREATE TABLE tenant_settings (
     razorpayx_account_number TEXT
 );
 
--- existing tables, tenant_id added as a required column + FK, never
--- nullable even transiently — Postgres 11+ adds a NOT NULL column with a
--- constant DEFAULT as a single atomic metadata change (no table rewrite,
--- no window where existing rows read back NULL), which is exactly what
--- resolves the apparent tension between "NOT NULL from the start" and
--- "backfill existing rows into a default tenant": both happen in the
--- same statement, not as a nullable-add followed by a later constraint.
-ALTER TABLE submissions      ADD COLUMN tenant_id INTEGER NOT NULL REFERENCES tenants(id) DEFAULT <default_tenant_id>;
-ALTER TABLE submission_rows  ADD COLUMN tenant_id INTEGER NOT NULL REFERENCES tenants(id) DEFAULT <default_tenant_id>;
--- Drop the DEFAULT immediately after (ALTER COLUMN ... DROP DEFAULT) once
--- the backfill is confirmed — the default exists only to make this one
--- statement atomic, not as an ongoing fallback for future inserts, which
--- must always supply tenant_id explicitly (see 3.1's "required argument,
--- never optional" rule).
+-- existing tables, tenant_id added as a required column + FK. Both tables
+-- are TRUNCATEd first (see 6's resolved decision on demo data), so the
+-- column is added to *empty* tables: NOT NULL is satisfiable immediately,
+-- with no backfill, no default tenant row, and no nullable window at any
+-- point.
+--
+-- An earlier draft of this document specified ADD COLUMN ... NOT NULL
+-- DEFAULT <default_tenant_id> followed by ALTER COLUMN ... DROP DEFAULT.
+-- That construction exists solely to make "backfill existing rows" and
+-- "enforce NOT NULL" atomic within one statement. With nothing to
+-- backfill it buys nothing, and it costs a default-tenant row plus a
+-- drop-default step that must not be forgotten (a DEFAULT left in place
+-- would silently satisfy an INSERT that omitted tenant_id — exactly the
+-- "required argument, never optional" rule in 3.1). Removed deliberately,
+-- not overlooked: do not reintroduce it unless 6's demo-data decision is
+-- reversed.
+ALTER TABLE submissions      ADD COLUMN tenant_id INTEGER NOT NULL REFERENCES tenants(id);
+ALTER TABLE submission_rows  ADD COLUMN tenant_id INTEGER NOT NULL REFERENCES tenants(id);
 -- (submission_rows gets it too, not just via join to submissions — so
 --  the RLS policy in 3.1 can key directly on the row without a join,
 --  and so a query bug that skips the join can't accidentally cross
@@ -307,20 +311,35 @@ need a schema change to how tenants themselves are modeled, that's a
 signal 1.1 was scoped wrong, worth flagging rather than absorbing
 silently.
 
-## 6. Open decisions needing an explicit call, not a silent default
+## 6. Decisions needing an explicit call, not a silent default
 
-- **Provisioning a new tenant**: self-serve signup, or admin-created
-  only? Affects whether `tenants`/`tenant_settings` need a public
-  creation endpoint at all in 1.1, or just a CLI/admin script for the
-  pilot-customer stage this roadmap's Phase 4 exit criterion implies.
-- **Existing demo data**: does the current single `review_queue.db`'s
-  contents become "tenant 1" (a real migration with a default tenant
-  row), or is it discarded as demo-only data not worth carrying forward?
-  Determines whether the ALTER TABLE in section 4 needs a backfill step.
-- **Postgres hosting**: self-managed, or a managed provider (RDS,
-  Supabase, Neon)? Not this document's call — affects ops/cost (Phase 4
-  territory) more than the schema/isolation design above, which is the
-  same either way.
+Two of the three below have since been resolved. They're recorded here
+rather than deleted, so the reasoning that produced the current section 4
+and section 7 is still legible to a reader who only has this file.
+
+- **RESOLVED — Provisioning a new tenant: admin-created only.** No
+  self-serve signup in 1.1. `tenants`/`tenant_settings` rows are created
+  by a CLI/admin script; there is no public creation endpoint, which
+  keeps 1.1 free of an authz/rate-limiting/slug-collision surface it
+  would otherwise have to design before the pilot-customer stage this
+  roadmap's Phase 4 exit criterion implies. Self-serve signup, if it's
+  ever wanted, is a later phase's call.
+- **RESOLVED — Existing demo data: discarded, not carried forward.** The
+  current `review_queue.db`'s contents are demo/hackathon rows with no
+  ongoing value, so both tables are TRUNCATEd before `tenant_id` is
+  added. There is no default tenant, no "tenant 1" holding legacy rows,
+  and no backfill step. This is what removed the `DEFAULT
+  <default_tenant_id>` / `DROP DEFAULT` construction from section 4 —
+  the ALTER TABLE runs against empty tables, so NOT NULL needs nothing
+  to make it satisfiable. Note this is a statement about what the
+  finished multi-tenant schema contains; it does not forbid using real
+  rows transiently to validate the section 7 step 1 migration itself,
+  which is a separate question about how to test a mechanism.
+- **STILL OPEN — Postgres hosting**: self-managed, or a managed provider
+  (RDS, Supabase, Neon)? Not this document's call — affects ops/cost
+  (Phase 4 territory) more than the schema/isolation design above, which
+  is the same either way. (Local development for 1.1 runs a Homebrew
+  `postgresql@16`; that's a dev-environment choice, not this decision.)
 
 ## 7. Suggested internal sequencing for 1.1 itself
 
@@ -328,12 +347,15 @@ silently.
    tenant_id yet) — proves the DB migration works in isolation from the
    tenancy change, so a bug is attributable to one or the other, not both
    at once.
-2. Add `tenants`/`tenant_settings`; add `tenant_id` to `submissions`/
-   `submission_rows` via the atomic `ADD COLUMN ... NOT NULL DEFAULT
-   <default_tenant_id>` form in section 4 (backfills existing rows into
-   the default tenant and enforces NOT NULL in the same statement, per
-   the open decision above), then drop the column default immediately
-   after — no nullable window at any point.
+2. `TRUNCATE submissions, submission_rows` — discarding the demo rows
+   per section 6's resolved decision — and **verify the truncation as a
+   checked fact** (`SELECT COUNT(*)` on both, confirm zero) before
+   touching the schema, rather than assuming it happened because it was
+   the plan. Then add `tenants`/`tenant_settings`, and add `tenant_id` to
+   both tables with the plain `ADD COLUMN ... NOT NULL REFERENCES
+   tenants(id)` form in section 4. No `DEFAULT`, no `DROP DEFAULT`, no
+   default-tenant row, and no nullable window — trivially, because the
+   tables are empty when the column lands.
 3. Rewrite the persistence layer's function signatures to require
    `tenant_id`; add the RLS policies as the second enforcement layer,
    using transaction-scoped `SET LOCAL` per 3.1 — never a session-scoped
