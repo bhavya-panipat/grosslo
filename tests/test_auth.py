@@ -1,5 +1,5 @@
 """
-Tests for auth.py and the /api/auth/* routes, plus @require_role coverage
+Tests for auth.py and the /api/auth/* routes, plus @require_permission coverage
 on the submissions read/decide/export/razorpayx-balance routes.
 
 Real Flask test client throughout — a single client instance persists
@@ -304,3 +304,91 @@ class TestRouteProtection(AuthTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ---------------------------------------------------------------------------
+# Phase 1.2 step 2 — permission-based enforcement (IDENTITY_DESIGN.md 3.1).
+# ---------------------------------------------------------------------------
+
+class TestPermissionCatalogue(unittest.TestCase):
+    """
+    The catalogue and mapping, tested directly rather than only through routes,
+    because their whole purpose is to be the one place a reviewer can read to
+    know who may do what.
+    """
+
+    def test_every_role_grants_only_defined_permissions(self):
+        from auth import PERMISSIONS, ROLE_PERMISSIONS
+        for role, granted in ROLE_PERMISSIONS.items():
+            unknown = set(granted) - set(PERMISSIONS)
+            self.assertEqual(unknown, set(), f"{role} grants undefined permission(s) {unknown}")
+
+    def test_unknown_permission_raises_rather_than_denying_quietly(self):
+        # A typo must not read as a plain 403/401. Returning False would make a
+        # misspelled guard look like a working one that simply refuses.
+        from auth import has_permission, require_permission
+        with self.assertRaises(ValueError):
+            has_permission("veiw_queue")
+        with self.assertRaises(ValueError):
+            require_permission("not_a_real_permission")
+
+    def test_submit_row_is_deliberately_not_a_permission(self):
+        # POST /api/submissions is unauthenticated by design (1.1 §3.3). A
+        # permission for it would imply an enforcement point that does not
+        # exist.
+        from auth import PERMISSIONS
+        self.assertNotIn("submit_row", PERMISSIONS)
+
+    def test_owner_holds_every_permission(self):
+        from auth import PERMISSIONS, ROLE_PERMISSIONS
+        self.assertEqual(set(ROLE_PERMISSIONS["owner"]), set(PERMISSIONS))
+
+    def test_mapping_preserves_exactly_todays_access(self):
+        # The property that makes step 2 safe: hr and finance keep precisely
+        # what the routes enforced before the swap. hr holds view_audit_log
+        # because /api/audit-log was guarded by @require_tenant alone and both
+        # roles could already read it.
+        from auth import ROLE_PERMISSIONS
+        self.assertEqual(set(ROLE_PERMISSIONS["hr"]), {"view_queue", "view_audit_log"})
+        self.assertEqual(set(ROLE_PERMISSIONS["finance"]),
+                         {"view_queue", "decide_row", "export_row",
+                          "view_audit_log", "view_bank_balance"})
+
+    def test_require_role_is_gone_not_merely_unused(self):
+        # Superseded enforcement must not remain reachable, or a future route
+        # gets written against the mechanism this phase replaced.
+        import auth
+        self.assertFalse(hasattr(auth, "require_role"))
+
+
+class TestPermissionSessionBridge(unittest.TestCase):
+    """
+    current_roles() spans two session shapes: the shared `role` string that
+    exists until step 4, and the per-user `roles` list that replaces it. Step 4
+    must be additive, so both are asserted now.
+    """
+
+    def test_reads_the_legacy_single_role(self):
+        with flask_app.app.test_request_context():
+            from flask import session
+            session["role"] = "finance"
+            from auth import current_roles, has_permission
+            self.assertEqual(current_roles(), ["finance"])
+            self.assertTrue(has_permission("decide_row"))
+
+    def test_prefers_the_per_user_roles_list_when_present(self):
+        with flask_app.app.test_request_context():
+            from flask import session
+            session["role"] = "hr"
+            session["roles"] = ["finance"]
+            from auth import current_roles, has_permission
+            self.assertEqual(current_roles(), ["finance"])
+            self.assertTrue(has_permission("decide_row"),
+                            "the per-user list must win once step 4 sets it")
+
+    def test_no_session_grants_nothing(self):
+        with flask_app.app.test_request_context():
+            from auth import current_roles, has_permission
+            self.assertEqual(current_roles(), [])
+            for perm in ("view_queue", "decide_row", "manage_users"):
+                self.assertFalse(has_permission(perm))

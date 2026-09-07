@@ -96,7 +96,6 @@ and 1.2 does not need it to deliver the §2 guarantee.
 fixed bundles.** Concretely:
 
 ```
-submit_row        — POST /api/submissions
 view_queue        — GET  /api/submissions, GET /api/submissions/<id>
 decide_row        — POST .../decide
 export_row        — POST .../export, POST .../complete
@@ -106,11 +105,33 @@ manage_users      — the 1.2 user-admin routes
 ```
 
 `@require_permission("decide_row")` replaces `@require_role("finance")`. The
-initial role set is exactly the two that exist today, so no tenant's effective
-access changes on cutover — `hr` gets `submit_row` + `view_queue`, `finance`
-gets those plus `decide_row`, `export_row`, `view_audit_log`,
-`view_bank_balance`. A third role later is a row in a table, not a sweep
-through `app.py`.
+initial role set is exactly the two that exist today, and **no tenant's
+effective access changes on cutover** — that is the property that makes this
+step safe to review, so the mapping is derived from what the routes actually
+enforce today rather than from what the permission names suggest:
+
+- `hr` → `view_queue`, `view_audit_log`
+- `finance` → those plus `decide_row`, `export_row`, `view_bank_balance`
+- `owner` (new in 1.2) → all of the above plus `manage_users`
+
+A third role later is a row in a table, not a sweep through `app.py`.
+
+**Two corrections to an earlier draft of this list, both found by checking the
+routes instead of trusting the names — each would have silently changed access
+in a step whose whole value is changing none:**
+
+- An earlier draft listed `submit_row — POST /api/submissions`. That route is
+  deliberately unauthenticated (`@require_resolved_tenant`, no session), which
+  1.1 §3.3 fought to preserve so `/optimize/batch`'s public flow keeps working.
+  There is no session to hold a permission, so `submit_row` is **not defined at
+  all**. A permission that guards nothing is worse than no permission: it reads
+  as an enforcement point that does not exist.
+- An earlier draft gave `view_audit_log` to `finance` only. `/api/audit-log` is
+  guarded by `@require_tenant` alone today, so **both roles can read it** —
+  verified by driving the route as each role. Restricting HR's access to a
+  compliance surface is a real product decision, not a side effect of
+  refactoring enforcement, so `hr` keeps it here and any restriction is a
+  separate, deliberate change.
 
 Roles are **system-defined in 1.2**, not tenant-editable. That keeps the
 permission catalogue reviewable in code while making the enforcement point

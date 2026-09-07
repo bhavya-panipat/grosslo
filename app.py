@@ -27,7 +27,7 @@ from razorpayx_client import (
     fetch_account_balance, RazorpayXNotConfigured, RazorpayXKeyModeError, RazorpayXRequestError,
 )
 from auth import (
-    verify_login, require_role, require_tenant, require_resolved_tenant,
+    verify_login, require_permission, require_tenant, require_resolved_tenant,
     current_tenant_id, resolved_tenant_id, tenant_from_request, TENANT_DOMAIN_SUFFIX,
 )
 import io
@@ -791,7 +791,7 @@ def api_create_submission():
     reason /api/batch-audit's docstring describes — a live API call per
     row doesn't scale.
 
-    DELIBERATELY NOT @require_role-gated, unlike the read/decide/export
+    DELIBERATELY NOT permission-gated, unlike the read/decide/export
     routes below. This route is also called from /optimize/batch (a fully
     public, ungated page)'s "Submit correction" flow — gating it behind an
     HR session would break that already-working, already-demoed public
@@ -935,7 +935,7 @@ def api_create_submission():
 
 
 @app.route("/api/submissions", methods=["GET"])
-@require_role("hr", "finance")
+@require_permission("view_queue")
 @require_tenant
 def api_list_submissions():
     status = request.args.get("status")
@@ -943,7 +943,7 @@ def api_list_submissions():
 
 
 @app.route("/api/submissions/<int:submission_id>", methods=["GET"])
-@require_role("hr", "finance")
+@require_permission("view_queue")
 @require_tenant
 def api_get_submission(submission_id):
     """Finance's detail view — includes the before/after diff per row, built over already-computed data only."""
@@ -956,7 +956,7 @@ def api_get_submission(submission_id):
 
 
 @app.route("/api/submissions/<int:submission_id>/rows/<int:row_index>/decide", methods=["POST"])
-@require_role("finance")
+@require_permission("decide_row")
 @require_tenant
 def api_decide_row(submission_id, row_index):
     """
@@ -977,7 +977,7 @@ def api_decide_row(submission_id, row_index):
 
     try:
         # decided_by now comes from the verified session, not client
-        # input — @require_role("finance") guarantees this is "finance" in
+        # input — @require_permission("decide_row") guarantees the caller may
         # practice, but it's genuinely server-verified now rather than an
         # unenforced client-supplied string.
         result = review_queue.decide_row(current_tenant_id(), submission_id, row_index, decision, reason,
@@ -1004,7 +1004,7 @@ def api_decide_row(submission_id, row_index):
 
 
 @app.route("/api/submissions/<int:submission_id>/rows/<int:row_index>/export", methods=["POST"])
-@require_role("finance")
+@require_permission("export_row")
 @require_tenant
 def api_export_approved_row(submission_id, row_index):
     """
@@ -1124,7 +1124,7 @@ def api_export_approved_row(submission_id, row_index):
 
 
 @app.route("/api/submissions/<int:submission_id>/rows/<int:row_index>/complete", methods=["POST"])
-@require_role("finance")
+@require_permission("export_row")
 @require_tenant
 def api_complete_approved_row(submission_id, row_index):
     """
@@ -1196,6 +1196,7 @@ def api_commit_history():
 
 @app.route("/api/audit-log")
 @require_tenant
+@require_permission("view_audit_log")
 def api_audit_log():
     """
     Read-only view of the local audit trail _append_audit_log() writes on
@@ -1296,7 +1297,7 @@ def api_auth_session():
 
 
 @app.route("/api/razorpayx/balance", methods=["GET"])
-@require_role("finance")
+@require_permission("view_bank_balance")
 @require_tenant
 def api_razorpayx_balance():
     """

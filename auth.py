@@ -135,20 +135,109 @@ def verify_login(tenant_id: int, role: str, code: str) -> bool:
     return check_password_hash(hashes[role], normalize_access_code(code))
 
 
-def require_role(*allowed_roles: str):
+# ---------------------------------------------------------------------------
+# Permissions (Phase 1.2, IDENTITY_DESIGN.md 3.1)
+#
+# Routes are guarded by what they DO, not by who is allowed to do it. The
+# alternative — an allow-list of role names at each route — is correct for the
+# roles that exist when it is written and one forgetful edit away from wrong
+# when a role is added, which is the same shape as the "add WHERE tenant_id to
+# the queries we have today" approach 1.1 rejected.
+#
+# The catalogue and the role mapping live in code rather than in a table: they
+# are system-defined in 1.2, and a constant shipping alongside the routes it
+# guards cannot drift from them the way a seeded table can.
+#
+# NOT DEFINED, deliberately: a `submit_row` permission. POST /api/submissions
+# is unauthenticated by design (see its docstring and require_resolved_tenant)
+# so there is no session to hold such a permission. Defining one would imply an
+# enforcement point that does not exist.
+# ---------------------------------------------------------------------------
+PERMISSIONS = (
+    "view_queue",         # GET /api/submissions, GET /api/submissions/<id>
+    "decide_row",         # POST .../decide
+    "export_row",         # POST .../export, POST .../complete
+    "view_audit_log",     # GET /api/audit-log
+    "view_bank_balance",  # GET /api/razorpayx/balance
+    "manage_users",       # the 1.2 user-admin routes
+)
+
+# Derived from what the routes ENFORCE today, not from what the names suggest,
+# so this swap changes no tenant's effective access. In particular `hr` holds
+# view_audit_log because /api/audit-log is guarded by @require_tenant alone
+# today and both roles can already read it — restricting a compliance surface
+# is a product decision, not a side effect of refactoring enforcement.
+ROLE_PERMISSIONS = {
+    "hr": frozenset({"view_queue", "view_audit_log"}),
+    "finance": frozenset({"view_queue", "decide_row", "export_row",
+                          "view_audit_log", "view_bank_balance"}),
+    "owner": frozenset(PERMISSIONS),
+}
+
+
+def current_roles() -> list:
     """
-    Route decorator: 401s unless the current session's role is one of
-    `allowed_roles`. Use @require_role("finance") for finance-only routes,
-    @require_role("hr", "finance") for routes either role may read.
+    The roles this session holds.
+
+    Bridges two session shapes on purpose. Until step 4 a session carries one
+    shared string, `role`; afterwards it carries a real per-user list, `roles`.
+    Reading the list first and falling back means step 2 can swap every route's
+    guard without also changing the session, keeping the two changes separately
+    reviewable — and step 4 becomes additive rather than a second sweep.
     """
+    roles = session.get("roles")
+    if roles is not None:
+        return list(roles)
+    role = session.get("role")
+    return [role] if role else []
+
+
+def has_permission(permission: str) -> bool:
+    if permission not in PERMISSIONS:
+        # A typo'd permission must never silently authorise. Raising beats
+        # returning False, which would look like a plain 403 and hide the bug.
+        raise ValueError(
+            f"unknown permission {permission!r} — must be one of {PERMISSIONS}"
+        )
+    return any(permission in ROLE_PERMISSIONS.get(r, frozenset())
+               for r in current_roles())
+
+
+def require_permission(permission: str):
+    """
+    Route decorator: refuses unless the session's roles grant `permission`.
+
+    RETURNS 401, BYTE-IDENTICAL TO require_role, ON PURPOSE. This decorator
+    replaces require_role at every route in one step, and that step's entire
+    value is that it provably changes no observable behaviour — so it does not
+    also change a status code. 403 is the semantically correct answer here (401
+    means "I do not know who you are", which is the wrong thing to tell a
+    caller who IS identified and simply may not do this, and a client that
+    reacts to 401 by re-authenticating would loop). Changing it is a real,
+    separate decision about the HTTP contract, not a side effect of moving the
+    enforcement point — so it is flagged rather than folded in here.
+    """
+    if permission not in PERMISSIONS:
+        raise ValueError(f"unknown permission {permission!r}")  # at import, not per-request
+
     def decorator(fn):
         @wraps(fn)
         def wrapper(*args, **kwargs):
-            if session.get("role") not in allowed_roles:
+            if not has_permission(permission):
                 return jsonify({"error": "Not authenticated for this action."}), 401
             return fn(*args, **kwargs)
         return wrapper
     return decorator
+
+
+# require_role() lived here until Phase 1.2 step 2 and is deliberately GONE,
+# not kept alongside require_permission as a still-working alternative. Every
+# route it guarded now checks a permission instead, and leaving a second,
+# role-name-based enforcement path in the module is how a future route ends up
+# guarded by the mechanism this phase replaced — the "undeleted superseded
+# code" failure this repo has hit before. Its behaviour is preserved exactly
+# inside require_permission (same 401, same body); what is gone is the ability
+# to write a new route against role names.
 
 
 def current_tenant_id():
