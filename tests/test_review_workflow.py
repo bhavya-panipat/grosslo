@@ -64,34 +64,71 @@ class ReviewQueueTestCase(unittest.TestCase):
         review_queue._drop_schema(TEST_SCHEMA)
 
 
-class TestSchemaSelfHeals(ReviewQueueTestCase):
-    def test_dropping_schema_mid_session_does_not_crash_next_call(self):
-        # Reproduces a real bug: an earlier version only created tables in
-        # init_db() at import time. Destroying the persistence layer while
-        # the server was still running (without restarting the process) left
-        # every subsequent request hitting "no such table". This asserts the
-        # current behaviour: every _conn() ensures the schema exists, so a
-        # dropped schema self-heals on the very next call instead of 500ing.
-        #
-        # Ported from the SQLite version, which deleted the db file — there
-        # is no file to delete now, so the equivalent destruction is
-        # DROP SCHEMA CASCADE. The assertion is unchanged in substance.
-        computed = _optimize_response_for(ctc=1_800_000)
+class TestMissingSchemaFailsLoudly(ReviewQueueTestCase):
+    """
+    This class replaces TestSchemaSelfHeals, and asserts the OPPOSITE of what
+    it did. The old test verified that a destroyed persistence layer was
+    silently rebuilt on the next call, which was correct for SQLite: the store
+    was a local file, `rm review_queue.db` was a plausible operator slip, and
+    recreating it lost nothing that wasn't already gone.
+
+    Under Postgres the same behaviour is a liability. A missing schema means
+    someone dropped it, a migration half-ran, or DATABASE_URL points at the
+    wrong database — and in every one of those cases a silent rebuild returns
+    an empty table, a 200, and no error, which looks exactly like "no
+    submissions yet" while real data sits unrecovered somewhere else. Same
+    reasoning as MULTI_TENANT_DESIGN.md 3.1's require_tenant, which 401s on a
+    missing tenant_id rather than returning an empty list.
+    """
+
+    def _seed_one_row(self):
         review_queue.create_submission("single", [{
             "employee_name": "Zoe", "ctc": 1_800_000,
             "input": {"ctc": 1_800_000, "rent_paid": 0, "city": "metro", "nps_opted": False, "current_structure": None},
-            "computed": computed,
+            "computed": _optimize_response_for(ctc=1_800_000),
         }])
-        review_queue._drop_schema(TEST_SCHEMA)  # simulates the exact operational mistake that caused the real bug
-        # Must not raise — the next call recreates the schema on its own,
-        # exactly like a fresh app startup would.
-        result = review_queue.create_submission("single", [{
-            "employee_name": "Yusuf", "ctc": 2_000_000,
-            "input": {"ctc": 2_000_000, "rent_paid": 0, "city": "metro", "nps_opted": False, "current_structure": None},
-            "computed": _optimize_response_for(ctc=2_000_000),
-        }])
-        submission = review_queue.get_submission(result["submission_id"])
-        self.assertEqual(submission["rows"][0]["employee_name"], "Yusuf")
+
+    def test_dropping_schema_mid_session_raises_schema_missing_error(self):
+        self._seed_one_row()
+        review_queue._drop_schema(TEST_SCHEMA)  # the operational mistake the old test tolerated
+        with self.assertRaises(review_queue.SchemaMissingError):
+            review_queue.create_submission("single", [{
+                "employee_name": "Yusuf", "ctc": 2_000_000,
+                "input": {"ctc": 2_000_000, "rent_paid": 0, "city": "metro", "nps_opted": False, "current_structure": None},
+                "computed": _optimize_response_for(ctc=2_000_000),
+            }])
+
+    def test_reads_also_raise_rather_than_returning_an_empty_result(self):
+        # The write path failing is the less dangerous half. A read that
+        # silently returns [] is the one that gets mistaken for "no data yet",
+        # so it is asserted separately rather than assumed to follow.
+        self._seed_one_row()
+        self.assertEqual(len(review_queue.list_submissions()), 1)
+        review_queue._drop_schema(TEST_SCHEMA)
+        with self.assertRaises(review_queue.SchemaMissingError):
+            review_queue.list_submissions()
+        with self.assertRaises(review_queue.SchemaMissingError):
+            review_queue.get_submission(1)
+
+    def test_error_is_specific_not_a_bare_exception_and_names_the_schema(self):
+        # A generic Exception here would be indistinguishable from an
+        # unrelated bug in a real log, which is the whole point of naming it.
+        review_queue._drop_schema(TEST_SCHEMA)
+        with self.assertRaises(review_queue.SchemaMissingError) as ctx:
+            review_queue.list_submissions()
+        message = str(ctx.exception)
+        self.assertIn(TEST_SCHEMA, message)
+        self.assertIn("submissions", message)
+        self.assertIsNot(type(ctx.exception), Exception)
+        self.assertTrue(issubclass(review_queue.SchemaMissingError, RuntimeError))
+
+    def test_init_db_is_what_repairs_it_explicitly(self):
+        # The recovery path is deliberate, not automatic.
+        review_queue._drop_schema(TEST_SCHEMA)
+        with self.assertRaises(review_queue.SchemaMissingError):
+            review_queue.list_submissions()
+        review_queue.init_db()
+        self.assertEqual(review_queue.list_submissions(), [])
 
 
 class TestMakerChecker(ReviewQueueTestCase):

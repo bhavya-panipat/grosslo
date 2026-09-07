@@ -26,6 +26,12 @@ Because app.py calls init_db() at import time, a stopped server fails the test
 suite at *collection*, as a wall of connection errors — that is a missing
 service, not a bug in whatever you just changed.
 
+A MISSING SCHEMA IS NOT REPAIRED AUTOMATICALLY. init_db() creates it; every
+other entry point raises SchemaMissingError if it isn't there. The SQLite
+version did the opposite (rebuilt the schema on every connection), which was
+right for a local file a stray `rm` could delete and wrong for a database,
+where a silent rebuild reports success while the data is gone.
+
 APPROVE DOES NOT DISPATCH ANYTHING. Approving a submission row writes a
 status change and an audit-log entry ("Approved — Payout SIMULATED, no
 live dispatch"). It never calls RazorpayX, never touches app.py's
@@ -60,6 +66,16 @@ DB_SCHEMA = "public"
 
 VALID_STATUSES = {"pending", "approved", "rejected"}
 VALID_SOURCES = {"single", "batch"}
+
+
+class SchemaMissingError(RuntimeError):
+    """
+    Raised when a query is attempted against a DB_SCHEMA whose tables aren't
+    there. Named specifically, rather than surfacing as a bare
+    psycopg.errors.UndefinedTable or a generic 500, so this is unmistakable in
+    a log instead of blending into every other database error. See
+    _require_schema() for why this is not repaired automatically.
+    """
 
 
 def _dsn() -> str:
@@ -107,14 +123,17 @@ def _dedupe_hash(employee_name: str | None, ctc: float, email: str | None = None
 
 def _ensure_schema(conn: psycopg.Connection) -> None:
     """
-    CREATE ... IF NOT EXISTS is cheap and idempotent — called on every
-    connection, not just once at app startup. Found the hard way: an
-    earlier version only ran this from init_db() at import time, so
-    deleting the database out from under a still-running server (a cleanup
-    command run without restarting the process) left every subsequent
-    request hitting "no such table". Self-healing on every connection means a
-    missing or externally-dropped schema is never a hard crash, here or in
-    whatever happens to this file after this submission.
+    Creates the schema, tables and indexes. Called ONLY from init_db() —
+    explicit startup and migration — never from _conn().
+
+    This deliberately reverses the SQLite version's behaviour, which ran this
+    on every single connection so that a missing schema was silently rebuilt.
+    That was the right call when the store was a local file that a stray `rm`
+    could remove; it is the wrong call for a database, where "the schema is
+    gone" means someone dropped it, a migration half-ran, or the app is
+    pointed at the wrong DATABASE_URL. Silently recreating empty tables in
+    any of those cases reports success while the data is gone. See
+    _require_schema() for what happens instead.
 
     Column types are chosen to preserve the SQLite behaviour this was ported
     from, not to modernise:
@@ -168,10 +187,10 @@ def _ensure_schema(conn: psycopg.Connection) -> None:
     """)
     # Additive migration for the orchestration columns — CREATE TABLE IF NOT
     # EXISTS above won't add columns to a table that already exists from
-    # before this feature shipped, so this self-heals the same way the rest
-    # of this function already does. (SQLite read these from PRAGMA
-    # table_info; the Postgres equivalent is information_schema, scoped to
-    # DB_SCHEMA so a test module's schema doesn't read another's columns.)
+    # before this feature shipped, so an existing deployment picks them up on
+    # the next init_db(). (SQLite read these from PRAGMA table_info; the
+    # Postgres equivalent is information_schema, scoped to DB_SCHEMA so a test
+    # module's schema doesn't read another's columns.)
     existing_cols = {
         row["column_name"] for row in conn.execute(
             "SELECT column_name FROM information_schema.columns "
@@ -194,11 +213,51 @@ def _ensure_schema(conn: psycopg.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_rows_route ON submission_rows(route)")
 
 
+def _require_schema(conn: psycopg.Connection) -> None:
+    """
+    Points the connection at DB_SCHEMA and FAILS LOUDLY if the tables aren't
+    there, rather than creating them.
+
+    A missing schema is never repaired here on purpose. Recreating it would
+    make every subsequent read return zero rows and every write succeed into a
+    fresh empty table — the caller gets a 200 and an empty list, which is
+    indistinguishable from "this tenant genuinely has no submissions yet" right
+    up until somebody notices the history is gone. That is the same failure
+    shape MULTI_TENANT_DESIGN.md 3.1 rules out for require_tenant, which 401s
+    on a missing tenant_id instead of returning an empty result, and the same
+    discipline as classify_row()'s None route defaulting to needs_review rather
+    than auto-pass. Data loss must not be reported as success.
+
+    Run init_db() (app.py does, at startup) to create the schema deliberately.
+    """
+    schema = sql.Identifier(DB_SCHEMA)
+    # SET LOCAL, not SET: transaction-scoped, discarded at COMMIT/ROLLBACK.
+    # Nothing is pooled yet (a fresh connection per _conn()), so plain SET
+    # would also work today — but MULTI_TENANT_DESIGN.md 3.1 makes
+    # transaction-scoped the hard rule for connection state once pooling
+    # arrives in step 3, and there is no reason to establish the other habit
+    # here first and have to find every instance of it later.
+    conn.execute(sql.SQL("SET LOCAL search_path TO {}").format(schema))
+    present = conn.execute(
+        "SELECT to_regclass(%s) AS submissions, to_regclass(%s) AS submission_rows",
+        (f"{DB_SCHEMA}.submissions", f"{DB_SCHEMA}.submission_rows"),
+    ).fetchone()
+    missing = [name for name, oid in present.items() if oid is None]
+    if missing:
+        raise SchemaMissingError(
+            f"Postgres schema '{DB_SCHEMA}' is missing table(s): {', '.join(sorted(missing))} "
+            f"(connection: {_dsn()}). This is NOT auto-repaired: recreating the tables here "
+            f"would silently return empty results for data that may still need recovering. "
+            f"If this is a fresh database, run review_queue.init_db(). If it is not, check "
+            f"DATABASE_URL points at the right database and that no migration was left half-run."
+        )
+
+
 @contextmanager
 def _conn():
     conn = psycopg.connect(_dsn(), row_factory=dict_row)
     try:
-        _ensure_schema(conn)
+        _require_schema(conn)
         yield conn
         conn.commit()
     except Exception:
@@ -210,13 +269,20 @@ def _conn():
 
 def init_db() -> None:
     """
-    Kept as an explicit, named call for app.py's startup and for tests
-    that want the schema to exist before doing anything else — but every
-    _conn() now ensures the schema itself too, so this is a convenience,
-    not the only place it happens.
+    Creates the schema if it isn't there. This is now the ONLY place that
+    happens — _conn() verifies and raises SchemaMissingError instead of
+    creating, so this call is required at startup rather than being the
+    convenience it was under SQLite. app.py calls it at import time.
     """
-    with _conn():
-        pass
+    conn = psycopg.connect(_dsn(), row_factory=dict_row)
+    try:
+        _ensure_schema(conn)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def _drop_schema(schema: str | None = None) -> None:
