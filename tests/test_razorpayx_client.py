@@ -37,7 +37,7 @@ def tearDownModule():
     # test_*.db file was a second layer of protection here; a Postgres
     # schema has no such backstop, so this cleanup matters slightly more
     # than it did before.)
-    review_queue._drop_schema()
+    review_queue._drop_schema(TEST_SCHEMA)
 
 
 class TestFetchAccountBalanceGuards(unittest.TestCase):

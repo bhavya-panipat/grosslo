@@ -37,7 +37,7 @@ def _optimize_response_for(ctc, rent_paid=0, city="metro", nps_opted=False, curr
 class ReviewQueueTestCase(unittest.TestCase):
     def setUp(self):
         review_queue.DB_SCHEMA = TEST_SCHEMA
-        review_queue._drop_schema()
+        review_queue._drop_schema(TEST_SCHEMA)
         review_queue.init_db()
         # POST /api/submissions is now rate-limited per IP (module-level,
         # process-wide state) — reset before every test so unrelated tests
@@ -45,7 +45,7 @@ class ReviewQueueTestCase(unittest.TestCase):
         flask_app._SUBMISSION_ATTEMPTS.clear()
 
     def tearDown(self):
-        review_queue._drop_schema()
+        review_queue._drop_schema(TEST_SCHEMA)
 
 
 # ---------------------------------------------------------------------------

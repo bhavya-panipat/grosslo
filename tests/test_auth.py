@@ -25,13 +25,13 @@ TEST_SCHEMA = "test_auth_queue"
 
 
 def tearDownModule():
-    review_queue._drop_schema()
+    review_queue._drop_schema(TEST_SCHEMA)
 
 
 class AuthTestCase(unittest.TestCase):
     def setUp(self):
         review_queue.DB_SCHEMA = TEST_SCHEMA
-        review_queue._drop_schema()
+        review_queue._drop_schema(TEST_SCHEMA)
         review_queue.init_db()
         self.client = flask_app.app.test_client()
         # POST /api/submissions is now rate-limited per IP (module-level,
@@ -40,7 +40,7 @@ class AuthTestCase(unittest.TestCase):
         flask_app._SUBMISSION_ATTEMPTS.clear()
 
     def tearDown(self):
-        review_queue._drop_schema()
+        review_queue._drop_schema(TEST_SCHEMA)
 
     def _login(self, role, code):
         return self.client.post("/api/auth/login", json={"role": role, "code": code})

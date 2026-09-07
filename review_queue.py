@@ -219,9 +219,9 @@ def init_db() -> None:
         pass
 
 
-def _drop_schema() -> None:
+def _drop_schema(schema: str | None = None) -> None:
     """
-    DESTRUCTIVE: drops DB_SCHEMA and everything in it.
+    DESTRUCTIVE: drops `schema` (default: DB_SCHEMA) and everything in it.
 
     This is the replacement for what the test suite used to do by deleting the
     SQLite file — each test module points DB_SCHEMA at its own schema and calls
@@ -229,10 +229,20 @@ def _drop_schema() -> None:
     under Postgres, and dropping a whole database per test module would be far
     slower and would need a separate connection to `postgres` to do it.
 
+    Callers should pass the schema name EXPLICITLY rather than relying on the
+    DB_SCHEMA default, because DB_SCHEMA is process-global mutable state and
+    the whole suite runs in one process: a module-level teardown that reads it
+    gets whatever the last-executed test happened to leave there, which is not
+    necessarily that module's own schema. The SQLite version was immune to this
+    by construction — it passed its own TEST_DB constant to os.remove() — so
+    passing the name here keeps a property that already existed rather than
+    adding a new requirement.
+
     Deliberately underscore-prefixed and never called from application code.
     """
+    target = schema or DB_SCHEMA
     with psycopg.connect(_dsn()) as conn:
-        conn.execute(sql.SQL("DROP SCHEMA IF EXISTS {} CASCADE").format(sql.Identifier(DB_SCHEMA)))
+        conn.execute(sql.SQL("DROP SCHEMA IF EXISTS {} CASCADE").format(sql.Identifier(target)))
         conn.commit()
 
 

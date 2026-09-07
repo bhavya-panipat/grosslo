@@ -53,7 +53,7 @@ def _optimize_response_for(ctc, rent_paid=0, city="metro", nps_opted=False, curr
 class ReviewQueueTestCase(unittest.TestCase):
     def setUp(self):
         review_queue.DB_SCHEMA = TEST_SCHEMA
-        review_queue._drop_schema()
+        review_queue._drop_schema(TEST_SCHEMA)
         review_queue.init_db()
         # POST /api/submissions is now rate-limited per IP (module-level,
         # process-wide state) — reset before every test so unrelated tests
@@ -61,7 +61,7 @@ class ReviewQueueTestCase(unittest.TestCase):
         flask_app._SUBMISSION_ATTEMPTS.clear()
 
     def tearDown(self):
-        review_queue._drop_schema()
+        review_queue._drop_schema(TEST_SCHEMA)
 
 
 class TestSchemaSelfHeals(ReviewQueueTestCase):
@@ -82,7 +82,7 @@ class TestSchemaSelfHeals(ReviewQueueTestCase):
             "input": {"ctc": 1_800_000, "rent_paid": 0, "city": "metro", "nps_opted": False, "current_structure": None},
             "computed": computed,
         }])
-        review_queue._drop_schema()  # simulates the exact operational mistake that caused the real bug
+        review_queue._drop_schema(TEST_SCHEMA)  # simulates the exact operational mistake that caused the real bug
         # Must not raise — the next call recreates the schema on its own,
         # exactly like a fresh app startup would.
         result = review_queue.create_submission("single", [{
