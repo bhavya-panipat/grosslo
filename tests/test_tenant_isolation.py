@@ -395,15 +395,26 @@ class TestAuditLogIsolation(TenantIsolationTestCase):
         # Point the audit log at a scratch file: the real one is a live demo
         # artifact, and this class writes to it.
         self._orig_path = flask_app.AUDIT_LOG_PATH
+        self._orig_process_path = flask_app.PROCESS_LOG_PATH
         flask_app.AUDIT_LOG_PATH = "test_audit_log_isolation.jsonl"
-        if os.path.exists(flask_app.AUDIT_LOG_PATH):
-            os.remove(flask_app.AUDIT_LOG_PATH)
+        flask_app.PROCESS_LOG_PATH = "test_process_log_isolation.jsonl"
+        for path in (flask_app.AUDIT_LOG_PATH, flask_app.PROCESS_LOG_PATH):
+            if os.path.exists(path):
+                os.remove(path)
 
     def tearDown(self):
-        if os.path.exists(flask_app.AUDIT_LOG_PATH):
-            os.remove(flask_app.AUDIT_LOG_PATH)
+        for path in (flask_app.AUDIT_LOG_PATH, flask_app.PROCESS_LOG_PATH):
+            if os.path.exists(path):
+                os.remove(path)
         flask_app.AUDIT_LOG_PATH = self._orig_path
+        flask_app.PROCESS_LOG_PATH = self._orig_process_path
         super().tearDown()
+
+    def _lines(self, path):
+        if not os.path.exists(path):
+            return []
+        with open(path) as f:
+            return [json.loads(l) for l in f if l.strip()]
 
     def _submit_on(self, host):
         return _client_for(host).post("/api/submissions", json={
@@ -412,12 +423,56 @@ class TestAuditLogIsolation(TenantIsolationTestCase):
 
     def test_every_written_line_carries_a_tenant_id(self):
         self._submit_on(ALPHA_HOST)
-        with open(flask_app.AUDIT_LOG_PATH) as f:
-            lines = [json.loads(l) for l in f if l.strip()]
+        lines = self._lines(flask_app.AUDIT_LOG_PATH)
         self.assertTrue(lines)
         for entry in lines:
             self.assertIn("tenant_id", entry)
+            # Not merely present: an OWNER. Asserting key presence alone was
+            # what let "required" quietly mean "required but nullable".
+            self.assertIsNotNone(entry["tenant_id"])
             self.assertEqual(entry["tenant_id"], self.alpha)
+
+    def test_audit_log_writer_rejects_a_null_tenant_outright(self):
+        """
+        The invariant is enforced where the line is WRITTEN, not patched over
+        where it is read. A read-side filter alone leaves the compliance file
+        itself containing unowned lines, and makes "every line has an owner"
+        a property of the reader rather than of the data.
+        """
+        with self.assertRaises(ValueError) as ctx:
+            flask_app._append_audit_log(None, "/api/optimize", {"ctc": 1})
+        self.assertIn("_append_process_log", str(ctx.exception),
+                      "the error must name the correct alternative, not just refuse")
+        self.assertEqual(self._lines(flask_app.AUDIT_LOG_PATH), [],
+                         "a rejected write must not land in the file anyway")
+
+    def test_anonymous_compute_goes_to_the_process_log_not_the_audit_log(self):
+        # No session, and a host that names no tenant at all.
+        anon = flask_app.app.test_client()
+        r = anon.post("/api/optimize", json={"ctc": 1_800_000}, headers={"Host": "localhost"})
+        self.assertEqual(r.status_code, 200, "stateless compute must stay reachable anonymously")
+        self.assertEqual(self._lines(flask_app.AUDIT_LOG_PATH), [],
+                         "an unowned event must never reach the tenant compliance trail")
+        process = self._lines(flask_app.PROCESS_LOG_PATH)
+        self.assertTrue(process, "it must still be recorded somewhere, not dropped")
+        self.assertEqual(process[0]["route"], "/api/optimize")
+        self.assertIsNone(process[0]["tenant_id"])
+
+    def test_authenticated_compute_still_lands_in_that_tenants_audit_trail(self):
+        """
+        The split must not quietly reduce audit coverage. A logged-in user's
+        computation belonged to their trail before the split and still does —
+        only anonymous lines moved.
+        """
+        client = self._logged_in(ALPHA_HOST, role="hr", code="HR2026")
+        r = client.post("/api/optimize", json={"ctc": 1_800_000})
+        self.assertEqual(r.status_code, 200)
+        audit = self._lines(flask_app.AUDIT_LOG_PATH)
+        self.assertTrue(any(e["route"] == "/api/optimize" and e["tenant_id"] == self.alpha
+                            for e in audit),
+                        "an authenticated computation must stay in that tenant's trail")
+        self.assertEqual(self._lines(flask_app.PROCESS_LOG_PATH), [],
+                         "an owned event must not be diverted to the unowned sink")
 
     def test_audit_log_returns_zero_foreign_tenant_lines(self):
         """

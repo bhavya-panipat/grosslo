@@ -62,6 +62,18 @@ app.config["SESSION_COOKIE_SECURE"] = False
 
 AUDIT_LOG_PATH = "audit_log.jsonl"
 
+# Two sinks, because there are two different things being recorded and merging
+# them was a conflation, not a simplification (see _append_audit_log and
+# _append_process_log below).
+#
+# audit_log.jsonl   — the tenant compliance trail. Every line belongs to
+#                     exactly one tenant. /api/audit-log serves it.
+# process_log.jsonl — tenant-agnostic operational events from the stateless
+#                     compute routes when nobody is authenticated. Belongs to
+#                     no tenant, served to nobody, exists so those events are
+#                     still recorded somewhere rather than dropped.
+PROCESS_LOG_PATH = "process_log.jsonl"
+
 
 def _append_audit_log(tenant_id, route: str, event: dict) -> None:
     """
@@ -84,19 +96,80 @@ def _append_audit_log(tenant_id, route: str, event: dict) -> None:
     than filtered so a future call site cannot quietly omit it. One shared
     pattern applied consistently beats inventing a second one for this file.
 
-    It may legitimately be None, for the stateless compute routes
-    (/api/optimize, /api/batch-audit) that touch no tenant data and can be
-    reached on a host that names no tenant. Such lines belong to nobody and
-    api_audit_log() returns them to nobody — fail closed, since showing an
-    unattributed line to a tenant is exactly the leak this is guarding.
+    AND IT MUST NOT BE None. An earlier version accepted None from the
+    stateless compute routes and relied on api_audit_log() filtering those
+    lines out at read time. That made "required" mean "required but nullable",
+    which is a materially weaker claim, and left one file serving two unrelated
+    jobs — a per-tenant compliance trail and a process activity log. Callers
+    with no tenant use _append_process_log() instead, so the invariant this
+    file's whole value rests on ("every line here has an owner") is now
+    enforced where it is written rather than patched over where it is read.
+
+    A None here is a programming error, not a logging failure, so it raises
+    rather than degrading quietly — the degrade-gracefully rule above covers
+    the filesystem being unwritable, not a caller that does not know who it is
+    acting for.
+    """
+    if tenant_id is None:
+        raise ValueError(
+            "_append_audit_log() requires a real tenant_id; got None. The audit log is a "
+            "per-tenant compliance surface and every line in it must have an owner "
+            "(MULTI_TENANT_DESIGN.md 3.4). For an event that genuinely belongs to no "
+            "tenant — a stateless compute route with no authenticated session — use "
+            "_append_process_log() instead. Do not reintroduce a nullable tenant_id here."
+        )
+    _write_log_line(AUDIT_LOG_PATH, {"tenant_id": tenant_id, "route": route, **event})
+
+
+def _append_process_log(route: str, event: dict) -> None:
+    """
+    The other half of the split: operational events that belong to no tenant.
+
+    The stateless compute routes (/api/optimize, /api/batch-audit,
+    /api/export-razorpayx, /api/export-salary-revision) are pure calculators.
+    They persist nothing, require no session, and can be reached on a host that
+    names no tenant at all — so an anonymous call to one is genuinely not a
+    tenant's compliance event and has no business in a tenant's trail. It is
+    also not nothing, so it lands here rather than being dropped.
+
+    Deliberately NOT served by any route. /api/audit-log is a tenant-scoped
+    surface and this file has no tenant to scope to; exposing it would be
+    re-creating, at the HTTP layer, exactly the cross-tenant visibility the
+    split exists to remove.
+    """
+    _write_log_line(PROCESS_LOG_PATH, {"tenant_id": None, "route": route, **event})
+
+
+def _log_compute_event(route: str, event: dict) -> None:
+    """
+    Routes a stateless-compute event to whichever sink it belongs in, so the
+    choice is made once, explicitly, with the rule written down — instead of
+    every call site passing a possibly-None tenant into a function that claims
+    to require one.
+
+    The rule: if the caller is authenticated, this computation was performed on
+    that tenant's behalf and stays in their compliance trail, exactly as before
+    this split. If nobody is authenticated, it belongs to no tenant and goes to
+    the process log. Coverage for authenticated users is therefore unchanged —
+    this refactor moves anonymous lines out of the audit log, and nothing else.
+    """
+    tenant_id = current_tenant_id()
+    if tenant_id is None:
+        _append_process_log(route, event)
+    else:
+        _append_audit_log(tenant_id, route, event)
+
+
+def _write_log_line(path: str, payload: dict) -> None:
+    """
+    Shared append. Never let a logging failure break the actual response, same
+    degrade-gracefully pattern as _get_commit_history().
     """
     try:
-        with open(AUDIT_LOG_PATH, "a") as f:
+        with open(path, "a") as f:
             f.write(json.dumps({
                 "timestamp": datetime.now(timezone.utc).isoformat(),
-                "tenant_id": tenant_id,
-                "route": route,
-                **event,
+                **payload,
             }) + "\n")
     except OSError:
         pass
@@ -312,7 +385,7 @@ def api_optimize():
         current_extracted, bool(data.get("extraction_ai_backed", False)),
     )
     response["execution_trace"] = trace_optimize_stage(response, extraction_ran=isinstance(current_extracted, dict))
-    _append_audit_log(current_tenant_id(), "/api/optimize", {
+    _log_compute_event("/api/optimize", {
         "ctc": ctc, "recommended_regime": response["recommended_regime"],
         "annual_saving": response["annual_saving"],
         "compliance_flags": [f["rule_id"] for f in response["compliance"]["flags"]],
@@ -466,7 +539,7 @@ def api_batch_audit():
             "treasury_forecast": forecast,
             "orchestration": orchestration,
         })
-        _append_audit_log(current_tenant_id(), "/api/batch-audit", {
+        _log_compute_event("/api/batch-audit", {
             "row_index": i, "current_regime": current_best["regime"],
             "unclaimed_savings": unclaimed_savings, "excess_contribution": excess_contribution,
             "guardrail_verdict": guardrail.get("verdict"),
@@ -633,7 +706,7 @@ def api_export_razorpayx():
             for employee in employees
         ]
 
-    _append_audit_log(current_tenant_id(), "/api/export-razorpayx", {
+    _log_compute_event("/api/export-razorpayx", {
         "ctc": ctc, "band_min": band_min, "band_max": band_max,
         "guardrail_verdict": guardrail.get("verdict"),
         "payout_payloads_generated": len(employees) if employees is not None else 0,
@@ -1044,7 +1117,7 @@ def api_export_salary_revision():
     wb.save(buf)
     buf.seek(0)
 
-    _append_audit_log(current_tenant_id(), "/api/export-salary-revision", {"employee_count": len(employees)})
+    _log_compute_event("/api/export-salary-revision", {"employee_count": len(employees)})
 
     response = send_file(
         buf, as_attachment=True, download_name="grosslo_salary_revision.xlsx",
@@ -1085,11 +1158,17 @@ def api_audit_log():
     rather than an internal debug tool: a reviewer reading someone else's
     decisions here would have no way to tell.
 
-    Fails closed on lines that name no tenant. Entries written before 3.4
-    shipped have no tenant_id at all, and the stateless compute routes can
-    legitimately write None — neither belongs to the requesting tenant, so
-    neither is returned to it. total_logged counts what this tenant may see,
-    not the file's length, which would itself disclose other tenants' volume.
+    Fails closed on lines that name no tenant. Since the audit/process split,
+    nothing new writes an unowned line here — _append_audit_log() rejects a
+    None tenant outright — but entries written before 3.4 shipped have no
+    tenant_id at all, and this file is append-only with no migration. Those
+    legacy lines belong to no one and are returned to no one. The check stays
+    even though the writer now enforces the same invariant, because a read-side
+    guard on a compliance surface should not depend on every past writer having
+    been correct.
+
+    total_logged counts what this tenant may see, not the file's length, which
+    would itself disclose other tenants' volume.
     """
     limit = min(int(request.args.get("limit", 50)), 500)
     tenant_id = current_tenant_id()
