@@ -67,6 +67,8 @@ import psycopg
 from psycopg import sql
 from psycopg.rows import dict_row
 
+import secret_store
+
 # Local dev default targets the Homebrew postgresql@16 cluster over the unix
 # socket AS grosslo_app, not as the developer's own OS role. That is not a
 # cosmetic choice: see the module docstring and scripts/setup_app_role.sql —
@@ -83,12 +85,16 @@ VALID_STATUSES = {"pending", "approved", "rejected"}
 VALID_SOURCES = {"single", "batch"}
 
 # Tables that hold tenant-owned rows and therefore carry tenant_id + RLS.
-# `tenants` is the registry itself, not tenant-owned data. `tenant_settings` is
-# deliberately NOT in this list yet: the login flow has to read a tenant's
-# access-code hashes BEFORE any tenant context exists to key a policy on, so
-# putting it behind RLS would make login unable to authenticate anyone. Its
-# protection is that no route exposes it; revisit when step 5 wires up login.
-_TENANT_SCOPED_TABLES = ("submissions", "submission_rows")
+# `tenants` is the registry itself, not tenant-owned data, so it stays out.
+#
+# tenant_settings joined this list in step 4, when it started holding RazorpayX
+# banking credentials — categorically higher-stakes than anything else here
+# (3.5). An earlier note here worried that RLS would break login, since login
+# must read a tenant's access-code hashes before a session exists. That worry
+# was misplaced: 3.3 resolves the tenant from the SUBDOMAIN, before and
+# independently of authentication, so a tenant context is available to key the
+# policy on by the time the codes are read. Step 5 does exactly that.
+_TENANT_SCOPED_TABLES = ("submissions", "submission_rows", "tenant_settings")
 
 
 class SchemaMissingError(RuntimeError):
@@ -326,6 +332,9 @@ def _ensure_rls(conn: psycopg.Connection) -> None:
     _checked_tenant_id raises rather than letting a caller reach here at all.
     """
     for table in _TENANT_SCOPED_TABLES:
+        # The policy expression is identical for all three: each carries a
+        # tenant_id column (tenant_settings' happens to also be its primary
+        # key), so one shape covers them rather than inventing a second.
         ident = sql.Identifier(table)
         conn.execute(sql.SQL("ALTER TABLE {} ENABLE ROW LEVEL SECURITY").format(ident))
         conn.execute(sql.SQL("ALTER TABLE {} FORCE ROW LEVEL SECURITY").format(ident))
@@ -511,6 +520,99 @@ def list_tenants() -> list[dict]:
         return conn.execute(
             "SELECT id, slug, display_name, created_at FROM tenants ORDER BY id"
         ).fetchall()
+
+
+# ---------------------------------------------------------------------------
+# Per-tenant RazorpayX credentials (step 4, section 3.5). These replace the
+# process-wide RAZORPAYX_KEY_ID / RAZORPAYX_KEY_SECRET environment variables,
+# which meant every company would have been paying out of — and reading the
+# balance of — one shared bank account.
+#
+# Ciphertext in, ciphertext out at the storage boundary: secret_store owns the
+# envelope format, and refuses outright to store anything but a test-mode key
+# until a real KMS exists (3.5). tenant_settings is RLS-protected, so these go
+# through _conn(tenant_id) like any other tenant-owned row.
+# ---------------------------------------------------------------------------
+
+def set_tenant_razorpayx_credentials(tenant_id: int, key_id: str | None,
+                                     key_secret: str | None,
+                                     account_number: str | None = None) -> None:
+    """
+    Stores (or clears) a tenant's RazorpayX credentials.
+
+    Requires the tenant_settings row to exist — created alongside the tenant's
+    access codes. Raises secret_store.LiveCredentialRefused for a non-test-mode
+    key; that refusal is deliberate and has no override.
+    """
+    tenant_id = _checked_tenant_id(tenant_id)
+    stored_id = secret_store.encrypt(key_id) if key_id else None
+    stored_secret = secret_store.encrypt(key_secret, is_credential=False) if key_secret else None
+    with _conn(tenant_id) as conn:
+        cur = conn.execute(
+            "UPDATE tenant_settings SET razorpayx_key_id = %s, razorpayx_key_secret = %s, "
+            "razorpayx_account_number = %s WHERE tenant_id = %s",
+            (stored_id, stored_secret, account_number, tenant_id),
+        )
+        if cur.rowcount == 0:
+            raise ValueError(
+                f"no tenant_settings row for tenant {tenant_id} — create the tenant's "
+                f"settings (access codes) before attaching RazorpayX credentials"
+            )
+
+
+def get_tenant_razorpayx_credentials(tenant_id: int) -> dict | None:
+    """
+    Returns {"key_id", "key_secret", "account_number"} in PLAINTEXT for the
+    caller to use immediately, or None if this tenant has no credentials
+    configured. Never log or persist the returned values.
+    """
+    tenant_id = _checked_tenant_id(tenant_id)
+    with _conn(tenant_id) as conn:
+        row = conn.execute(
+            "SELECT razorpayx_key_id, razorpayx_key_secret, razorpayx_account_number "
+            "FROM tenant_settings WHERE tenant_id = %s",
+            (tenant_id,),
+        ).fetchone()
+    if row is None or not row["razorpayx_key_id"]:
+        return None
+    return {
+        "key_id": secret_store.decrypt(row["razorpayx_key_id"]),
+        "key_secret": secret_store.decrypt(row["razorpayx_key_secret"]),
+        "account_number": row["razorpayx_account_number"],
+    }
+
+
+def create_tenant_settings(tenant_id: int, hr_access_code_hash: str,
+                           finance_access_code_hash: str) -> None:
+    """
+    Creates the tenant's settings row. Separate from create_tenant() because
+    the access-code hashes are step 5's concern (3.3's interim shared-code
+    model, now scoped per tenant) while the tenant registry entry itself is
+    not.
+    """
+    tenant_id = _checked_tenant_id(tenant_id)
+    with _conn(tenant_id) as conn:
+        conn.execute(
+            "INSERT INTO tenant_settings (tenant_id, hr_access_code_hash, finance_access_code_hash) "
+            "VALUES (%s, %s, %s) ON CONFLICT (tenant_id) DO UPDATE SET "
+            "hr_access_code_hash = EXCLUDED.hr_access_code_hash, "
+            "finance_access_code_hash = EXCLUDED.finance_access_code_hash",
+            (tenant_id, hr_access_code_hash, finance_access_code_hash),
+        )
+
+
+def get_tenant_access_code_hashes(tenant_id: int) -> dict | None:
+    """Returns {"hr": hash, "finance": hash} for the tenant, or None."""
+    tenant_id = _checked_tenant_id(tenant_id)
+    with _conn(tenant_id) as conn:
+        row = conn.execute(
+            "SELECT hr_access_code_hash, finance_access_code_hash FROM tenant_settings "
+            "WHERE tenant_id = %s",
+            (tenant_id,),
+        ).fetchone()
+    if row is None:
+        return None
+    return {"hr": row["hr_access_code_hash"], "finance": row["finance_access_code_hash"]}
 
 
 # ---------------------------------------------------------------------------

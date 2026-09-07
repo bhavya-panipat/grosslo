@@ -1088,6 +1088,7 @@ def api_auth_session():
 
 @app.route("/api/razorpayx/balance", methods=["GET"])
 @require_role("finance")
+@require_tenant
 def api_razorpayx_balance():
     """
     The one route in this codebase that makes a real, live call to
@@ -1096,9 +1097,20 @@ def api_razorpayx_balance():
     keys only, no override). Every other export/payout route in this file
     stays payload-construction-only, unchanged. Finance-only: real
     financial visibility, same sensitivity class as the review queue.
+
+    Credentials are resolved from the REQUESTING TENANT (step 4, section 3.5),
+    not from process environment. Before this, one key pair served the whole
+    process, so every company would have been reading the balance of the same
+    real bank account.
     """
+    credentials = review_queue.get_tenant_razorpayx_credentials(current_tenant_id())
+    if credentials is None:
+        return jsonify({
+            "configured": False, "live": False,
+            "error": "This tenant has no RazorpayX credentials configured.",
+        }), 503
     try:
-        balance = fetch_account_balance()
+        balance = fetch_account_balance(credentials["key_id"], credentials["key_secret"])
     except RazorpayXNotConfigured as e:
         return jsonify({"configured": False, "live": False, "error": str(e)}), 503
     except RazorpayXKeyModeError as e:
