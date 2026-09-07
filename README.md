@@ -331,18 +331,31 @@ company's review queue.
 
 Backend:
 ```bash
-python3 -m unittest discover -s tests   # 168 tests, all pass with no API key set
+python3 -m unittest discover -s tests   # 199 tests, all pass with no API key set
 python3 app.py 8000                     # serves the API at http://127.0.0.1:8000
 ```
 
-For local access on a subdomain, add the tenant host to `/etc/hosts`:
-`127.0.0.1  acme.grosslo.app`.
+**You must reach the app on a tenant subdomain — plain `localhost` will not
+log in.** The tenant comes from the host, so `http://localhost:3000` resolves
+to no tenant and `/api/auth/login` returns 401 "Unknown workspace". That is
+correct behaviour, not a misconfiguration, but it will stop you dead if you
+open the URL the frontend prints. Two ways round it:
+
+```bash
+# Easiest — no /etc/hosts edit needed; *.localhost resolves to 127.0.0.1 already
+echo 'TENANT_DOMAIN_SUFFIX=localhost' >> .env   # then use http://acme.localhost:3000
+
+# Or keep the real suffix and add the host yourself
+echo '127.0.0.1  acme.grosslo.app' | sudo tee -a /etc/hosts   # then http://acme.grosslo.app:3000
+```
 
 Frontend (Next.js — Node isn't bundled with this repo, install it separately):
 ```bash
 cd frontend
 npm install
-npm run dev                             # http://localhost:3000, proxies /api/* to Flask on :8000
+npm run dev                             # prints http://localhost:3000 — open it on a
+                                        # tenant subdomain instead (see above);
+                                        # proxies /api/* to Flask on :8000
 ```
 
 To enable the real LLM-backed extraction/explanation/compliance-phrasing/query
