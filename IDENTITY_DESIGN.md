@@ -272,20 +272,33 @@ and roles are already decoupled from the routes. Session shape after 1.2 is
 `{"user_id": int, "tenant_id": int, "roles": [...]}` — the shape 1.1 §3.3
 predicted, reached without ever re-deriving the tenant boundary.
 
-## 6. Open decisions needing an explicit call, not a silent default
+## 6. Decisions needing an explicit call, not a silent default
 
-- **Password reset delivery.** There is no email infrastructure at all today
-  (§1). Reset requires one, and the choice — a provider (SES/Postmark/Resend) vs.
-  operator-issued reset links vs. deferring reset entirely to 1.3 with SSO —
-  changes what 1.2 ships. Deferring is coherent: with an owner who can reset
-  other users, only a locked-out sole owner is stuck.
-- **Whether the retired code hashes are nulled or kept.** `codes_disabled_at`
-  makes them unusable either way. Nulling removes a dead secret; keeping them
-  preserves the record that a tenant was provisioned that way.
-- **Rate-limit durability.** The existing limiter is in-memory and per-process
-  and does not survive a restart or multiple workers (`app.py:99-102`). Whether
-  1.2 keeps that honestly-labelled limitation or moves the limiter to Postgres
-  is a real call, not a detail.
+All three were resolved before implementation began. Recorded here rather than
+deleted, so the reasoning that produced §3 and §7 stays legible to a reader who
+only has this file.
+
+- **RESOLVED — Password reset is deferred to 1.3.** There is no email
+  infrastructure of any kind in this repo (§1), and building a delivery
+  provider inside an identity phase to serve a case an owner already covers is
+  scope this phase does not need. An owner can reset any other user's password,
+  which is the common case. The genuinely uncovered case is a locked-out SOLE
+  owner, who needs operator intervention — a rare, documented gap, not a reason
+  to take on email infrastructure now. 1.3 brings SSO, which changes the reset
+  story anyway.
+- **RESOLVED — The retired code hashes are KEPT, not nulled.**
+  `codes_disabled_at` makes them unusable either way, so this is purely about
+  what the record says. Nulling destroys the evidence that a shared secret
+  existed and was correctly retired; keeping it inert but present preserves
+  that history. Consistent with this project's existing pattern of preserving
+  rather than erasing — the docstrings that record why a thing is the way it
+  is, and §3.4's refusal to overwrite historical `decided_by` values.
+- **RESOLVED — The rate limiter stays in-memory for 1.2**, carrying exactly the
+  honest limitation label it already has (`app.py:99-102`: per-process, resets
+  on restart, does not survive multiple workers behind a load balancer). Moving
+  it to Postgres would be solving a Phase 4 scale problem inside an identity
+  phase — the same discipline that correctly left 1.1's KMS and hosting
+  decisions parked rather than answering them early to feel finished.
 
 ## 7. Suggested internal sequencing for 1.2
 
