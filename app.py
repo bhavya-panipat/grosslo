@@ -28,6 +28,7 @@ from razorpayx_client import (
 )
 from auth import (
     verify_login, require_permission, require_tenant, require_resolved_tenant,
+    ROLE_PERMISSIONS,
     current_tenant_id, resolved_tenant_id, tenant_from_request, TENANT_DOMAIN_SUFFIX,
 )
 import io
@@ -1247,6 +1248,96 @@ def api_audit_log():
     except (OSError, json.JSONDecodeError):
         pass
     return jsonify({"entries": entries[-limit:], "total_logged": len(entries)})
+
+
+# ---------------------------------------------------------------------------
+# User administration (Phase 1.2 step 3). Behind manage_users, which only the
+# `owner` role holds — so nothing can reach these until step 4 teaches login to
+# mint an owner session, or until the admin CLI creates the first owner.
+# ---------------------------------------------------------------------------
+
+def _validate_roles(roles):
+    """Roles are validated HERE, not in review_queue: auth.py owns the
+    permission model, and importing it into the persistence layer would invert
+    the dependency. An unknown role is refused rather than stored and silently
+    granting nothing."""
+    if not isinstance(roles, list) or any(not isinstance(r, str) for r in roles):
+        return None, "roles must be a list of role names"
+    unknown = [r for r in roles if r not in ROLE_PERMISSIONS]
+    if unknown:
+        return None, f"unknown role(s): {', '.join(unknown)}. Valid: {', '.join(sorted(ROLE_PERMISSIONS))}"
+    return roles, None
+
+
+@app.route("/api/users", methods=["GET"])
+@require_tenant
+@require_permission("manage_users")
+def api_list_users():
+    return jsonify({"users": review_queue.list_users(current_tenant_id())})
+
+
+@app.route("/api/users", methods=["POST"])
+@require_tenant
+@require_permission("manage_users")
+def api_create_user():
+    data = request.get_json(force=True) or {}
+    roles, error = _validate_roles(data.get("roles", []))
+    if error:
+        return jsonify({"error": error}), 400
+    try:
+        user = review_queue.create_user(
+            current_tenant_id(), data.get("email", ""), data.get("display_name", ""),
+            roles, password=data.get("password"), status=data.get("status", "active"),
+        )
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    _append_audit_log(current_tenant_id(), "/api/users", {
+        "action": "create_user", "user_id": user["id"], "email": user["email"],
+        "roles": user["roles"], "actor_user_id": session.get("user_id"),
+    })
+    return jsonify(user), 201
+
+
+@app.route("/api/users/<int:user_id>/roles", methods=["PUT"])
+@require_tenant
+@require_permission("manage_users")
+def api_set_user_roles(user_id):
+    data = request.get_json(force=True) or {}
+    roles, error = _validate_roles(data.get("roles", []))
+    if error:
+        return jsonify({"error": error}), 400
+    user = review_queue.set_user_roles(current_tenant_id(), user_id, roles)
+    if user is None:
+        return jsonify({"error": "user not found"}), 404
+    _append_audit_log(current_tenant_id(), "/api/users", {
+        "action": "set_roles", "user_id": user_id, "roles": user["roles"],
+        "actor_user_id": session.get("user_id"),
+    })
+    return jsonify(user)
+
+
+@app.route("/api/users/<int:user_id>/status", methods=["PUT"])
+@require_tenant
+@require_permission("manage_users")
+def api_set_user_status(user_id):
+    """
+    Disable, rather than delete. submission_rows.decided_by_user_id references
+    users(id), so removing a person would break or orphan the attribution on
+    every decision they made — destroying audit history to tidy a user list.
+    """
+    data = request.get_json(force=True) or {}
+    status = data.get("status")
+    try:
+        user = review_queue.set_user_status(current_tenant_id(), user_id, status)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    if user is None:
+        return jsonify({"error": "user not found"}), 404
+    _append_audit_log(current_tenant_id(), "/api/users", {
+        "action": "set_status", "user_id": user_id, "status": user["status"],
+        "actor_user_id": session.get("user_id"),
+    })
+    return jsonify(user)
 
 
 @app.route("/api/auth/login", methods=["POST"])

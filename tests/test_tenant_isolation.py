@@ -628,3 +628,99 @@ class TestAuditLogIsolation(TenantIsolationTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestUserAdministration(TenantIsolationTestCase):
+    """
+    Phase 1.2 step 3. Sessions are injected directly here because no owner can
+    LOG IN until step 4 — the shared-code login only mints hr/finance. That is
+    the correct state for this step, not a gap: step 3 adds the capability,
+    step 4 adds the door.
+    """
+
+    def _owner_client(self, host, tenant_id, user_id=None):
+        client = _client_for(host)
+        # base_url must be passed explicitly: session_transaction() does not go
+        # through _HostClient.open(), so without it the cookie is set for the
+        # default host and never sent to the tenant subdomain.
+        with client.session_transaction(base_url=host) as sess:
+            sess["tenant_id"] = tenant_id
+            sess["roles"] = ["owner"]
+            if user_id is not None:
+                sess["user_id"] = user_id
+        return client
+
+    def test_owner_can_create_list_and_scope_users_to_their_tenant(self):
+        client = self._owner_client(ALPHA_HOST, self.alpha)
+        created = client.post("/api/users", json={
+            "email": "Ada@Alpha.test", "display_name": "Ada", "roles": ["finance"],
+            "password": "pw",
+        })
+        self.assertEqual(created.status_code, 201)
+        self.assertEqual(created.get_json()["email"], "ada@alpha.test", "email is normalised")
+        self.assertNotIn("password_hash", created.get_json(), "the hash must never leave the server")
+
+        review_queue.create_user(self.beta, "bob@beta.test", "Bob", ["hr"])
+        listed = client.get("/api/users").get_json()["users"]
+        self.assertEqual([u["email"] for u in listed], ["ada@alpha.test"],
+                         "Alpha's owner must not see Beta's users")
+
+    def test_a_role_lacking_manage_users_is_refused(self):
+        client = _client_for(ALPHA_HOST)
+        with client.session_transaction(base_url=ALPHA_HOST) as sess:
+            sess["tenant_id"] = self.alpha
+            sess["roles"] = ["finance"]      # finance holds no manage_users
+        self.assertEqual(client.get("/api/users").status_code, 401)
+        self.assertEqual(client.post("/api/users", json={}).status_code, 401)
+
+    def test_unknown_roles_are_refused_not_silently_stored(self):
+        # A stored role nobody grants permissions for would look assigned and
+        # do nothing — worse than a clear rejection.
+        client = self._owner_client(ALPHA_HOST, self.alpha)
+        resp = client.post("/api/users", json={
+            "email": "x@alpha.test", "display_name": "X", "roles": ["superuser"],
+        })
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("superuser", resp.get_json()["error"])
+        self.assertEqual(review_queue.list_users(self.alpha), [])
+
+    def test_users_are_disabled_never_deleted(self):
+        # decided_by_user_id references users(id); deleting a person would break
+        # or orphan the attribution on every decision they made.
+        user = review_queue.create_user(self.alpha, "z@alpha.test", "Z", ["finance"])
+        client = self._owner_client(ALPHA_HOST, self.alpha)
+        resp = client.put(f"/api/users/{user['id']}/status", json={"status": "disabled"})
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.get_json()["status"], "disabled")
+        self.assertIsNotNone(review_queue.get_user(self.alpha, user["id"]),
+                             "the row must survive so attribution survives")
+
+    def test_owner_cannot_reach_another_tenants_user_by_id(self):
+        beta_user = review_queue.create_user(self.beta, "bob@beta.test", "Bob", ["hr"])
+        client = self._owner_client(ALPHA_HOST, self.alpha)
+        self.assertEqual(
+            client.put(f"/api/users/{beta_user['id']}/roles", json={"roles": ["owner"]}).status_code,
+            404, "Beta's user must be invisible, not editable, from Alpha")
+        self.assertEqual(review_queue.get_user(self.beta, beta_user["id"])["roles"], ["hr"],
+                         "Beta's user must be unchanged")
+
+    def test_user_administration_is_written_to_the_audit_trail(self):
+        orig = flask_app.AUDIT_LOG_PATH
+        flask_app.AUDIT_LOG_PATH = "test_user_admin_audit.jsonl"
+        if os.path.exists(flask_app.AUDIT_LOG_PATH):
+            os.remove(flask_app.AUDIT_LOG_PATH)
+        try:
+            client = self._owner_client(ALPHA_HOST, self.alpha, user_id=99)
+            client.post("/api/users", json={
+                "email": "n@alpha.test", "display_name": "N", "roles": ["hr"]})
+            with open(flask_app.AUDIT_LOG_PATH) as f:
+                entries = [json.loads(l) for l in f if l.strip()]
+            created = [e for e in entries if e.get("action") == "create_user"]
+            self.assertEqual(len(created), 1)
+            self.assertEqual(created[0]["tenant_id"], self.alpha)
+            self.assertEqual(created[0]["actor_user_id"], 99,
+                             "who created the account must be recorded, not just that it happened")
+        finally:
+            if os.path.exists(flask_app.AUDIT_LOG_PATH):
+                os.remove(flask_app.AUDIT_LOG_PATH)
+            flask_app.AUDIT_LOG_PATH = orig

@@ -706,6 +706,198 @@ def get_tenant_razorpayx_credentials(tenant_id: int) -> dict | None:
     }
 
 
+# ---------------------------------------------------------------------------
+# Users and roles (Phase 1.2, IDENTITY_DESIGN.md §4).
+#
+# Every function takes tenant_id as a required first positional argument and
+# goes through _conn(tenant_id), exactly like the submission functions — users
+# are tenant-owned rows, not a special case. RLS is the second layer, so a
+# missing predicate here still cannot cross tenants.
+#
+# Roles are stored, not validated against the catalogue here: auth.py owns the
+# permission model, and importing it into the persistence layer would invert
+# the dependency. The route layer validates before calling.
+# ---------------------------------------------------------------------------
+
+VALID_USER_STATUSES = {"active", "invited", "disabled"}
+
+
+# auth.py imports this module, so importing it back at module level would be a
+# cycle. Deferred rather than duplicated: re-implementing the hash here would
+# put the pbkdf2:sha256 pinning (which exists because hashlib.scrypt is absent
+# on this interpreter) in two places that could drift apart silently.
+def auth_hash_password(password: str) -> str:
+    from auth import hash_password
+    return hash_password(password)
+
+
+def auth_verify_password(password_hash: str | None, password: str) -> bool:
+    from auth import verify_password
+    return verify_password(password_hash, password)
+
+
+def _user_with_roles(conn, tenant_id: int, user_id: int) -> dict | None:
+    row = conn.execute(
+        "SELECT id, tenant_id, email, display_name, status, created_at, last_login_at, "
+        "(password_hash IS NOT NULL) AS has_password "
+        "FROM users WHERE tenant_id = %s AND id = %s",
+        (tenant_id, user_id),
+    ).fetchone()
+    if row is None:
+        return None
+    roles = conn.execute(
+        "SELECT role FROM user_roles WHERE tenant_id = %s AND user_id = %s ORDER BY role",
+        (tenant_id, user_id),
+    ).fetchall()
+    # password_hash is deliberately never returned — callers that need to check
+    # a password call verify_user_password(), which keeps the hash inside this
+    # module. `has_password` tells a UI whether local login is possible without
+    # disclosing the hash itself.
+    return {**row, "roles": [r["role"] for r in roles]}
+
+
+def create_user(tenant_id: int, email: str, display_name: str, roles: list,
+                password: str | None = None, status: str = "active") -> dict:
+    """
+    Creates a user in this tenant. `roles` may be empty — a user with no roles
+    can log in and do nothing, which is a coherent state (an invited account
+    awaiting assignment) and better than inventing a default role.
+    """
+    tenant_id = _checked_tenant_id(tenant_id)
+    email = (email or "").strip().lower()
+    if not email:
+        raise ValueError("email is required")
+    if not (display_name or "").strip():
+        raise ValueError("display_name is required")
+    if status not in VALID_USER_STATUSES:
+        raise ValueError(f"status must be one of {VALID_USER_STATUSES}")
+    password_hash = auth_hash_password(password) if password else None
+
+    with _conn(tenant_id) as conn:
+        existing = conn.execute(
+            "SELECT id FROM users WHERE tenant_id = %s AND email = %s", (tenant_id, email)
+        ).fetchone()
+        if existing:
+            raise ValueError(f"a user with email {email!r} already exists in this tenant")
+        user_id = conn.execute(
+            "INSERT INTO users (tenant_id, email, display_name, password_hash, status) "
+            "VALUES (%s, %s, %s, %s, %s) RETURNING id",
+            (tenant_id, email, display_name.strip(), password_hash, status),
+        ).fetchone()["id"]
+        for role in dict.fromkeys(roles or []):  # de-duplicated, order preserved
+            conn.execute(
+                "INSERT INTO user_roles (tenant_id, user_id, role) VALUES (%s, %s, %s)",
+                (tenant_id, user_id, role),
+            )
+        return _user_with_roles(conn, tenant_id, user_id)
+
+
+def list_users(tenant_id: int) -> list:
+    tenant_id = _checked_tenant_id(tenant_id)
+    with _conn(tenant_id) as conn:
+        ids = conn.execute(
+            "SELECT id FROM users WHERE tenant_id = %s ORDER BY id", (tenant_id,)
+        ).fetchall()
+        return [_user_with_roles(conn, tenant_id, r["id"]) for r in ids]
+
+
+def get_user(tenant_id: int, user_id: int) -> dict | None:
+    tenant_id = _checked_tenant_id(tenant_id)
+    with _conn(tenant_id) as conn:
+        return _user_with_roles(conn, tenant_id, user_id)
+
+
+def get_user_by_email(tenant_id: int, email: str) -> dict | None:
+    """Resolves a login attempt to a user WITHIN one tenant. Step 4 uses this."""
+    tenant_id = _checked_tenant_id(tenant_id)
+    with _conn(tenant_id) as conn:
+        row = conn.execute(
+            "SELECT id FROM users WHERE tenant_id = %s AND email = %s",
+            (tenant_id, (email or "").strip().lower()),
+        ).fetchone()
+        return _user_with_roles(conn, tenant_id, row["id"]) if row else None
+
+
+def verify_user_password(tenant_id: int, user_id: int, password: str) -> bool:
+    """
+    Checks a password without the hash ever leaving this module. Deliberately
+    separate from get_user*(), which never return password_hash — a hash that is
+    handed around gets logged eventually.
+    """
+    tenant_id = _checked_tenant_id(tenant_id)
+    with _conn(tenant_id) as conn:
+        row = conn.execute(
+            "SELECT password_hash FROM users WHERE tenant_id = %s AND id = %s",
+            (tenant_id, user_id),
+        ).fetchone()
+    return auth_verify_password(row["password_hash"], password) if row else False
+
+
+def set_user_password(tenant_id: int, user_id: int, password: str) -> None:
+    tenant_id = _checked_tenant_id(tenant_id)
+    with _conn(tenant_id) as conn:
+        conn.execute(
+            "UPDATE users SET password_hash = %s WHERE tenant_id = %s AND id = %s",
+            (auth_hash_password(password), tenant_id, user_id),
+        )
+
+
+def set_user_roles(tenant_id: int, user_id: int, roles: list) -> dict | None:
+    """Replaces this user's roles wholesale. Returns the updated user, or None."""
+    tenant_id = _checked_tenant_id(tenant_id)
+    with _conn(tenant_id) as conn:
+        if _user_with_roles(conn, tenant_id, user_id) is None:
+            return None
+        conn.execute(
+            "DELETE FROM user_roles WHERE tenant_id = %s AND user_id = %s", (tenant_id, user_id)
+        )
+        for role in dict.fromkeys(roles or []):
+            conn.execute(
+                "INSERT INTO user_roles (tenant_id, user_id, role) VALUES (%s, %s, %s)",
+                (tenant_id, user_id, role),
+            )
+        return _user_with_roles(conn, tenant_id, user_id)
+
+
+def set_user_status(tenant_id: int, user_id: int, status: str) -> dict | None:
+    """
+    Disabling is how a user is removed. There is no delete: submission_rows
+    .decided_by_user_id references users(id), and deleting a person would
+    either break that FK or orphan the attribution on decisions they made —
+    destroying audit history to tidy a user list, which §3.4 already refused to
+    do in the other direction by not backfilling.
+    """
+    if status not in VALID_USER_STATUSES:
+        raise ValueError(f"status must be one of {VALID_USER_STATUSES}")
+    tenant_id = _checked_tenant_id(tenant_id)
+    with _conn(tenant_id) as conn:
+        cur = conn.execute(
+            "UPDATE users SET status = %s WHERE tenant_id = %s AND id = %s",
+            (status, tenant_id, user_id),
+        )
+        if cur.rowcount == 0:
+            return None
+        return _user_with_roles(conn, tenant_id, user_id)
+
+
+def count_users(tenant_id: int) -> int:
+    """Used by step 4's bootstrap check (§3.3): codes work only at zero users."""
+    tenant_id = _checked_tenant_id(tenant_id)
+    with _conn(tenant_id) as conn:
+        return conn.execute(
+            "SELECT COUNT(*) AS n FROM users WHERE tenant_id = %s", (tenant_id,)
+        ).fetchone()["n"]
+
+
+def record_login(tenant_id: int, user_id: int) -> None:
+    tenant_id = _checked_tenant_id(tenant_id)
+    with _conn(tenant_id) as conn:
+        conn.execute(
+            "UPDATE users SET last_login_at = now() WHERE tenant_id = %s AND id = %s",
+            (tenant_id, user_id),
+        )
+
+
 def get_tenant_source_account(tenant_id: int) -> str | None:
     """
     The account number a generated payout should name as its SOURCE, or None if

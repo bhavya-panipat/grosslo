@@ -73,6 +73,40 @@ def hash_access_code(code: str) -> str:
     return generate_password_hash(normalize_access_code(code), method="pbkdf2:sha256")
 
 
+def hash_password(password: str) -> str:
+    """
+    Hashes a USER's password (Phase 1.2). Distinct from hash_access_code()
+    above, and the difference is not stylistic.
+
+    hash_access_code() runs normalize_access_code(), which upper-cases and
+    strips. That is correct for the shared demo codes, which were compared
+    case-insensitively client-side long before they were hashed. Applying it to
+    a password would silently make every password case-insensitive and discard
+    leading and trailing characters — collapsing the search space an attacker
+    has to cover, on the credential that actually identifies a person. So
+    passwords are hashed verbatim, with no normalisation whatsoever.
+
+    Same pbkdf2:sha256 pinning as hash_access_code, for the same reason:
+    werkzeug's default is scrypt, and hashlib.scrypt is absent on this repo's
+    interpreter.
+    """
+    if not isinstance(password, str) or not password:
+        raise ValueError("password must be a non-empty string")
+    return generate_password_hash(password, method="pbkdf2:sha256")
+
+
+def verify_password(password_hash: str | None, password: str) -> bool:
+    """
+    Checks a password against a stored hash. False — never an exception — when
+    the user has no local password at all, which is the state an SSO-provisioned
+    user will be in from 1.3 (users.password_hash is nullable, IDENTITY_DESIGN.md
+    3.2). Such a user must fail local login cleanly rather than crash it.
+    """
+    if not password_hash or not isinstance(password, str):
+        return False
+    return check_password_hash(password_hash, password)
+
+
 def tenant_slug_from_host(host: str | None) -> str | None:
     """
     Extracts the tenant slug from a Host header: 'acme.grosslo.app' -> 'acme'.
