@@ -269,6 +269,39 @@ class TestRlsAsIndependentLayer(TenantIsolationTestCase):
         self.assertFalse(who["rolsuper"], f"{who['u']} is a superuser; RLS would be inert")
         self.assertFalse(who["rolbypassrls"], f"{who['u']} has BYPASSRLS; RLS would be inert")
 
+    def test_startup_refuses_a_role_that_would_bypass_rls(self):
+        """
+        The near-miss, made unrepeatable. grosslo_app was added because the
+        default Homebrew role is a superuser and RLS was therefore inert — but
+        that fix lives in configuration, and DATABASE_URL can be pointed back
+        at a privileged role by anyone, producing a working app with half its
+        isolation silently gone. So the invariant is asserted at startup.
+        """
+        import os
+        original = os.environ.get("DATABASE_URL")
+        # The developer's own OS role: superuser + BYPASSRLS on a stock
+        # Homebrew cluster, which is exactly how this nearly shipped.
+        os.environ["DATABASE_URL"] = "postgresql:///grosslo"
+        try:
+            conn = psycopg.connect(review_queue._dsn(), row_factory=dict_row)
+            privileged = conn.execute(
+                "SELECT rolsuper OR rolbypassrls AS bypasses FROM pg_roles "
+                "WHERE rolname = current_user").fetchone()["bypasses"]
+            conn.close()
+            if not privileged:
+                self.skipTest("default connection role is not privileged here; "
+                              "nothing to assert against")
+            with self.assertRaises(review_queue.RlsNotEnforceableError) as ctx:
+                review_queue.init_db()
+            message = str(ctx.exception)
+            self.assertIn("row-level-security", message)
+            self.assertIn("grosslo_app", message, "the error must name the fix, not just the fault")
+        finally:
+            if original is None:
+                os.environ.pop("DATABASE_URL", None)
+            else:
+                os.environ["DATABASE_URL"] = original
+
     def test_policies_are_forced_not_merely_enabled(self):
         # A table's OWNER is exempt from its own policies unless FORCE is set,
         # and this role owns these tables.

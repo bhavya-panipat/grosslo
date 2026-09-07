@@ -107,6 +107,28 @@ class SchemaMissingError(RuntimeError):
     """
 
 
+class RlsNotEnforceableError(RuntimeError):
+    """
+    Raised at startup when the configured connection role would IGNORE every
+    row-level-security policy — i.e. it is a superuser or holds BYPASSRLS.
+
+    This exists because the failure it prevents is invisible. The policies are
+    still created, still show in \\d, and every application-layer test still
+    passes, because those exercise the correctly-written path with its explicit
+    WHERE tenant_id. What silently disappears is the SECOND enforcement layer —
+    the one MULTI_TENANT_DESIGN.md 3.1 added specifically to catch a future
+    query that forgets the predicate. There is no error, no log line, and no
+    behavioural difference until the day something depends on it.
+
+    It nearly shipped that way during Phase 1.1: the Homebrew default
+    connection role is the developer's own OS superuser. Fixing it once by
+    adding grosslo_app is not enough, because DATABASE_URL is configuration —
+    anyone can point it back at a privileged role and get a working app with
+    half its isolation gone. So the invariant is asserted at startup rather
+    than documented and hoped about.
+    """
+
+
 class TenantContextMissing(ValueError):
     """
     Raised when a persistence call is made without a usable tenant_id.
@@ -441,14 +463,44 @@ def _admin_conn():
         conn.close()
 
 
+def assert_rls_enforceable(conn: psycopg.Connection) -> None:
+    """
+    Refuses to proceed if the connection role would bypass RLS. See
+    RlsNotEnforceableError for why this is a hard failure and not a warning:
+    a warning scrolls past, and the thing it warns about produces no other
+    symptom.
+    """
+    role = conn.execute(
+        "SELECT current_user AS name, rolsuper, rolbypassrls FROM pg_roles "
+        "WHERE rolname = current_user"
+    ).fetchone()
+    if role is None:
+        return  # cannot introspect; nothing to assert against
+    if role["rolsuper"] or role["rolbypassrls"]:
+        why = "a SUPERUSER" if role["rolsuper"] else "BYPASSRLS"
+        raise RlsNotEnforceableError(
+            f"Refusing to start: the database role {role['name']!r} is {why}, so PostgreSQL "
+            f"exempts it from every row-level-security policy. The tenant-isolation policies "
+            f"on {', '.join(_TENANT_SCOPED_TABLES)} would exist and enforce NOTHING, silently — "
+            f"no error, no log line, and every application-layer test still passing. "
+            f"Connect as the unprivileged role instead (scripts/setup_app_role.sql creates "
+            f"grosslo_app), or set DATABASE_URL to one. Current DSN: {_dsn()}"
+        )
+
+
 def init_db() -> None:
     """
     Creates the schema if it isn't there. This is now the ONLY place that
     happens — _conn() verifies and raises SchemaMissingError instead of
     creating, so this call is required at startup rather than being the
     convenience it was under SQLite. app.py calls it at import time.
+
+    Also the startup gate for the RLS-bypass invariant (see
+    assert_rls_enforceable), because this is the one call guaranteed to run
+    before anything else touches the database.
     """
     with _admin_conn() as conn:
+        assert_rls_enforceable(conn)
         _ensure_schema(conn)
 
 

@@ -39,7 +39,34 @@ ALTER TABLE IF EXISTS public.tenant_settings  OWNER TO grosslo_app;
 ALTER TABLE IF EXISTS public.submissions      OWNER TO grosslo_app;
 ALTER TABLE IF EXISTS public.submission_rows  OWNER TO grosslo_app;
 
--- Local development uses the Homebrew cluster's default `trust` auth on the
--- unix socket, so no password is set here. A real deployment must set one
--- (ALTER ROLE grosslo_app PASSWORD '...') and put it in DATABASE_URL —
--- section 6's hosting decision is still open, so that is not scripted here.
+-- Revoke PostgreSQL's default grants to PUBLIC. Every role in the cluster gets
+-- CONNECT and TEMP on a new database, and USAGE on the public schema, without
+-- anyone granting them — the same class of default-permissive assumption as
+-- the superuser/BYPASSRLS problem above, found by sweeping for it rather than
+-- by hitting it. Nothing here needs them.
+REVOKE ALL ON DATABASE grosslo FROM PUBLIC;
+REVOKE ALL ON SCHEMA public FROM PUBLIC;
+GRANT CONNECT ON DATABASE grosslo TO grosslo_app;
+GRANT USAGE  ON SCHEMA public     TO grosslo_app;
+
+-- PRODUCTION: revoke this one. CREATE on the database exists ONLY so the test
+-- suite can give each module its own schema and drop it between tests. A
+-- production application process has no reason to create or drop schemas, and
+-- leaving it is exactly the kind of privilege that gets inherited by accident
+-- and never questioned:
+--     REVOKE CREATE ON DATABASE grosslo FROM grosslo_app;
+--     REVOKE CREATE ON SCHEMA public FROM grosslo_app;
+
+-- NOT FIXED HERE, and worth knowing: this cluster's pg_hba.conf uses `trust`
+-- for local and host connections (initdb's own default, and it warns about it
+-- on creation). That means any local OS user can connect as ANY role,
+-- including the superuser, with no password — so the unprivileged role above
+-- is a guard against accident, not against a local attacker. Acceptable for a
+-- development cluster on a laptop; a real deployment must use scram-sha-256
+-- and give grosslo_app a password (ALTER ROLE grosslo_app PASSWORD '...') in
+-- DATABASE_URL. Section 6's hosting decision is still open, so the production
+-- pg_hba is not scripted here.
+--
+-- The application refuses to start if its connection role can bypass RLS
+-- (review_queue.assert_rls_enforceable), so misconfiguring DATABASE_URL back
+-- to a superuser fails loudly instead of silently disabling tenant isolation.
