@@ -45,7 +45,7 @@ from psycopg.rows import dict_row
 from flask.testing import FlaskClient
 
 import app as flask_app
-from auth import hash_access_code
+from auth import hash_access_code, hash_password
 
 TEST_SCHEMA = "test_tenant_isolation"
 
@@ -55,6 +55,10 @@ NO_TENANT_HOST = "http://localhost/"
 
 _HR_HASH = hash_access_code("HR2026")
 _FIN_HASH = hash_access_code("FINANCE2026")
+# Step 4: the shared codes bootstrap one owner and retire, so these tests
+# log in as real users. Hashed once per module — pbkdf2 is ~0.5s.
+_TEST_PASSWORD = "test-user-password"
+_TEST_PASSWORD_HASH = hash_password(_TEST_PASSWORD)
 
 # Byte-for-byte identical across both tenants, on purpose.
 IDENTICAL_ROW = {
@@ -100,9 +104,28 @@ class TenantIsolationTestCase(unittest.TestCase):
         b = review_queue.create_submission(self.beta, "single", [self._row()])
         return a, b
 
-    def _logged_in(self, host, role="finance", code="FINANCE2026"):
+    def _user_for(self, tenant_id, role):
+        """A real account holding `role` in that tenant, created once per test."""
+        email = f"{role}@t{tenant_id}.test"
+        if review_queue.get_user_by_email(tenant_id, email) is None:
+            user = review_queue.create_user(tenant_id, email, role.title(), [role])
+            with review_queue._conn(tenant_id) as conn:
+                conn.execute(
+                    "UPDATE users SET password_hash = %s WHERE tenant_id = %s AND id = %s",
+                    (_TEST_PASSWORD_HASH, tenant_id, user["id"]),
+                )
+        return email
+
+    def _logged_in(self, host, role="finance", code=None):
+        """
+        Logs in as a REAL USER of the tenant that `host` names (step 4). `code`
+        is accepted and ignored so call sites read unchanged.
+        """
+        tenant_id = self.alpha if host == ALPHA_HOST else self.beta
+        email = self._user_for(tenant_id, role)
         client = _client_for(host)
-        resp = client.post("/api/auth/login", json={"role": role, "code": code})
+        resp = client.post("/api/auth/login",
+                           json={"email": email, "password": _TEST_PASSWORD})
         self.assertEqual(resp.status_code, 200, f"login failed on {host}: {resp.get_data(as_text=True)}")
         return client
 
@@ -395,13 +418,15 @@ class TestPayoutSourceAccountIsPerTenant(TenantIsolationTestCase):
     """
 
     def _approved_row_for(self, slug, tenant_id):
-        client = _client_for(f"http://{slug}.grosslo.app/")
+        host = f"http://{slug}.grosslo.app/"
+        client = _client_for(host)
         client.post("/api/submissions", json={"source": "single", "row": {
             "ctc": 1_800_000, "rent_paid": 0, "city": "metro", "nps_opted": False,
             "employee_name": "E", "bank_account_number": "9999", "ifsc": "HDFC0001",
             "email": "e@example.com",
         }})
-        client.post("/api/auth/login", json={"role": "finance", "code": "FINANCE2026"})
+        email = self._user_for(tenant_id, "finance")
+        client.post("/api/auth/login", json={"email": email, "password": _TEST_PASSWORD})
         sub = review_queue.list_submissions(tenant_id)[0]["id"]
         client.post(f"/api/submissions/{sub}/rows/0/decide", json={"decision": "approve"})
         return client.post(f"/api/submissions/{sub}/rows/0/export")

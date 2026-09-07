@@ -20,7 +20,7 @@ review_queue.DB_SCHEMA = "test_auth_queue"
 
 import app as flask_app
 from flask.testing import FlaskClient
-from auth import verify_login, hash_access_code
+from auth import verify_login, hash_access_code, hash_password
 
 TEST_SCHEMA = "test_auth_queue"
 
@@ -64,17 +64,43 @@ _FINANCE_CODE_HASH = hash_access_code("FINANCE2026")
 
 
 
-def _login_as(client, role, code):
-    """
-    Logs in for real: the tenant comes from the request's subdomain and the
-    code is checked against THAT TENANT's stored hash (step 5).
+# --- Phase 1.2 step 4: real users replace the shared-code login ------------
+# The access codes no longer produce a usable session; they bootstrap a
+# tenant's first owner once and then retire (IDENTITY_DESIGN.md 3.3). Tests
+# therefore provision actual accounts.
+#
+# The hash is computed ONCE per module for the same reason the code hashes
+# above are: pbkdf2 is deliberately ~0.5s, which is correct in production and
+# would add minutes across a suite that rebuilds its schema for every test.
+# The user is inserted with that pre-computed hash rather than through
+# create_user(password=...), which would re-hash per test.
+_TEST_PASSWORD = "test-user-password"
+_TEST_PASSWORD_HASH = hash_password(_TEST_PASSWORD)
 
-    This replaces step 3's _grant_tenant() scaffold, which injected tenant_id
-    into the session directly because login could not yet resolve a tenant.
-    The scaffold is gone; the assertions it supported are unchanged.
+
+def _ensure_user(tenant_id, role):
+    """Creates (once per schema) a user holding `role`, and returns its email."""
+    email = f"{role}@acme.test"
+    if review_queue.get_user_by_email(tenant_id, email) is None:
+        user = review_queue.create_user(tenant_id, email, role.title(), [role])
+        with review_queue._conn(tenant_id) as conn:
+            conn.execute(
+                "UPDATE users SET password_hash = %s WHERE tenant_id = %s AND id = %s",
+                (_TEST_PASSWORD_HASH, tenant_id, user["id"]),
+            )
+    return email
+
+
+def _login_as(client, role, code=None):
     """
+    Logs in as a REAL USER holding `role` (step 4). `code` is accepted and
+    ignored so call sites read unchanged; the shared codes it used to pass no
+    longer produce a session.
+    """
+    tenant = review_queue.get_tenant_by_slug("acme")
+    email = _ensure_user(tenant["id"], role)
     return client.post("/api/auth/login",
-                       json={"role": role, "code": code})
+                       json={"email": email, "password": _TEST_PASSWORD})
 
 
 class AuthTestCase(unittest.TestCase):
@@ -96,14 +122,19 @@ class AuthTestCase(unittest.TestCase):
     def tearDown(self):
         review_queue._drop_schema(TEST_SCHEMA)
 
-    def _login(self, role, code):
-        # Real login as of step 5: the tenant comes from the subdomain in
-        # base_url and the code is checked against that tenant's stored hash.
-        # A failed login leaves the session with no tenant at all, which is one
-        # of the three cases require_tenant has to fail closed on — nothing
-        # here has to arrange that any more, it just happens.
+    def _login(self, role, code=None):
+        """
+        Logs in as a REAL USER holding `role` (step 4). The tenant still comes
+        from the subdomain in base_url; what changed is that the credential is
+        now a person's password rather than a shared code. `code` is accepted
+        and ignored so call sites read unchanged.
+
+        A failed login still leaves the session with no tenant at all, which is
+        one of the three cases require_tenant fails closed on.
+        """
+        email = _ensure_user(self.tenant_id, role)
         return self.client.post("/api/auth/login",
-                                json={"role": role, "code": code})
+                                json={"email": email, "password": _TEST_PASSWORD})
 
 
 class TestVerifyLogin(AuthTestCase):
@@ -149,13 +180,21 @@ class TestVerifyLogin(AuthTestCase):
 
 
 class TestLoginLogoutSession(AuthTestCase):
-    def test_correct_login_sets_session_and_returns_role(self):
+    def test_correct_login_returns_the_user_and_their_roles(self):
+        # Step 4: login answers with a PERSON, not a role string. This is the
+        # visible half of IDENTITY_DESIGN.md §2 — an action is now traceable to
+        # someone who can be asked why.
         resp = self._login("hr", "HR2026")
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.get_json()["role"], "hr")
+        body = resp.get_json()
+        self.assertEqual(body["user"]["roles"], ["hr"])
+        self.assertEqual(body["user"]["email"], "hr@acme.test")
+        self.assertNotIn("role", body, "the shared-role response shape is gone")
 
     def test_incorrect_login_returns_401_and_no_session(self):
-        resp = self._login("hr", "WRONG")
+        _ensure_user(self.tenant_id, "hr")
+        resp = self.client.post("/api/auth/login",
+                                json={"email": "hr@acme.test", "password": "WRONG"})
         self.assertEqual(resp.status_code, 401)
         # No session established — a follow-up protected call still fails.
         follow_up = self.client.get("/api/submissions")
@@ -163,19 +202,22 @@ class TestLoginLogoutSession(AuthTestCase):
 
     def test_session_endpoint_reflects_login_state(self):
         before = self.client.get("/api/auth/session")
-        self.assertIsNone(before.get_json()["role"])
+        self.assertIsNone(before.get_json()["user_id"])
+        self.assertEqual(before.get_json()["roles"], [])
 
         self._login("finance", "FINANCE2026")
         after = self.client.get("/api/auth/session")
-        self.assertEqual(after.get_json()["role"], "finance")
+        self.assertEqual(after.get_json()["roles"], ["finance"])
+        self.assertIsNotNone(after.get_json()["user_id"])
 
     def test_logout_clears_session(self):
         self._login("finance", "FINANCE2026")
-        self.assertEqual(self.client.get("/api/auth/session").get_json()["role"], "finance")
+        self.assertEqual(self.client.get("/api/auth/session").get_json()["roles"], ["finance"])
 
         logout = self.client.post("/api/auth/logout")
         self.assertEqual(logout.status_code, 200)
-        self.assertIsNone(self.client.get("/api/auth/session").get_json()["role"])
+        self.assertIsNone(self.client.get("/api/auth/session").get_json()["user_id"])
+        self.assertEqual(self.client.get("/api/auth/session").get_json()["roles"], [])
 
         # A previously-working protected call now fails again.
         follow_up = self.client.get("/api/submissions")
@@ -392,3 +434,135 @@ class TestPermissionSessionBridge(unittest.TestCase):
             self.assertEqual(current_roles(), [])
             for perm in ("view_queue", "decide_row", "manage_users"):
                 self.assertFalse(has_permission(perm))
+
+
+class TestBootstrapRetiresSharedCodes(AuthTestCase):
+    """
+    IDENTITY_DESIGN.md §3.3. The shared access code's only remaining power is
+    to create exactly one named account, once, and then stop existing — which
+    is what makes §2's second clause ("no state-changing action can be
+    performed by a principal the system cannot name") true rather than
+    aspirational.
+    """
+
+    def _code_login(self):
+        return self.client.post("/api/auth/login",
+                                json={"role": "finance", "code": "FINANCE2026"})
+
+    def test_code_login_yields_a_session_that_can_do_nothing_else(self):
+        resp = self._code_login()
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.get_json()["bootstrap_required"])
+        # No tenant_id in the session, so every guarded route refuses it. A
+        # session minted from a shared secret never gets to act as a person.
+        self.assertEqual(self.client.get("/api/submissions").status_code, 401)
+        self.assertEqual(self.client.get("/api/users").status_code, 401)
+        self.assertIsNone(self.client.get("/api/auth/session").get_json()["user_id"])
+
+    def test_bootstrap_creates_an_owner_and_retires_the_codes(self):
+        self._code_login()
+        resp = self.client.post("/api/auth/bootstrap", json={
+            "email": "ada@acme.test", "display_name": "Ada", "password": "S3cretPassw0rd"})
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.get_json()["user"]["roles"], ["owner"])
+        self.assertTrue(resp.get_json()["shared_codes_retired"])
+        # The session is now a real person's and works everywhere owner does.
+        self.assertEqual(self.client.get("/api/submissions").status_code, 200)
+        self.assertEqual(self.client.get("/api/users").status_code, 200)
+
+    def test_the_code_works_exactly_once(self):
+        self._code_login()
+        self.client.post("/api/auth/bootstrap", json={
+            "email": "ada@acme.test", "display_name": "Ada", "password": "S3cretPassw0rd"})
+        again = _client().post("/api/auth/login",
+                               json={"role": "finance", "code": "FINANCE2026"})
+        self.assertEqual(again.status_code, 401)
+        self.assertIn("no longer used", again.get_json()["error"])
+
+    def test_codes_are_dead_once_any_user_exists_even_before_bootstrap(self):
+        # BOTH conditions, not either (§3.3): a tenant provisioned by the admin
+        # CLI never had a bootstrap, and must not still have an open back door.
+        review_queue.create_user(self.tenant_id, "cli@acme.test", "CLI", ["owner"])
+        resp = self._code_login()
+        self.assertEqual(resp.status_code, 401)
+
+    def test_retired_hashes_are_kept_as_a_record_not_nulled(self):
+        # §6's resolved decision: nulling would destroy the evidence that a
+        # shared secret existed and was correctly retired.
+        self._code_login()
+        self.client.post("/api/auth/bootstrap", json={
+            "email": "ada@acme.test", "display_name": "Ada", "password": "S3cretPassw0rd"})
+        hashes = review_queue.get_tenant_access_code_hashes(self.tenant_id)
+        self.assertIsNotNone(hashes["hr"])
+        self.assertIsNotNone(hashes["finance"])
+        self.assertIsNotNone(
+            review_queue.get_tenant_bootstrap_state(self.tenant_id)["codes_disabled_at"])
+
+    def test_bootstrap_rechecks_rather_than_trusting_its_own_session(self):
+        # The session was minted earlier; another request or the admin CLI may
+        # have created the first user in between. This is what makes the code
+        # single-use under a replayed or concurrent request.
+        self._code_login()
+        review_queue.create_user(self.tenant_id, "race@acme.test", "Race", ["owner"])
+        resp = self.client.post("/api/auth/bootstrap", json={
+            "email": "ada@acme.test", "display_name": "Ada", "password": "S3cretPassw0rd"})
+        self.assertEqual(resp.status_code, 409)
+        self.assertIsNone(review_queue.get_user_by_email(self.tenant_id, "ada@acme.test"))
+
+    def test_bootstrap_requires_a_bootstrap_session(self):
+        self.assertEqual(
+            _client().post("/api/auth/bootstrap", json={
+                "email": "x@acme.test", "display_name": "X", "password": "S3cretPassw0rd"}).status_code,
+            401)
+
+    def test_bootstrap_refuses_a_weak_password(self):
+        self._code_login()
+        resp = self.client.post("/api/auth/bootstrap", json={
+            "email": "ada@acme.test", "display_name": "Ada", "password": "short"})
+        self.assertEqual(resp.status_code, 400)
+        self.assertIsNone(review_queue.get_user_by_email(self.tenant_id, "ada@acme.test"))
+        self.assertIsNone(
+            review_queue.get_tenant_bootstrap_state(self.tenant_id)["codes_disabled_at"],
+            "a rejected bootstrap must not retire the codes")
+
+
+class TestLoginIsNotAnEnumerationOracle(AuthTestCase):
+    """
+    §3.5. Named accounts are enumerable in a way one shared code was not, so
+    login must not confirm which addresses exist.
+    """
+
+    def test_unknown_email_and_wrong_password_are_indistinguishable(self):
+        _ensure_user(self.tenant_id, "finance")
+        unknown = self.client.post("/api/auth/login",
+                                   json={"email": "ghost@acme.test", "password": _TEST_PASSWORD})
+        wrong = self.client.post("/api/auth/login",
+                                 json={"email": "finance@acme.test", "password": "nope"})
+        self.assertEqual(unknown.status_code, wrong.status_code)
+        self.assertEqual(unknown.get_json(), wrong.get_json())
+
+    def test_a_disabled_user_cannot_log_in_and_looks_the_same(self):
+        _ensure_user(self.tenant_id, "finance")
+        user = review_queue.get_user_by_email(self.tenant_id, "finance@acme.test")
+        review_queue.set_user_status(self.tenant_id, user["id"], "disabled")
+        resp = self.client.post("/api/auth/login",
+                                json={"email": "finance@acme.test", "password": _TEST_PASSWORD})
+        self.assertEqual(resp.status_code, 401)
+        self.assertIn("don't match", resp.get_json()["error"])
+
+    def test_a_user_with_no_password_cannot_log_in(self):
+        # The state an SSO-provisioned user will be in from 1.3, and the state
+        # create_owner.py leaves an account provisioned ahead of its person.
+        review_queue.create_user(self.tenant_id, "nopw@acme.test", "No Password", ["finance"])
+        resp = self.client.post("/api/auth/login",
+                                json={"email": "nopw@acme.test", "password": ""})
+        self.assertEqual(resp.status_code, 401)
+
+    def test_a_user_of_another_tenant_cannot_log_in_here(self):
+        other = review_queue.create_tenant("globex", "Globex")["id"]
+        review_queue.create_tenant_settings(other, _HR_CODE_HASH, _FINANCE_CODE_HASH)
+        _ensure_user(other, "finance")
+        # Same email, but this client is on acme's subdomain.
+        resp = self.client.post("/api/auth/login",
+                                json={"email": "finance@acme.test", "password": _TEST_PASSWORD})
+        self.assertEqual(resp.status_code, 401)

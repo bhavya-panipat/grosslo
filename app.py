@@ -27,7 +27,7 @@ from razorpayx_client import (
     fetch_account_balance, RazorpayXNotConfigured, RazorpayXKeyModeError, RazorpayXRequestError,
 )
 from auth import (
-    verify_login, require_permission, require_tenant, require_resolved_tenant,
+    verify_login, require_permission, require_tenant, require_resolved_tenant, current_roles,
     ROLE_PERMISSIONS,
     current_tenant_id, resolved_tenant_id, tenant_from_request, TENANT_DOMAIN_SUFFIX,
 )
@@ -981,8 +981,13 @@ def api_decide_row(submission_id, row_index):
         # input — @require_permission("decide_row") guarantees the caller may
         # practice, but it's genuinely server-verified now rather than an
         # unenforced client-supplied string.
+        # session["role"] is gone as of step 4; roles are a per-user list now.
+        # decided_by keeps its current meaning — a ROLE LABEL — because the
+        # real attribution (decided_by_user_id) is step 5's job, and widening
+        # this column's meaning here would blur which step introduced it.
+        roles = current_roles()
         result = review_queue.decide_row(current_tenant_id(), submission_id, row_index, decision, reason,
-                                         decided_by=session["role"])
+                                         decided_by=roles[0] if roles else "unknown")
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
 
@@ -1343,11 +1348,13 @@ def api_set_user_status(user_id):
 @app.route("/api/auth/login", methods=["POST"])
 def api_auth_login():
     """
-    Server-side verification of the shared HR/Finance demo code — see
-    auth.py. Two shared role-codes, not per-person accounts, by deliberate
-    scope. On success, sets a real signed, HttpOnly, expiring session
-    cookie; role-gate.tsx reads GET /api/auth/session on load instead of
-    checking sessionStorage.
+    Per-user login (Phase 1.2 step 4). Email + password, resolved WITHIN the
+    tenant the subdomain names — never from a tenant field in the body, per
+    MULTI_TENANT_DESIGN.md 3.3.
+
+    Also the one place a tenant's retired shared access code is still accepted,
+    and only to bootstrap that tenant's first owner: see api_auth_bootstrap()
+    and IDENTITY_DESIGN.md 3.3. A code login does NOT produce a usable session.
     """
     tenant = tenant_from_request()
     if tenant is None:
@@ -1360,20 +1367,126 @@ def api_auth_login():
                      "(e.g. acme." + TENANT_DOMAIN_SUFFIX + ").",
         }), 401
 
-    data = request.get_json(force=True)
-    role = data.get("role")
-    code = data.get("code", "")
-    if not verify_login(tenant["id"], role, code):
-        return jsonify({"error": "That code doesn't match — try again."}), 401
+    data = request.get_json(force=True) or {}
+
+    # --- shared-code path: bootstrap only, and only once per tenant ----------
+    if data.get("code") is not None and data.get("password") is None:
+        if not _tenant_accepts_bootstrap_code(tenant["id"]):
+            return jsonify({
+                "error": "Shared access codes are no longer used for this workspace. "
+                         "Sign in with your email and password.",
+            }), 401
+        if not verify_login(tenant["id"], data.get("role"), data.get("code", "")):
+            return jsonify({"error": "That code doesn't match — try again."}), 401
+        session.clear()
+        # Deliberately NOT session["tenant_id"]: a bootstrap session must be
+        # able to do exactly one thing. Every guarded route runs @require_tenant
+        # first, so without that key this session is refused everywhere except
+        # the bootstrap route below, which reads its own key. A session minted
+        # from a shared secret never gets to act as a person.
+        session["bootstrap_tenant_id"] = tenant["id"]
+        session.permanent = True
+        return jsonify({
+            "bootstrap_required": True,
+            "tenant": {"id": tenant["id"], "slug": tenant["slug"],
+                       "display_name": tenant["display_name"]},
+            "message": "Set up the first account for this workspace. The shared "
+                       "access code stops working once you do.",
+        })
+
+    # --- normal path: a real person -----------------------------------------
+    email = (data.get("email") or "").strip().lower()
+    password = data.get("password") or ""
+    user = review_queue.get_user_by_email(tenant["id"], email) if email else None
+    # Identical response whether the account is absent, has no local password,
+    # is disabled, or the password is simply wrong — this endpoint must not be
+    # a user-enumeration oracle (IDENTITY_DESIGN.md 3.5).
+    if (user is None
+            or user["status"] != "active"
+            or not review_queue.verify_user_password(tenant["id"], user["id"], password)):
+        return jsonify({"error": "That email and password don't match — try again."}), 401
+
     session.clear()
-    session["role"] = role
-    # The seam 1.2 inherits (3.3/5): 1.1's only job is getting tenant_id into
-    # the session correctly. 1.2 replaces `role` with real per-user role data
-    # without touching how tenant_id got here.
+    session["user_id"] = user["id"]
     session["tenant_id"] = tenant["id"]
+    session["roles"] = user["roles"]
     session.permanent = True
-    return jsonify({"role": role, "tenant": {"id": tenant["id"], "slug": tenant["slug"],
-                                             "display_name": tenant["display_name"]}})
+    review_queue.record_login(tenant["id"], user["id"])
+    return jsonify({
+        "user": {"id": user["id"], "email": user["email"],
+                 "display_name": user["display_name"], "roles": user["roles"]},
+        "tenant": {"id": tenant["id"], "slug": tenant["slug"],
+                   "display_name": tenant["display_name"]},
+    })
+
+
+def _tenant_accepts_bootstrap_code(tenant_id: int) -> bool:
+    """
+    BOTH conditions, not either (IDENTITY_DESIGN.md 3.3): the codes have never
+    been retired, AND the tenant has no users. The timestamp records the
+    transition; the zero-users check means a tenant whose timestamp was somehow
+    cleared still cannot re-enter through the old door once real accounts
+    exist.
+    """
+    settings = review_queue.get_tenant_bootstrap_state(tenant_id)
+    if settings is None or settings["codes_disabled_at"] is not None:
+        return False
+    return review_queue.count_users(tenant_id) == 0
+
+
+@app.route("/api/auth/bootstrap", methods=["POST"])
+def api_auth_bootstrap():
+    """
+    Consumes a bootstrap session to create a tenant's first owner, then
+    permanently retires that tenant's shared access codes.
+
+    This is what makes IDENTITY_DESIGN.md §2's second clause true — that no
+    state-changing action can be performed by a principal the system cannot
+    name. The shared secret's only remaining power is to create exactly one
+    named account, once, and then stop existing.
+    """
+    tenant_id = session.get("bootstrap_tenant_id")
+    if tenant_id is None:
+        return jsonify({"error": "No bootstrap in progress."}), 401
+    # Re-checked, not trusted from the session: the session was minted earlier,
+    # and another request (or the admin CLI) may have created the first user in
+    # between. This is the guard that makes the code single-use even under a
+    # replayed or concurrent request.
+    if not _tenant_accepts_bootstrap_code(tenant_id):
+        session.clear()
+        return jsonify({
+            "error": "This workspace already has accounts. Sign in with your "
+                     "email and password.",
+        }), 409
+
+    data = request.get_json(force=True) or {}
+    password = data.get("password") or ""
+    if len(password) < 8:
+        return jsonify({"error": "Password must be at least 8 characters."}), 400
+    try:
+        user = review_queue.create_user(
+            tenant_id, data.get("email", ""), data.get("display_name", ""),
+            ["owner"], password=password,
+        )
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    review_queue.disable_tenant_access_codes(tenant_id)
+    session.clear()
+    session["user_id"] = user["id"]
+    session["tenant_id"] = tenant_id
+    session["roles"] = user["roles"]
+    session.permanent = True
+    review_queue.record_login(tenant_id, user["id"])
+    _append_audit_log(tenant_id, "/api/auth/bootstrap", {
+        "action": "bootstrap_owner_created", "user_id": user["id"],
+        "email": user["email"], "shared_codes_retired": True,
+    })
+    return jsonify({
+        "user": {"id": user["id"], "email": user["email"],
+                 "display_name": user["display_name"], "roles": user["roles"]},
+        "shared_codes_retired": True,
+    })
 
 
 @app.route("/api/auth/logout", methods=["POST"])
@@ -1384,7 +1497,11 @@ def api_auth_logout():
 
 @app.route("/api/auth/session", methods=["GET"])
 def api_auth_session():
-    return jsonify({"role": session.get("role"), "tenant_id": session.get("tenant_id")})
+    return jsonify({
+        "user_id": session.get("user_id"),
+        "tenant_id": session.get("tenant_id"),
+        "roles": session.get("roles", []),
+    })
 
 
 @app.route("/api/razorpayx/balance", methods=["GET"])

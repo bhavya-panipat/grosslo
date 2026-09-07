@@ -943,6 +943,39 @@ def create_tenant_settings(tenant_id: int, hr_access_code_hash: str,
         )
 
 
+def get_tenant_bootstrap_state(tenant_id: int) -> dict | None:
+    """Whether this tenant's shared access codes have been retired (§3.3)."""
+    tenant_id = _checked_tenant_id(tenant_id)
+    with _conn(tenant_id) as conn:
+        return conn.execute(
+            "SELECT codes_disabled_at FROM tenant_settings WHERE tenant_id = %s",
+            (tenant_id,),
+        ).fetchone()
+
+
+def disable_tenant_access_codes(tenant_id: int) -> None:
+    """
+    Retires this tenant's shared access codes permanently.
+
+    The HASHES ARE KEPT, not nulled — §6's resolved decision. codes_disabled_at
+    makes them unusable either way, so this is purely about what the record
+    says, and nulling would destroy the evidence that a shared secret existed
+    and was correctly retired. Inert but present, consistent with §3.4's
+    refusal to overwrite historical decided_by values.
+
+    Idempotent by construction: the WHERE clause only matches a tenant whose
+    codes are still live, so a replayed call cannot move the timestamp and
+    rewrite when the transition happened.
+    """
+    tenant_id = _checked_tenant_id(tenant_id)
+    with _conn(tenant_id) as conn:
+        conn.execute(
+            "UPDATE tenant_settings SET codes_disabled_at = now() "
+            "WHERE tenant_id = %s AND codes_disabled_at IS NULL",
+            (tenant_id,),
+        )
+
+
 def get_tenant_access_code_hashes(tenant_id: int) -> dict | None:
     """Returns {"hr": hash, "finance": hash} for the tenant, or None."""
     tenant_id = _checked_tenant_id(tenant_id)

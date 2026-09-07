@@ -28,7 +28,7 @@ review_queue.DB_SCHEMA = "test_review_queue"
 
 import app as flask_app
 from flask.testing import FlaskClient
-from auth import hash_access_code
+from auth import hash_access_code, hash_password
 from diff_view import build_diff
 from salary_revision_export import build_salary_revision_workbook, TEMPLATE_HONESTY_LABEL
 
@@ -87,17 +87,43 @@ _FINANCE_CODE_HASH = hash_access_code("FINANCE2026")
 
 
 
-def _login_as(client, role, code):
-    """
-    Logs in for real: the tenant comes from the request's subdomain and the
-    code is checked against THAT TENANT's stored hash (step 5).
+# --- Phase 1.2 step 4: real users replace the shared-code login ------------
+# The access codes no longer produce a usable session; they bootstrap a
+# tenant's first owner once and then retire (IDENTITY_DESIGN.md 3.3). Tests
+# therefore provision actual accounts.
+#
+# The hash is computed ONCE per module for the same reason the code hashes
+# above are: pbkdf2 is deliberately ~0.5s, which is correct in production and
+# would add minutes across a suite that rebuilds its schema for every test.
+# The user is inserted with that pre-computed hash rather than through
+# create_user(password=...), which would re-hash per test.
+_TEST_PASSWORD = "test-user-password"
+_TEST_PASSWORD_HASH = hash_password(_TEST_PASSWORD)
 
-    This replaces step 3's _grant_tenant() scaffold, which injected tenant_id
-    into the session directly because login could not yet resolve a tenant.
-    The scaffold is gone; the assertions it supported are unchanged.
+
+def _ensure_user(tenant_id, role):
+    """Creates (once per schema) a user holding `role`, and returns its email."""
+    email = f"{role}@acme.test"
+    if review_queue.get_user_by_email(tenant_id, email) is None:
+        user = review_queue.create_user(tenant_id, email, role.title(), [role])
+        with review_queue._conn(tenant_id) as conn:
+            conn.execute(
+                "UPDATE users SET password_hash = %s WHERE tenant_id = %s AND id = %s",
+                (_TEST_PASSWORD_HASH, tenant_id, user["id"]),
+            )
+    return email
+
+
+def _login_as(client, role, code=None):
     """
+    Logs in as a REAL USER holding `role` (step 4). `code` is accepted and
+    ignored so call sites read unchanged; the shared codes it used to pass no
+    longer produce a session.
+    """
+    tenant = review_queue.get_tenant_by_slug("acme")
+    email = _ensure_user(tenant["id"], role)
     return client.post("/api/auth/login",
-                       json={"role": role, "code": code})
+                       json={"email": email, "password": _TEST_PASSWORD})
 
 
 class ReviewQueueTestCase(unittest.TestCase):
@@ -430,7 +456,7 @@ class TestExportApprovedRow(ReviewQueueTestCase):
         self.client = _client()
         # GET/decide/export now require a real Finance session (see auth.py) —
         # every test in this class exercises at least one of those.
-        self.client.post("/api/auth/login", json={"role": "finance", "code": "FINANCE2026"})
+        _login_as(self.client, "finance")
 
     def _submit_and_approve(self, row):
         resp = self.client.post("/api/submissions", json={"source": "single", "row": row})
