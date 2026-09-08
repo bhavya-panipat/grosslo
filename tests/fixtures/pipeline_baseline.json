@@ -1,0 +1,628 @@
+{
+  "already_optimal_zero_saving": {
+    "annual_saving": 59217.6,
+    "compliance": {
+      "ai_backed": false,
+      "flags": [],
+      "guard_triggered": false
+    },
+    "compliance_checked_against": "as_offered",
+    "ctc": 900000,
+    "explanation": {
+      "ai_backed": false,
+      "explanation": "For a CTC of Rs 900,000, the new regime gives the lower tax outcome, saving Rs 59,218 per year compared to the other regime. This is based on a basic salary of 50% of CTC and rent paid of Rs 0 in a non-metro city \u2014 see the full breakdown table for exact component amounts.",
+      "guard_triggered": false
+    },
+    "metrics": {
+      "ai_coverage_pct": 0.0,
+      "compliance_pct": 100.0,
+      "optimization_value_pct": 0.0
+    },
+    "negotiation": {
+      "ai_backed": false,
+      "changed_levers": [],
+      "guard_triggered": false,
+      "points": "Your offered structure is already at or near the tax-optimal split \u2014 nothing to negotiate here.",
+      "total_annual_saving": 0.0
+    },
+    "new_regime_best": {
+      "basic_pct": 0.5,
+      "regime": "new",
+      "structure": {
+        "basic": 450000.0,
+        "ctc": 900000,
+        "employer_nps": 0.0,
+        "employer_pf": 54000.0,
+        "hra": 0.0,
+        "lta": 0.0,
+        "nps_opted": false,
+        "special_allowance": 396000.0
+      },
+      "tax_breakdown": {
+        "cess": 0.0,
+        "slab_tax": 18550.0,
+        "tax_after_marginal_relief": 0.0,
+        "tax_after_rebate": 0.0,
+        "taxable_income": 771000.0,
+        "total_tax": 0.0
+      },
+      "taxable_income": 771000.0
+    },
+    "old_regime_best": {
+      "basic_pct": 0.6,
+      "regime": "old",
+      "structure": {
+        "basic": 540000.0,
+        "ctc": 900000,
+        "employer_nps": 0.0,
+        "employer_pf": 64800.0,
+        "hra": 0.0,
+        "lta": 90000.0,
+        "nps_opted": false,
+        "special_allowance": 205200.0
+      },
+      "tax_breakdown": {
+        "cess": 2277.6,
+        "slab_tax": 56940.0,
+        "tax_after_marginal_relief": 56940.0,
+        "tax_after_rebate": 56940.0,
+        "taxable_income": 722200.0,
+        "total_tax": 59217.6
+      },
+      "taxable_income": 722200.0
+    },
+    "recommended_regime": "new"
+  },
+  "clean_pass_no_flags": {
+    "annual_saving": 147170.4,
+    "compliance": {
+      "ai_backed": false,
+      "flags": [],
+      "guard_triggered": false
+    },
+    "compliance_checked_against": "as_offered",
+    "ctc": 1800000,
+    "explanation": {
+      "ai_backed": false,
+      "explanation": "For a CTC of Rs 1,800,000, the new regime gives the lower tax outcome, saving Rs 147,170 per year compared to the other regime. This is based on a basic salary of 60% of CTC and rent paid of Rs 0 in a metro city \u2014 see the full breakdown table for exact component amounts.",
+      "guard_triggered": false
+    },
+    "metrics": {
+      "ai_coverage_pct": 0.0,
+      "compliance_pct": 100.0,
+      "optimization_value_pct": 3.3
+    },
+    "negotiation": {
+      "ai_backed": false,
+      "changed_levers": [],
+      "guard_triggered": false,
+      "points": "Your offered structure is already at or near the tax-optimal split \u2014 nothing to negotiate here.",
+      "total_annual_saving": 0.0
+    },
+    "new_regime_best": {
+      "basic_pct": 0.6,
+      "regime": "new",
+      "structure": {
+        "basic": 1080000.0,
+        "ctc": 1800000,
+        "employer_nps": 0.0,
+        "employer_pf": 129600.0,
+        "hra": 0.0,
+        "lta": 0.0,
+        "nps_opted": false,
+        "special_allowance": 590400.0
+      },
+      "tax_breakdown": {
+        "cess": 4772.4,
+        "slab_tax": 119310.0,
+        "tax_after_marginal_relief": 119310.0,
+        "tax_after_rebate": 119310.0,
+        "taxable_income": 1595400.0,
+        "total_tax": 124082.4
+      },
+      "taxable_income": 1595400.0
+    },
+    "old_regime_best": {
+      "basic_pct": 0.6,
+      "regime": "old",
+      "structure": {
+        "basic": 1080000.0,
+        "ctc": 1800000,
+        "employer_nps": 0.0,
+        "employer_pf": 129600.0,
+        "hra": 0.0,
+        "lta": 180000.0,
+        "nps_opted": false,
+        "special_allowance": 410400.0
+      },
+      "tax_breakdown": {
+        "cess": 10432.8,
+        "slab_tax": 260820.0,
+        "tax_after_marginal_relief": 260820.0,
+        "tax_after_rebate": 260820.0,
+        "taxable_income": 1494400.0,
+        "total_tax": 271252.8
+      },
+      "taxable_income": 1494400.0
+    },
+    "recommended_regime": "new"
+  },
+  "code_on_wages_floor_breach": {
+    "annual_saving": 106184.0,
+    "compliance": {
+      "ai_backed": false,
+      "flags": [
+        {
+          "message": "Basic salary is below 50% of CTC, violating the Code on Wages 2025 requirement that Basic + DA be at least 50% of total remuneration (no DA field in this tool \u2014 Basic alone is the relevant component for a private-sector structure). This triggers automatic reclassification of the excess allowances as \"wages\" for PF and gratuity purposes, not just a market-convention miss.",
+          "rationale": "Basic salary is below 50% of CTC, violating the Code on Wages 2025 requirement that Basic + DA be at least 50% of total remuneration (no DA field in this tool \u2014 Basic alone is the relevant component for a private-sector structure). This triggers automatic reclassification of the excess allowances as \"wages\" for PF and gratuity purposes, not just a market-convention miss.",
+          "rule_id": "R1",
+          "severity": "High"
+        }
+      ],
+      "guard_triggered": false
+    },
+    "compliance_checked_against": "as_offered",
+    "ctc": 2000000,
+    "explanation": {
+      "ai_backed": false,
+      "explanation": "For a CTC of Rs 2,000,000, the new regime gives the lower tax outcome, saving Rs 106,184 per year compared to the other regime. This is based on a basic salary of 60% of CTC and rent paid of Rs 300,000 in a metro city \u2014 see the full breakdown table for exact component amounts.",
+      "guard_triggered": false
+    },
+    "metrics": {
+      "ai_coverage_pct": 0.0,
+      "compliance_pct": 83.3,
+      "optimization_value_pct": 3.0
+    },
+    "negotiation": {
+      "ai_backed": false,
+      "changed_levers": [
+        "basic salary",
+        "HRA"
+      ],
+      "guard_triggered": false,
+      "points": "Your current structure and the recommended structure differ on: basic salary, HRA. Restructuring along these lines (staying on the new regime) is projected to save Rs 7,488 per year in tax, with your total CTC unchanged. Consider asking HR whether these components can be adjusted within their existing payroll policy.",
+      "total_annual_saving": 7488.0
+    },
+    "new_regime_best": {
+      "basic_pct": 0.6,
+      "regime": "new",
+      "structure": {
+        "basic": 1200000.0,
+        "ctc": 2000000,
+        "employer_nps": 0.0,
+        "employer_pf": 144000.0,
+        "hra": 0.0,
+        "lta": 0.0,
+        "nps_opted": false,
+        "special_allowance": 656000.0
+      },
+      "tax_breakdown": {
+        "cess": 6248.0,
+        "slab_tax": 156200.0,
+        "tax_after_marginal_relief": 156200.0,
+        "tax_after_rebate": 156200.0,
+        "taxable_income": 1781000.0,
+        "total_tax": 162448.0
+      },
+      "taxable_income": 1781000.0
+    },
+    "old_regime_best": {
+      "basic_pct": 0.6,
+      "regime": "old",
+      "structure": {
+        "basic": 1200000.0,
+        "ctc": 2000000,
+        "employer_nps": 0.0,
+        "employer_pf": 144000.0,
+        "hra": 182399.99999999997,
+        "lta": 200000.0,
+        "nps_opted": false,
+        "special_allowance": 273600.0
+      },
+      "tax_breakdown": {
+        "cess": 10332.0,
+        "slab_tax": 258300.0,
+        "tax_after_marginal_relief": 258300.0,
+        "tax_after_rebate": 258300.0,
+        "taxable_income": 1486000.0,
+        "total_tax": 268632.0
+      },
+      "taxable_income": 1486000.0
+    },
+    "recommended_regime": "new"
+  },
+  "code_on_wages_floor_exactly_at_50pct": {
+    "annual_saving": 106184.0,
+    "compliance": {
+      "ai_backed": false,
+      "flags": [],
+      "guard_triggered": false
+    },
+    "compliance_checked_against": "as_offered",
+    "ctc": 2000000,
+    "explanation": {
+      "ai_backed": false,
+      "explanation": "For a CTC of Rs 2,000,000, the new regime gives the lower tax outcome, saving Rs 106,184 per year compared to the other regime. This is based on a basic salary of 60% of CTC and rent paid of Rs 300,000 in a metro city \u2014 see the full breakdown table for exact component amounts.",
+      "guard_triggered": false
+    },
+    "metrics": {
+      "ai_coverage_pct": 0.0,
+      "compliance_pct": 100.0,
+      "optimization_value_pct": 3.0
+    },
+    "negotiation": {
+      "ai_backed": false,
+      "changed_levers": [
+        "basic salary",
+        "HRA"
+      ],
+      "guard_triggered": false,
+      "points": "Your current structure and the recommended structure differ on: basic salary, HRA. Restructuring along these lines (staying on the new regime) is projected to save Rs 4,992 per year in tax, with your total CTC unchanged. Consider asking HR whether these components can be adjusted within their existing payroll policy.",
+      "total_annual_saving": 4992.0
+    },
+    "new_regime_best": {
+      "basic_pct": 0.6,
+      "regime": "new",
+      "structure": {
+        "basic": 1200000.0,
+        "ctc": 2000000,
+        "employer_nps": 0.0,
+        "employer_pf": 144000.0,
+        "hra": 0.0,
+        "lta": 0.0,
+        "nps_opted": false,
+        "special_allowance": 656000.0
+      },
+      "tax_breakdown": {
+        "cess": 6248.0,
+        "slab_tax": 156200.0,
+        "tax_after_marginal_relief": 156200.0,
+        "tax_after_rebate": 156200.0,
+        "taxable_income": 1781000.0,
+        "total_tax": 162448.0
+      },
+      "taxable_income": 1781000.0
+    },
+    "old_regime_best": {
+      "basic_pct": 0.6,
+      "regime": "old",
+      "structure": {
+        "basic": 1200000.0,
+        "ctc": 2000000,
+        "employer_nps": 0.0,
+        "employer_pf": 144000.0,
+        "hra": 182399.99999999997,
+        "lta": 200000.0,
+        "nps_opted": false,
+        "special_allowance": 273600.0
+      },
+      "tax_breakdown": {
+        "cess": 10332.0,
+        "slab_tax": 258300.0,
+        "tax_after_marginal_relief": 258300.0,
+        "tax_after_rebate": 258300.0,
+        "taxable_income": 1486000.0,
+        "total_tax": 268632.0
+      },
+      "taxable_income": 1486000.0
+    },
+    "recommended_regime": "new"
+  },
+  "epfo_aggregate_ceiling_breach": {
+    "annual_saving": 81120.0,
+    "compliance": {
+      "ai_backed": false,
+      "flags": [
+        {
+          "message": "Basic salary is below 50% of CTC, violating the Code on Wages 2025 requirement that Basic + DA be at least 50% of total remuneration (no DA field in this tool \u2014 Basic alone is the relevant component for a private-sector structure). This triggers automatic reclassification of the excess allowances as \"wages\" for PF and gratuity purposes, not just a market-convention miss.",
+          "rationale": "Basic salary is below 50% of CTC, violating the Code on Wages 2025 requirement that Basic + DA be at least 50% of total remuneration (no DA field in this tool \u2014 Basic alone is the relevant component for a private-sector structure). This triggers automatic reclassification of the excess allowances as \"wages\" for PF and gratuity purposes, not just a market-convention miss.",
+          "rule_id": "R1",
+          "severity": "High"
+        },
+        {
+          "message": "Aggregate employer PF + NPS exceeds Rs 7.5L/year \u2014 the excess is a taxable perquisite under Section 17(2)(vii), which this tool's tax engine does not currently model.",
+          "rationale": "Aggregate employer PF + NPS exceeds Rs 7.5L/year \u2014 the excess is a taxable perquisite under Section 17(2)(vii), which this tool's tax engine does not currently model.",
+          "rule_id": "R5",
+          "severity": "High"
+        }
+      ],
+      "guard_triggered": false
+    },
+    "compliance_checked_against": "as_offered",
+    "ctc": 4000000,
+    "explanation": {
+      "ai_backed": false,
+      "explanation": "For a CTC of Rs 4,000,000, the new regime gives the lower tax outcome, saving Rs 81,120 per year compared to the other regime. This is based on a basic salary of 60% of CTC and rent paid of Rs 500,000 in a metro city \u2014 see the full breakdown table for exact component amounts.",
+      "guard_triggered": false
+    },
+    "metrics": {
+      "ai_coverage_pct": 0.0,
+      "compliance_pct": 66.7,
+      "optimization_value_pct": 2.1
+    },
+    "negotiation": {
+      "ai_backed": false,
+      "changed_levers": [],
+      "guard_triggered": false,
+      "points": "Your offered structure is already at or near the tax-optimal split \u2014 nothing to negotiate here.",
+      "total_annual_saving": 0
+    },
+    "new_regime_best": {
+      "basic_pct": 0.6,
+      "regime": "new",
+      "structure": {
+        "basic": 2400000.0,
+        "ctc": 4000000,
+        "employer_nps": 0.0,
+        "employer_pf": 288000.0,
+        "hra": 0.0,
+        "lta": 0.0,
+        "nps_opted": false,
+        "special_allowance": 1312000.0
+      },
+      "tax_breakdown": {
+        "cess": 26844.0,
+        "slab_tax": 671100.0,
+        "tax_after_marginal_relief": 671100.0,
+        "tax_after_rebate": 671100.0,
+        "taxable_income": 3637000.0,
+        "total_tax": 697944.0
+      },
+      "taxable_income": 3637000.0
+    },
+    "old_regime_best": {
+      "basic_pct": 0.6,
+      "regime": "old",
+      "structure": {
+        "basic": 2400000.0,
+        "ctc": 4000000,
+        "employer_nps": 0.0,
+        "employer_pf": 288000.0,
+        "hra": 273600.0,
+        "lta": 400000.0,
+        "nps_opted": false,
+        "special_allowance": 638400.0
+      },
+      "tax_breakdown": {
+        "cess": 29964.0,
+        "slab_tax": 749100.0,
+        "tax_after_marginal_relief": 749100.0,
+        "tax_after_rebate": 749100.0,
+        "taxable_income": 3122000.0,
+        "total_tax": 779064.0
+      },
+      "taxable_income": 3122000.0
+    },
+    "recommended_regime": "new"
+  },
+  "extraction_mismatch_components_exceed_ctc": {
+    "annual_saving": 86132.8,
+    "compliance": {
+      "ai_backed": false,
+      "flags": [
+        {
+          "message": "Special allowance is zero, leaving no flexible cash component \u2014 check this wasn't an input error.",
+          "rationale": "Special allowance is zero, leaving no flexible cash component \u2014 check this wasn't an input error.",
+          "rule_id": "R6",
+          "severity": "Low"
+        }
+      ],
+      "guard_triggered": false
+    },
+    "compliance_checked_against": "as_offered",
+    "ctc": 1200000,
+    "explanation": {
+      "ai_backed": false,
+      "explanation": "For a CTC of Rs 1,200,000, the new regime gives the lower tax outcome, saving Rs 86,133 per year compared to the other regime. This is based on a basic salary of 50% of CTC and rent paid of Rs 200,000 in a metro city \u2014 see the full breakdown table for exact component amounts.",
+      "guard_triggered": false
+    },
+    "metrics": {
+      "ai_coverage_pct": 25.0,
+      "compliance_pct": 83.3,
+      "optimization_value_pct": 0.0
+    },
+    "negotiation": {
+      "ai_backed": false,
+      "changed_levers": [
+        "basic salary",
+        "HRA",
+        "LTA"
+      ],
+      "guard_triggered": false,
+      "points": "Your current structure and the recommended structure differ on: basic salary, HRA, LTA. Restructuring along these lines (staying on the new regime) is projected to save Rs 113,100 per year in tax, with your total CTC unchanged. Consider asking HR whether these components can be adjusted within their existing payroll policy.",
+      "total_annual_saving": 113100.0
+    },
+    "new_regime_best": {
+      "basic_pct": 0.5,
+      "regime": "new",
+      "structure": {
+        "basic": 600000.0,
+        "ctc": 1200000,
+        "employer_nps": 0.0,
+        "employer_pf": 72000.0,
+        "hra": 0.0,
+        "lta": 0.0,
+        "nps_opted": false,
+        "special_allowance": 528000.0
+      },
+      "tax_breakdown": {
+        "cess": 0.0,
+        "slab_tax": 45300.0,
+        "tax_after_marginal_relief": 0.0,
+        "tax_after_rebate": 0.0,
+        "taxable_income": 1053000.0,
+        "total_tax": 0.0
+      },
+      "taxable_income": 1053000.0
+    },
+    "old_regime_best": {
+      "basic_pct": 0.6,
+      "regime": "old",
+      "structure": {
+        "basic": 720000.0,
+        "ctc": 1200000,
+        "employer_nps": 0.0,
+        "employer_pf": 86400.0,
+        "hra": 136799.99999999997,
+        "lta": 120000.0,
+        "nps_opted": false,
+        "special_allowance": 136800.00000000003
+      },
+      "tax_breakdown": {
+        "cess": 3312.8,
+        "slab_tax": 82820.0,
+        "tax_after_marginal_relief": 82820.0,
+        "tax_after_rebate": 82820.0,
+        "taxable_income": 851600.0,
+        "total_tax": 86132.8
+      },
+      "taxable_income": 851600.0
+    },
+    "recommended_regime": "new"
+  },
+  "no_extraction_falls_back_to_recommended": {
+    "annual_saving": 56066.4,
+    "compliance": {
+      "ai_backed": false,
+      "flags": [],
+      "guard_triggered": false
+    },
+    "compliance_checked_against": "recommended",
+    "ctc": 1800000,
+    "explanation": {
+      "ai_backed": false,
+      "explanation": "For a CTC of Rs 1,800,000, the new regime gives the lower tax outcome, saving Rs 56,066 per year compared to the other regime. This is based on a basic salary of 60% of CTC and rent paid of Rs 400,000 in a metro city \u2014 see the full breakdown table for exact component amounts.",
+      "guard_triggered": false
+    },
+    "metrics": {
+      "ai_coverage_pct": 0.0,
+      "compliance_pct": 100.0,
+      "optimization_value_pct": 3.3
+    },
+    "new_regime_best": {
+      "basic_pct": 0.6,
+      "regime": "new",
+      "structure": {
+        "basic": 1080000.0,
+        "ctc": 1800000,
+        "employer_nps": 0.0,
+        "employer_pf": 129600.0,
+        "hra": 0.0,
+        "lta": 0.0,
+        "nps_opted": false,
+        "special_allowance": 590400.0
+      },
+      "tax_breakdown": {
+        "cess": 4772.4,
+        "slab_tax": 119310.0,
+        "tax_after_marginal_relief": 119310.0,
+        "tax_after_rebate": 119310.0,
+        "taxable_income": 1595400.0,
+        "total_tax": 124082.4
+      },
+      "taxable_income": 1595400.0
+    },
+    "old_regime_best": {
+      "basic_pct": 0.6,
+      "regime": "old",
+      "structure": {
+        "basic": 1080000.0,
+        "ctc": 1800000,
+        "employer_nps": 0.0,
+        "employer_pf": 129600.0,
+        "hra": 307800.00000000006,
+        "lta": 180000.0,
+        "nps_opted": false,
+        "special_allowance": 102599.99999999994
+      },
+      "tax_breakdown": {
+        "cess": 6928.8,
+        "slab_tax": 173220.0,
+        "tax_after_marginal_relief": 173220.0,
+        "tax_after_rebate": 173220.0,
+        "taxable_income": 1202400.0,
+        "total_tax": 180148.8
+      },
+      "taxable_income": 1202400.0
+    },
+    "recommended_regime": "new"
+  },
+  "nps_opted_non_metro": {
+    "annual_saving": 156270.4,
+    "compliance": {
+      "ai_backed": false,
+      "flags": [],
+      "guard_triggered": false
+    },
+    "compliance_checked_against": "as_offered",
+    "ctc": 2400000,
+    "explanation": {
+      "ai_backed": false,
+      "explanation": "For a CTC of Rs 2,400,000, the new regime gives the lower tax outcome, saving Rs 156,270 per year compared to the other regime. This is based on a basic salary of 60% of CTC and rent paid of Rs 240,000 in a non-metro city \u2014 see the full breakdown table for exact component amounts.",
+      "guard_triggered": false
+    },
+    "metrics": {
+      "ai_coverage_pct": 0.0,
+      "compliance_pct": 100.0,
+      "optimization_value_pct": 38.9
+    },
+    "negotiation": {
+      "ai_backed": false,
+      "changed_levers": [
+        "basic salary",
+        "HRA",
+        "NPS enrollment (Section 124, formerly 80CCD2)"
+      ],
+      "guard_triggered": false,
+      "points": "Your current structure and the recommended structure differ on: basic salary, HRA, NPS enrollment (Section 124, formerly 80CCD2). Restructuring along these lines (staying on the new regime) is projected to save Rs 99,268 per year in tax, with your total CTC unchanged. Consider asking HR whether these components can be adjusted within their existing payroll policy.",
+      "total_annual_saving": 99268.0
+    },
+    "new_regime_best": {
+      "basic_pct": 0.6,
+      "regime": "new",
+      "structure": {
+        "basic": 1440000.0,
+        "ctc": 2400000,
+        "employer_nps": 201600.0,
+        "employer_pf": 172800.0,
+        "hra": 0.0,
+        "lta": 0.0,
+        "nps_opted": true,
+        "special_allowance": 585600.0
+      },
+      "tax_breakdown": {
+        "cess": 5992.0,
+        "slab_tax": 149800.0,
+        "tax_after_marginal_relief": 149800.0,
+        "tax_after_rebate": 149800.0,
+        "taxable_income": 1749000.0,
+        "total_tax": 155792.0
+      },
+      "taxable_income": 1749000.0
+    },
+    "old_regime_best": {
+      "basic_pct": 0.6,
+      "regime": "old",
+      "structure": {
+        "basic": 1440000.0,
+        "ctc": 2400000,
+        "employer_nps": 144000.0,
+        "employer_pf": 172800.0,
+        "hra": 100800.0,
+        "lta": 240000.0,
+        "nps_opted": true,
+        "special_allowance": 302400.0
+      },
+      "tax_breakdown": {
+        "cess": 12002.4,
+        "slab_tax": 300060.0,
+        "tax_after_marginal_relief": 300060.0,
+        "tax_after_rebate": 300060.0,
+        "taxable_income": 1625200.0,
+        "total_tax": 312062.4
+      },
+      "taxable_income": 1625200.0
+    },
+    "recommended_regime": "new"
+  }
+}

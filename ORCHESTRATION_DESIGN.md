@@ -60,13 +60,29 @@ Two clauses, and the second is why this phase exists at all:
 - *Byte-identical outputs.* Not "equivalent", not "the tests still pass".
   Pinned before the change and compared after (§3.3).
 - *The sequence becomes assertable.* Today, nothing anywhere proves the
-  compliance stage was invoked. The 261 existing tests call `flag_compliance()`
-  directly and assert on its return value, so **a refactor that dropped the
-  compliance stage from the pipeline entirely would not falsify a single
-  existing assertion.** A missing stage and a correct one look identical to a
-  suite that checks outputs at known entry points rather than confirming entry
-  happened. That is the same shape as the guard-ordering bug Phase 1.2 found:
-  two things assumed to agree, with nothing forcing them to.
+  compliance stage was invoked.
+
+  **An earlier draft of this section claimed a dropped compliance stage "would
+  not falsify a single existing assertion". That was overstated, and measuring
+  it rather than asserting it is what showed so.** Removing the stage from the
+  pipeline and running the other 261 tests produces 5 failures — so the suite
+  does catch this particular sabotage.
+
+  What it does not do is catch it *as itself*. **Zero of those 5 failures name
+  compliance.** They are three routing-bucket tests in
+  `test_orchestration.TestSubmissionsRouteIntegration` and two in
+  `test_review_workflow.TestDiffView` — downstream consumers that happen to
+  depend on flags existing. A developer reading that output would investigate
+  routing and diff attribution, not a missing pipeline stage. And the coverage
+  is incidental rather than designed: it exists only where flags feed some
+  other assertion, so it holds for "flags vanish entirely" and gets thinner for
+  subtler changes, such as compliance running against the wrong structure.
+
+  The accurate claim is therefore narrower and still sufficient to justify this
+  work: **no test asserts that a stage ran, so stage invocation is protected
+  only by whatever happens to consume its output downstream.** That is the same
+  shape as the guard-ordering bug Phase 1.2 found — two things assumed to agree
+  with nothing forcing them to — and §3.4 is what forces them.
 
 ## 3. Design decisions
 
@@ -131,10 +147,18 @@ harder to notice and potentially worse.
 ### 3.3 Characterization tests come first, and this is a stronger bar than 1.1's
 
 **Rejected: rely on the existing 261 tests.** They cover tax math and
-compliance rules heavily — and they fail silently for this specific change, for
-the reason in §2: they assert properties at known call sites and have never had
-to prove the sequence runs intact, because before 2.1 there was no separable
-orchestration layer capable of dropping a stage.
+compliance rules heavily, and per §2's correction they are not blind to a
+dropped stage — but their coverage of it is incidental, arrives as failures
+that name the wrong subsystem, and thins out for subtler restructures than
+"delete the stage". They assert properties at known call sites and have never
+had to prove the sequence runs intact, because before 2.1 there was no
+separable orchestration layer capable of dropping a stage.
+
+Measured, both ways: with compliance removed from the pipeline, the
+characterization baseline fails 8 of 8 cases and names each one; with the
+as-offered ordering inverted — the §1 failure that turns compliance into
+theatre — it fails the 3 cases that have flags to lose. Both are caught
+immediately and both point at the actual change.
 
 **Chosen: pin the full pipeline's exact output before touching anything**, then
 prove the migration output-identical against that captured baseline rather than
