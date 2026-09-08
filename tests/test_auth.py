@@ -1,5 +1,5 @@
 """
-Tests for auth.py and the /api/auth/* routes, plus @require_role coverage
+Tests for auth.py and the /api/auth/* routes, plus @require_permission coverage
 on the submissions read/decide/export/razorpayx-balance routes.
 
 Real Flask test client throughout — a single client instance persists
@@ -10,6 +10,7 @@ sequences are exercised for real, not mocked.
 
 import os
 import sys
+import time
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -20,7 +21,7 @@ review_queue.DB_SCHEMA = "test_auth_queue"
 
 import app as flask_app
 from flask.testing import FlaskClient
-from auth import verify_login, hash_access_code
+from auth import verify_login, hash_access_code, hash_password
 
 TEST_SCHEMA = "test_auth_queue"
 
@@ -64,17 +65,43 @@ _FINANCE_CODE_HASH = hash_access_code("FINANCE2026")
 
 
 
-def _login_as(client, role, code):
-    """
-    Logs in for real: the tenant comes from the request's subdomain and the
-    code is checked against THAT TENANT's stored hash (step 5).
+# --- Phase 1.2 step 4: real users replace the shared-code login ------------
+# The access codes no longer produce a usable session; they bootstrap a
+# tenant's first owner once and then retire (IDENTITY_DESIGN.md 3.3). Tests
+# therefore provision actual accounts.
+#
+# The hash is computed ONCE per module for the same reason the code hashes
+# above are: pbkdf2 is deliberately ~0.5s, which is correct in production and
+# would add minutes across a suite that rebuilds its schema for every test.
+# The user is inserted with that pre-computed hash rather than through
+# create_user(password=...), which would re-hash per test.
+_TEST_PASSWORD = "test-user-password"
+_TEST_PASSWORD_HASH = hash_password(_TEST_PASSWORD)
 
-    This replaces step 3's _grant_tenant() scaffold, which injected tenant_id
-    into the session directly because login could not yet resolve a tenant.
-    The scaffold is gone; the assertions it supported are unchanged.
+
+def _ensure_user(tenant_id, role):
+    """Creates (once per schema) a user holding `role`, and returns its email."""
+    email = f"{role}@acme.test"
+    if review_queue.get_user_by_email(tenant_id, email) is None:
+        user = review_queue.create_user(tenant_id, email, role.title(), [role])
+        with review_queue._conn(tenant_id) as conn:
+            conn.execute(
+                "UPDATE users SET password_hash = %s WHERE tenant_id = %s AND id = %s",
+                (_TEST_PASSWORD_HASH, tenant_id, user["id"]),
+            )
+    return email
+
+
+def _login_as(client, role, code=None):
     """
+    Logs in as a REAL USER holding `role` (step 4). `code` is accepted and
+    ignored so call sites read unchanged; the shared codes it used to pass no
+    longer produce a session.
+    """
+    tenant = review_queue.get_tenant_by_slug("acme")
+    email = _ensure_user(tenant["id"], role)
     return client.post("/api/auth/login",
-                       json={"role": role, "code": code})
+                       json={"email": email, "password": _TEST_PASSWORD})
 
 
 class AuthTestCase(unittest.TestCase):
@@ -96,14 +123,19 @@ class AuthTestCase(unittest.TestCase):
     def tearDown(self):
         review_queue._drop_schema(TEST_SCHEMA)
 
-    def _login(self, role, code):
-        # Real login as of step 5: the tenant comes from the subdomain in
-        # base_url and the code is checked against that tenant's stored hash.
-        # A failed login leaves the session with no tenant at all, which is one
-        # of the three cases require_tenant has to fail closed on — nothing
-        # here has to arrange that any more, it just happens.
+    def _login(self, role, code=None):
+        """
+        Logs in as a REAL USER holding `role` (step 4). The tenant still comes
+        from the subdomain in base_url; what changed is that the credential is
+        now a person's password rather than a shared code. `code` is accepted
+        and ignored so call sites read unchanged.
+
+        A failed login still leaves the session with no tenant at all, which is
+        one of the three cases require_tenant fails closed on.
+        """
+        email = _ensure_user(self.tenant_id, role)
         return self.client.post("/api/auth/login",
-                                json={"role": role, "code": code})
+                                json={"email": email, "password": _TEST_PASSWORD})
 
 
 class TestVerifyLogin(AuthTestCase):
@@ -149,13 +181,21 @@ class TestVerifyLogin(AuthTestCase):
 
 
 class TestLoginLogoutSession(AuthTestCase):
-    def test_correct_login_sets_session_and_returns_role(self):
+    def test_correct_login_returns_the_user_and_their_roles(self):
+        # Step 4: login answers with a PERSON, not a role string. This is the
+        # visible half of IDENTITY_DESIGN.md §2 — an action is now traceable to
+        # someone who can be asked why.
         resp = self._login("hr", "HR2026")
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.get_json()["role"], "hr")
+        body = resp.get_json()
+        self.assertEqual(body["user"]["roles"], ["hr"])
+        self.assertEqual(body["user"]["email"], "hr@acme.test")
+        self.assertNotIn("role", body, "the shared-role response shape is gone")
 
     def test_incorrect_login_returns_401_and_no_session(self):
-        resp = self._login("hr", "WRONG")
+        _ensure_user(self.tenant_id, "hr")
+        resp = self.client.post("/api/auth/login",
+                                json={"email": "hr@acme.test", "password": "WRONG"})
         self.assertEqual(resp.status_code, 401)
         # No session established — a follow-up protected call still fails.
         follow_up = self.client.get("/api/submissions")
@@ -163,19 +203,22 @@ class TestLoginLogoutSession(AuthTestCase):
 
     def test_session_endpoint_reflects_login_state(self):
         before = self.client.get("/api/auth/session")
-        self.assertIsNone(before.get_json()["role"])
+        self.assertIsNone(before.get_json()["user_id"])
+        self.assertEqual(before.get_json()["roles"], [])
 
         self._login("finance", "FINANCE2026")
         after = self.client.get("/api/auth/session")
-        self.assertEqual(after.get_json()["role"], "finance")
+        self.assertEqual(after.get_json()["roles"], ["finance"])
+        self.assertIsNotNone(after.get_json()["user_id"])
 
     def test_logout_clears_session(self):
         self._login("finance", "FINANCE2026")
-        self.assertEqual(self.client.get("/api/auth/session").get_json()["role"], "finance")
+        self.assertEqual(self.client.get("/api/auth/session").get_json()["roles"], ["finance"])
 
         logout = self.client.post("/api/auth/logout")
         self.assertEqual(logout.status_code, 200)
-        self.assertIsNone(self.client.get("/api/auth/session").get_json()["role"])
+        self.assertIsNone(self.client.get("/api/auth/session").get_json()["user_id"])
+        self.assertEqual(self.client.get("/api/auth/session").get_json()["roles"], [])
 
         # A previously-working protected call now fails again.
         follow_up = self.client.get("/api/submissions")
@@ -211,7 +254,11 @@ class TestRouteProtection(AuthTestCase):
             f"/api/submissions/{submission_id}/rows/0/decide",
             json={"decision": "approve"},
         )
-        self.assertEqual(wrong_role.status_code, 401)
+        # 403, not 401: this caller IS identified and simply may not decide.
+        # 401 would tell an authenticated user to authenticate again, and a
+        # client that reacts to 401 by re-authenticating would loop forever on
+        # a permission it will never have.
+        self.assertEqual(wrong_role.status_code, 403)
 
         # Finance session succeeds.
         self.client.post("/api/auth/logout")
@@ -304,3 +351,383 @@ class TestRouteProtection(AuthTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ---------------------------------------------------------------------------
+# Phase 1.2 step 2 — permission-based enforcement (IDENTITY_DESIGN.md 3.1).
+# ---------------------------------------------------------------------------
+
+class TestPermissionCatalogue(unittest.TestCase):
+    """
+    The catalogue and mapping, tested directly rather than only through routes,
+    because their whole purpose is to be the one place a reviewer can read to
+    know who may do what.
+    """
+
+    def test_every_role_grants_only_defined_permissions(self):
+        from auth import PERMISSIONS, ROLE_PERMISSIONS
+        for role, granted in ROLE_PERMISSIONS.items():
+            unknown = set(granted) - set(PERMISSIONS)
+            self.assertEqual(unknown, set(), f"{role} grants undefined permission(s) {unknown}")
+
+    def test_unknown_permission_raises_rather_than_denying_quietly(self):
+        # A typo must not read as a plain 403/401. Returning False would make a
+        # misspelled guard look like a working one that simply refuses.
+        from auth import has_permission, require_permission
+        with self.assertRaises(ValueError):
+            has_permission("veiw_queue")
+        with self.assertRaises(ValueError):
+            require_permission("not_a_real_permission")
+
+    def test_submit_row_is_deliberately_not_a_permission(self):
+        # POST /api/submissions is unauthenticated by design (1.1 §3.3). A
+        # permission for it would imply an enforcement point that does not
+        # exist.
+        from auth import PERMISSIONS
+        self.assertNotIn("submit_row", PERMISSIONS)
+
+    def test_owner_holds_every_permission(self):
+        from auth import PERMISSIONS, ROLE_PERMISSIONS
+        self.assertEqual(set(ROLE_PERMISSIONS["owner"]), set(PERMISSIONS))
+
+    def test_mapping_preserves_exactly_todays_access(self):
+        # The property that makes step 2 safe: hr and finance keep precisely
+        # what the routes enforced before the swap. hr holds view_audit_log
+        # because /api/audit-log was guarded by @require_tenant alone and both
+        # roles could already read it.
+        from auth import ROLE_PERMISSIONS
+        self.assertEqual(set(ROLE_PERMISSIONS["hr"]), {"view_queue", "view_audit_log"})
+        self.assertEqual(set(ROLE_PERMISSIONS["finance"]),
+                         {"view_queue", "decide_row", "export_row",
+                          "view_audit_log", "view_bank_balance"})
+
+    def test_require_role_is_gone_not_merely_unused(self):
+        # Superseded enforcement must not remain reachable, or a future route
+        # gets written against the mechanism this phase replaced.
+        import auth
+        self.assertFalse(hasattr(auth, "require_role"))
+
+
+class TestPermissionSessionBridge(unittest.TestCase):
+    """
+    current_roles() spans two session shapes: the shared `role` string that
+    exists until step 4, and the per-user `roles` list that replaces it. Step 4
+    must be additive, so both are asserted now.
+    """
+
+    def test_reads_the_legacy_single_role(self):
+        with flask_app.app.test_request_context():
+            from flask import session
+            session["role"] = "finance"
+            from auth import current_roles, has_permission
+            self.assertEqual(current_roles(), ["finance"])
+            self.assertTrue(has_permission("decide_row"))
+
+    def test_prefers_the_per_user_roles_list_when_present(self):
+        with flask_app.app.test_request_context():
+            from flask import session
+            session["role"] = "hr"
+            session["roles"] = ["finance"]
+            from auth import current_roles, has_permission
+            self.assertEqual(current_roles(), ["finance"])
+            self.assertTrue(has_permission("decide_row"),
+                            "the per-user list must win once step 4 sets it")
+
+    def test_no_session_grants_nothing(self):
+        with flask_app.app.test_request_context():
+            from auth import current_roles, has_permission
+            self.assertEqual(current_roles(), [])
+            for perm in ("view_queue", "decide_row", "manage_users"):
+                self.assertFalse(has_permission(perm))
+
+
+class TestBootstrapRetiresSharedCodes(AuthTestCase):
+    """
+    IDENTITY_DESIGN.md §3.3. The shared access code's only remaining power is
+    to create exactly one named account, once, and then stop existing — which
+    is what makes §2's second clause ("no state-changing action can be
+    performed by a principal the system cannot name") true rather than
+    aspirational.
+    """
+
+    def _code_login(self):
+        return self.client.post("/api/auth/login",
+                                json={"role": "finance", "code": "FINANCE2026"})
+
+    def test_code_login_yields_a_session_that_can_do_nothing_else(self):
+        resp = self._code_login()
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.get_json()["bootstrap_required"])
+        # No tenant_id in the session, so every guarded route refuses it. A
+        # session minted from a shared secret never gets to act as a person.
+        self.assertEqual(self.client.get("/api/submissions").status_code, 401)
+        self.assertEqual(self.client.get("/api/users").status_code, 401)
+        self.assertIsNone(self.client.get("/api/auth/session").get_json()["user_id"])
+
+    def test_bootstrap_creates_an_owner_and_retires_the_codes(self):
+        self._code_login()
+        resp = self.client.post("/api/auth/bootstrap", json={
+            "email": "ada@acme.test", "display_name": "Ada", "password": "S3cretPassw0rd"})
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.get_json()["user"]["roles"], ["owner"])
+        self.assertTrue(resp.get_json()["shared_codes_retired"])
+        # The session is now a real person's and works everywhere owner does.
+        self.assertEqual(self.client.get("/api/submissions").status_code, 200)
+        self.assertEqual(self.client.get("/api/users").status_code, 200)
+
+    def test_the_code_works_exactly_once(self):
+        self._code_login()
+        self.client.post("/api/auth/bootstrap", json={
+            "email": "ada@acme.test", "display_name": "Ada", "password": "S3cretPassw0rd"})
+        again = _client().post("/api/auth/login",
+                               json={"role": "finance", "code": "FINANCE2026"})
+        self.assertEqual(again.status_code, 401)
+        self.assertIn("no longer used", again.get_json()["error"])
+
+    def test_codes_are_dead_once_any_user_exists_even_before_bootstrap(self):
+        # BOTH conditions, not either (§3.3): a tenant provisioned by the admin
+        # CLI never had a bootstrap, and must not still have an open back door.
+        review_queue.create_user(self.tenant_id, "cli@acme.test", "CLI", ["owner"])
+        resp = self._code_login()
+        self.assertEqual(resp.status_code, 401)
+
+    def test_retired_hashes_are_kept_as_a_record_not_nulled(self):
+        # §6's resolved decision: nulling would destroy the evidence that a
+        # shared secret existed and was correctly retired.
+        self._code_login()
+        self.client.post("/api/auth/bootstrap", json={
+            "email": "ada@acme.test", "display_name": "Ada", "password": "S3cretPassw0rd"})
+        hashes = review_queue.get_tenant_access_code_hashes(self.tenant_id)
+        self.assertIsNotNone(hashes["hr"])
+        self.assertIsNotNone(hashes["finance"])
+        self.assertIsNotNone(
+            review_queue.get_tenant_bootstrap_state(self.tenant_id)["codes_disabled_at"])
+
+    def test_bootstrap_rechecks_rather_than_trusting_its_own_session(self):
+        # The session was minted earlier; another request or the admin CLI may
+        # have created the first user in between. This is what makes the code
+        # single-use under a replayed or concurrent request.
+        self._code_login()
+        review_queue.create_user(self.tenant_id, "race@acme.test", "Race", ["owner"])
+        resp = self.client.post("/api/auth/bootstrap", json={
+            "email": "ada@acme.test", "display_name": "Ada", "password": "S3cretPassw0rd"})
+        self.assertEqual(resp.status_code, 409)
+        self.assertIsNone(review_queue.get_user_by_email(self.tenant_id, "ada@acme.test"))
+
+    def test_bootstrap_requires_a_bootstrap_session(self):
+        self.assertEqual(
+            _client().post("/api/auth/bootstrap", json={
+                "email": "x@acme.test", "display_name": "X", "password": "S3cretPassw0rd"}).status_code,
+            401)
+
+    def test_bootstrap_refuses_a_weak_password(self):
+        self._code_login()
+        resp = self.client.post("/api/auth/bootstrap", json={
+            "email": "ada@acme.test", "display_name": "Ada", "password": "short"})
+        self.assertEqual(resp.status_code, 400)
+        self.assertIsNone(review_queue.get_user_by_email(self.tenant_id, "ada@acme.test"))
+        self.assertIsNone(
+            review_queue.get_tenant_bootstrap_state(self.tenant_id)["codes_disabled_at"],
+            "a rejected bootstrap must not retire the codes")
+
+
+class TestLoginIsNotAnEnumerationOracle(AuthTestCase):
+    """
+    §3.5. Named accounts are enumerable in a way one shared code was not, so
+    login must not confirm which addresses exist.
+    """
+
+    def test_unknown_email_and_wrong_password_are_indistinguishable(self):
+        _ensure_user(self.tenant_id, "finance")
+        unknown = self.client.post("/api/auth/login",
+                                   json={"email": "ghost@acme.test", "password": _TEST_PASSWORD})
+        wrong = self.client.post("/api/auth/login",
+                                 json={"email": "finance@acme.test", "password": "nope"})
+        self.assertEqual(unknown.status_code, wrong.status_code)
+        self.assertEqual(unknown.get_json(), wrong.get_json())
+
+    def test_a_disabled_user_cannot_log_in_and_looks_the_same(self):
+        _ensure_user(self.tenant_id, "finance")
+        user = review_queue.get_user_by_email(self.tenant_id, "finance@acme.test")
+        review_queue.set_user_status(self.tenant_id, user["id"], "disabled")
+        resp = self.client.post("/api/auth/login",
+                                json={"email": "finance@acme.test", "password": _TEST_PASSWORD})
+        self.assertEqual(resp.status_code, 401)
+        self.assertIn("don't match", resp.get_json()["error"])
+
+    def test_a_user_with_no_password_cannot_log_in(self):
+        # The state an SSO-provisioned user will be in from 1.3, and the state
+        # create_owner.py leaves an account provisioned ahead of its person.
+        review_queue.create_user(self.tenant_id, "nopw@acme.test", "No Password", ["finance"])
+        resp = self.client.post("/api/auth/login",
+                                json={"email": "nopw@acme.test", "password": ""})
+        self.assertEqual(resp.status_code, 401)
+
+    def test_a_user_of_another_tenant_cannot_log_in_here(self):
+        other = review_queue.create_tenant("globex", "Globex")["id"]
+        review_queue.create_tenant_settings(other, _HR_CODE_HASH, _FINANCE_CODE_HASH)
+        _ensure_user(other, "finance")
+        # Same email, but this client is on acme's subdomain.
+        resp = self.client.post("/api/auth/login",
+                                json={"email": "finance@acme.test", "password": _TEST_PASSWORD})
+        self.assertEqual(resp.status_code, 401)
+
+
+class TestLoginThrottling(AuthTestCase):
+    """
+    §3.5. Named accounts are enumerable and guessable in a way one shared code
+    was not, so login is throttled — on the ACCOUNT and on the IP, whichever
+    trips first.
+    """
+
+    def setUp(self):
+        super().setUp()
+        flask_app._LOGIN_ATTEMPTS.clear()
+
+    def tearDown(self):
+        flask_app._LOGIN_ATTEMPTS.clear()
+        super().tearDown()
+
+    def _attempt(self, email="finance@acme.test", password="wrong"):
+        return self.client.post("/api/auth/login",
+                                json={"email": email, "password": password})
+
+    def test_repeated_failures_on_one_account_are_throttled(self):
+        _ensure_user(self.tenant_id, "finance")
+        for _ in range(flask_app._LOGIN_MAX_PER_ACCOUNT):
+            self.assertEqual(self._attempt().status_code, 401)
+        throttled = self._attempt()
+        self.assertEqual(throttled.status_code, 429)
+        self.assertIn("Too many", throttled.get_json()["error"])
+
+    def test_throttling_blocks_the_CORRECT_password_too(self):
+        # Otherwise the limiter is trivially bypassed by the one guess that
+        # matters, and it would also leak which guess was right.
+        _ensure_user(self.tenant_id, "finance")
+        for _ in range(flask_app._LOGIN_MAX_PER_ACCOUNT):
+            self._attempt()
+        blocked = self._attempt(password=_TEST_PASSWORD)
+        self.assertEqual(blocked.status_code, 429)
+
+    def test_an_unknown_email_is_throttled_identically_to_a_real_one(self):
+        # If the limiter behaved differently for accounts that exist, it would
+        # itself become the enumeration oracle §3.5 exists to prevent.
+        _ensure_user(self.tenant_id, "finance")
+        for _ in range(flask_app._LOGIN_MAX_PER_ACCOUNT):
+            self._attempt(email="ghost@acme.test")
+        ghost = self._attempt(email="ghost@acme.test")
+        real = _client().post("/api/auth/login",
+                              json={"email": "finance@acme.test", "password": "wrong"})
+        self.assertEqual(ghost.status_code, 429)
+        # A different account on a fresh client is unaffected — the account key
+        # is per-account, not global.
+        self.assertEqual(real.status_code, 401)
+
+    def test_one_account_lockout_does_not_lock_another(self):
+        _ensure_user(self.tenant_id, "finance")
+        _ensure_user(self.tenant_id, "hr")
+        for _ in range(flask_app._LOGIN_MAX_PER_ACCOUNT):
+            self._attempt(email="finance@acme.test")
+        self.assertEqual(self._attempt(email="finance@acme.test").status_code, 429)
+        other = self.client.post("/api/auth/login",
+                                 json={"email": "hr@acme.test", "password": _TEST_PASSWORD})
+        self.assertEqual(other.status_code, 200,
+                         "a different person must not be locked out by someone else's typos")
+
+    def test_a_successful_login_clears_that_accounts_failures(self):
+        _ensure_user(self.tenant_id, "finance")
+        for _ in range(flask_app._LOGIN_MAX_PER_ACCOUNT - 1):
+            self._attempt()
+        ok = self._attempt(password=_TEST_PASSWORD)
+        self.assertEqual(ok.status_code, 200)
+        # Not left one typo from a lockout after succeeding.
+        self.assertEqual(self._attempt().status_code, 401)
+
+    def test_the_account_key_is_scoped_per_tenant(self):
+        # Never email alone: one tenant's traffic must not lock an account in
+        # another tenant that happens to share an address.
+        other = review_queue.create_tenant("globex", "Globex")["id"]
+        review_queue.create_tenant_settings(other, _HR_CODE_HASH, _FINANCE_CODE_HASH)
+        _ensure_user(self.tenant_id, "finance")
+        for _ in range(flask_app._LOGIN_MAX_PER_ACCOUNT):
+            self._attempt()
+        self.assertEqual(self._attempt().status_code, 429)
+        keys = [k for k in flask_app._LOGIN_ATTEMPTS if k.startswith("acct:")]
+        self.assertTrue(all(k.startswith(f"acct:{self.tenant_id}:") for k in keys), keys)
+        self.assertFalse(any(k == "acct:finance@acme.test" for k in keys),
+                         "the key must carry the tenant, not be email alone")
+
+    def test_the_shared_code_path_is_throttled_too(self):
+        # It is still a credential until the tenant bootstraps.
+        for _ in range(flask_app._LOGIN_MAX_PER_IP):
+            self.client.post("/api/auth/login", json={"role": "finance", "code": "WRONG"})
+        resp = self.client.post("/api/auth/login", json={"role": "finance", "code": "WRONG"})
+        self.assertEqual(resp.status_code, 429)
+
+    def test_throttling_is_a_timed_backoff_not_a_permanent_lock(self):
+        # A permanent lock is itself a denial of service an attacker can
+        # trigger against a named person.
+        _ensure_user(self.tenant_id, "finance")
+        for _ in range(flask_app._LOGIN_MAX_PER_ACCOUNT):
+            self._attempt()
+        self.assertEqual(self._attempt().status_code, 429)
+        # Age the recorded attempts past the window rather than sleeping.
+        expired = time.time() - flask_app._LOGIN_WINDOW_SECONDS - 1
+        for key in flask_app._LOGIN_ATTEMPTS:
+            flask_app._LOGIN_ATTEMPTS[key] = [expired] * len(flask_app._LOGIN_ATTEMPTS[key])
+        self.assertEqual(self._attempt(password=_TEST_PASSWORD).status_code, 200,
+                         "the account must recover on its own once the window passes")
+
+
+class TestLoginTimingSymmetry(AuthTestCase):
+    """
+    §3.5. Byte-identical responses are necessary and NOT sufficient: if a real
+    account costs a pbkdf2 verify and a nonexistent one short-circuits, the
+    endpoint is still an enumeration oracle by clock. Measured at 77x before
+    the fix — a single-request distinguisher, no statistics needed.
+    """
+
+    def setUp(self):
+        super().setUp()
+        flask_app._LOGIN_ATTEMPTS.clear()
+
+    def _median_ms(self, email, n=5):
+        import statistics
+        samples = []
+        for _ in range(n):
+            flask_app._LOGIN_ATTEMPTS.clear()
+            client = _client()
+            start = time.perf_counter()
+            client.post("/api/auth/login", json={"email": email, "password": "wrongpassword"})
+            samples.append(time.perf_counter() - start)
+        return statistics.median(samples) * 1000
+
+    def test_a_missing_hash_still_costs_a_verification(self):
+        # The structural guarantee underneath the timing one, asserted without
+        # a clock so it cannot go quietly flaky.
+        from unittest.mock import patch
+        import auth
+        with patch.object(auth, "check_password_hash", return_value=False) as spy:
+            self.assertFalse(auth.verify_password(None, "anything"))
+            self.assertEqual(spy.call_count, 1,
+                             "no stored hash must still perform one verification")
+
+    def test_existing_and_nonexistent_accounts_take_comparable_time(self):
+        _ensure_user(self.tenant_id, "finance")
+        real = self._median_ms("finance@acme.test")
+        fake = self._median_ms("ghost@acme.test")
+        ratio = max(real, fake) / min(real, fake)
+        # Generous bound: the real measured ratio is ~1.02 and the pre-fix one
+        # was ~77, so anything under 3 distinguishes "fixed" from "broken"
+        # without turning machine load into a test failure.
+        self.assertLess(ratio, 3.0,
+                        f"timing oracle: real={real:.0f}ms fake={fake:.0f}ms ratio={ratio:.1f}x")
+
+    def test_a_disabled_user_and_one_with_no_password_are_also_symmetric(self):
+        _ensure_user(self.tenant_id, "finance")
+        review_queue.create_user(self.tenant_id, "nopw@acme.test", "No Password", ["finance"])
+        disabled = review_queue.create_user(self.tenant_id, "off@acme.test", "Off", ["finance"])
+        review_queue.set_user_status(self.tenant_id, disabled["id"], "disabled")
+        times = [self._median_ms(e, n=3) for e in
+                 ("finance@acme.test", "nopw@acme.test", "off@acme.test", "ghost@acme.test")]
+        self.assertLess(max(times) / min(times), 3.0, f"asymmetric: {times}")

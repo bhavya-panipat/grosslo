@@ -298,7 +298,15 @@ export type SubmissionRow = {
   status: SubmissionRowStatus;
   reason: string | null;
   decided_at: string | null;
+  /** The role the decider held AT THE TIME, stored rather than derived so the
+   *  trail still reads correctly if that person's role later changes. */
   decided_by: string | null;
+  /** Who decided. NULL on rows decided before per-user accounts existed
+   *  (Phase 1.2) — deliberately NOT backfilled, because no user existed then
+   *  and inventing an attribution in an audit trail is worse than an honest
+   *  gap. Render those as unattributed, never as if someone were named. */
+  decided_by_user_id: number | null;
+  decided_by_display_name: string | null;
   exported_at: string | null;
   dispatched_at: string | null;
   input: {

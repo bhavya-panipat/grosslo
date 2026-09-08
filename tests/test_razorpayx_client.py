@@ -26,9 +26,31 @@ review_queue.DB_SCHEMA = "test_razorpayx_queue"
 
 import app as flask_app
 from flask.testing import FlaskClient
-from auth import hash_access_code
+from auth import hash_access_code, hash_password
 
 TENANT_HOST = "http://acme.grosslo.app/"
+
+
+# --- Phase 1.2 step 4: real users replace the shared-code login ------------
+# The access codes bootstrap a tenant's first owner once and then retire
+# (IDENTITY_DESIGN.md 3.3), so tests provision actual accounts. Hashed once
+# per module: pbkdf2 is deliberately ~0.5s.
+_TEST_PASSWORD = "test-user-password"
+_TEST_PASSWORD_HASH = hash_password(_TEST_PASSWORD)
+
+
+def _login_as(client, tenant_id, role):
+    email = f"{role}@acme.test"
+    if review_queue.get_user_by_email(tenant_id, email) is None:
+        user = review_queue.create_user(tenant_id, email, role.title(), [role])
+        with review_queue._conn(tenant_id) as conn:
+            conn.execute(
+                "UPDATE users SET password_hash = %s WHERE tenant_id = %s AND id = %s",
+                (_TEST_PASSWORD_HASH, tenant_id, user["id"]),
+            )
+    return client.post("/api/auth/login",
+                       json={"email": email, "password": _TEST_PASSWORD})
+
 
 class _TenantTestClient(FlaskClient):
     """
@@ -169,8 +191,7 @@ class TestRazorpayXBalanceRoute(unittest.TestCase):
             self.tenant_id, _HR_CODE_HASH, _FINANCE_CODE_HASH)
         self.client = _client()
         # Real login on the tenant subdomain — the step 3 session scaffold is gone.
-        self.client.post("/api/auth/login",
-                         json={"role": "finance", "code": "FINANCE2026"})
+        _login_as(self.client, self.tenant_id, "finance")
 
     def tearDown(self):
         review_queue._drop_schema(TEST_SCHEMA)

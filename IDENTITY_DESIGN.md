@@ -96,7 +96,6 @@ and 1.2 does not need it to deliver the §2 guarantee.
 fixed bundles.** Concretely:
 
 ```
-submit_row        — POST /api/submissions
 view_queue        — GET  /api/submissions, GET /api/submissions/<id>
 decide_row        — POST .../decide
 export_row        — POST .../export, POST .../complete
@@ -106,11 +105,33 @@ manage_users      — the 1.2 user-admin routes
 ```
 
 `@require_permission("decide_row")` replaces `@require_role("finance")`. The
-initial role set is exactly the two that exist today, so no tenant's effective
-access changes on cutover — `hr` gets `submit_row` + `view_queue`, `finance`
-gets those plus `decide_row`, `export_row`, `view_audit_log`,
-`view_bank_balance`. A third role later is a row in a table, not a sweep
-through `app.py`.
+initial role set is exactly the two that exist today, and **no tenant's
+effective access changes on cutover** — that is the property that makes this
+step safe to review, so the mapping is derived from what the routes actually
+enforce today rather than from what the permission names suggest:
+
+- `hr` → `view_queue`, `view_audit_log`
+- `finance` → those plus `decide_row`, `export_row`, `view_bank_balance`
+- `owner` (new in 1.2) → all of the above plus `manage_users`
+
+A third role later is a row in a table, not a sweep through `app.py`.
+
+**Two corrections to an earlier draft of this list, both found by checking the
+routes instead of trusting the names — each would have silently changed access
+in a step whose whole value is changing none:**
+
+- An earlier draft listed `submit_row — POST /api/submissions`. That route is
+  deliberately unauthenticated (`@require_resolved_tenant`, no session), which
+  1.1 §3.3 fought to preserve so `/optimize/batch`'s public flow keeps working.
+  There is no session to hold a permission, so `submit_row` is **not defined at
+  all**. A permission that guards nothing is worse than no permission: it reads
+  as an enforcement point that does not exist.
+- An earlier draft gave `view_audit_log` to `finance` only. `/api/audit-log` is
+  guarded by `@require_tenant` alone today, so **both roles can read it** —
+  verified by driving the route as each role. Restricting HR's access to a
+  compliance surface is a real product decision, not a side effect of
+  refactoring enforcement, so `hr` keeps it here and any restriction is a
+  separate, deliberate change.
 
 Roles are **system-defined in 1.2**, not tenant-editable. That keeps the
 permission catalogue reviewable in code while making the enforcement point
@@ -210,6 +231,46 @@ Stated plainly: the existing limiter is in-memory and per-process, which
 hardening. 1.2 does not fix that; it is the same limitation applied to one more
 route, and §6 records it.
 
+**Known and accepted gap: this does not stop distributed credential stuffing.**
+Keying on the account and on the IP defeats single-source brute force — one
+machine hammering one account, or one machine sweeping many. It does not defeat
+an attacker who spreads attempts across many source addresses *and* many target
+accounts at once, staying under both thresholds simultaneously. That is not an
+exotic edge case; it is the standard evolution of credential stuffing once
+naive rate limits exist, and no per-request counter at this layer detects it,
+because every individual request is indistinguishable from a legitimate one.
+
+Catching it requires looking at aggregate behaviour across the whole request
+volume — a WAF, or anomaly detection over login outcomes — which is
+infrastructure, not application logic, and belongs with the same later-phase
+work as the durable rate-limit store. Named here so that "we have rate
+limiting" is never mistaken for "we are protected against credential
+stuffing". They are different claims and only the first is true.
+
+**Threshold tuning is a real operational input, not a constant.** The window is
+sliding, so failures cannot accumulate across a day. What can happen is a burst
+inside one window: one NAT'd office at a 10% mistyped-password rate reaches 20
+failures at roughly 200 staff and 50 at 500. An IP threshold picked against
+attack traffic alone would lock out a whole company's morning — the exact
+failure that keying on the account was meant to avoid, arriving as a burst
+rather than as an attacker. `LOGIN_MAX_PER_IP`, `LOGIN_MAX_PER_ACCOUNT` and
+`LOGIN_WINDOW_SECONDS` are therefore environment-tunable, and the IP default is
+set for a ~1000-person single-egress office rather than for the tightest number
+that still passes a test. The per-account limit is the control that actually
+protects an individual, and it is unaffected by office size: organic failures
+spread across many accounts, while an attacker's concentrate on few.
+
+**Timing symmetry, not just content symmetry.** Returning a byte-identical body
+for "no such account" and "wrong password" is necessary and NOT sufficient. If
+a real account costs a ~0.5s pbkdf2 verify and a nonexistent one short-circuits
+in milliseconds, the endpoint is still an enumeration oracle — measured here at
+77x (511.6ms vs 6.6ms), distinguishable in a single request with no statistics.
+`verify_password()` therefore verifies against a fixed dummy hash whenever
+there is no stored hash, bringing all four cases (real, absent, disabled, no
+password set) within 1.02x of each other. This is a mitigation, not a proof of
+constant time: it removes an oracle usable from one sample, and does not claim
+immunity to arbitrarily-many-sample statistical attacks.
+
 ### 3.6 `users` and `user_roles` are tenant-owned, and get the same two layers
 
 They carry `tenant_id NOT NULL REFERENCES tenants(id)` and join
@@ -272,20 +333,33 @@ and roles are already decoupled from the routes. Session shape after 1.2 is
 `{"user_id": int, "tenant_id": int, "roles": [...]}` — the shape 1.1 §3.3
 predicted, reached without ever re-deriving the tenant boundary.
 
-## 6. Open decisions needing an explicit call, not a silent default
+## 6. Decisions needing an explicit call, not a silent default
 
-- **Password reset delivery.** There is no email infrastructure at all today
-  (§1). Reset requires one, and the choice — a provider (SES/Postmark/Resend) vs.
-  operator-issued reset links vs. deferring reset entirely to 1.3 with SSO —
-  changes what 1.2 ships. Deferring is coherent: with an owner who can reset
-  other users, only a locked-out sole owner is stuck.
-- **Whether the retired code hashes are nulled or kept.** `codes_disabled_at`
-  makes them unusable either way. Nulling removes a dead secret; keeping them
-  preserves the record that a tenant was provisioned that way.
-- **Rate-limit durability.** The existing limiter is in-memory and per-process
-  and does not survive a restart or multiple workers (`app.py:99-102`). Whether
-  1.2 keeps that honestly-labelled limitation or moves the limiter to Postgres
-  is a real call, not a detail.
+All three were resolved before implementation began. Recorded here rather than
+deleted, so the reasoning that produced §3 and §7 stays legible to a reader who
+only has this file.
+
+- **RESOLVED — Password reset is deferred to 1.3.** There is no email
+  infrastructure of any kind in this repo (§1), and building a delivery
+  provider inside an identity phase to serve a case an owner already covers is
+  scope this phase does not need. An owner can reset any other user's password,
+  which is the common case. The genuinely uncovered case is a locked-out SOLE
+  owner, who needs operator intervention — a rare, documented gap, not a reason
+  to take on email infrastructure now. 1.3 brings SSO, which changes the reset
+  story anyway.
+- **RESOLVED — The retired code hashes are KEPT, not nulled.**
+  `codes_disabled_at` makes them unusable either way, so this is purely about
+  what the record says. Nulling destroys the evidence that a shared secret
+  existed and was correctly retired; keeping it inert but present preserves
+  that history. Consistent with this project's existing pattern of preserving
+  rather than erasing — the docstrings that record why a thing is the way it
+  is, and §3.4's refusal to overwrite historical `decided_by` values.
+- **RESOLVED — The rate limiter stays in-memory for 1.2**, carrying exactly the
+  honest limitation label it already has (`app.py:99-102`: per-process, resets
+  on restart, does not survive multiple workers behind a load balancer). Moving
+  it to Postgres would be solving a Phase 4 scale problem inside an identity
+  phase — the same discipline that correctly left 1.1's KMS and hosting
+  decisions parked rather than answering them early to feel finished.
 
 ## 7. Suggested internal sequencing for 1.2
 
@@ -315,3 +389,18 @@ predicted, reached without ever re-deriving the tenant boundary.
    - **Shared-code retirement:** the code works exactly once, creates exactly
      one owner, and every subsequent attempt fails — including after the owner
      is deleted.
+   - **OUTSTANDING — compile and exercise the frontend attribution UI.** Step
+     5 added `DecidedBy` to `finance-flow.tsx` and two fields to
+     `api-types.ts`, and **neither has ever been compiled or run**: there is no
+     `node` binary in the environment this phase was built in, so `tsc` and the
+     dev server were both unavailable. That code is reviewed by eye only and
+     must not be trusted at the same level as the rest of this phase's work,
+     all of which was verified by running it.
+
+     The first environment with Node available must: type-check the project,
+     render a decided row and confirm the decider's name appears, and render a
+     row with a NULL `decided_by_user_id` and confirm it shows as
+     *Unattributed* rather than silently blank or, worse, attributed to
+     someone. Until that happens this item stays open, and the honest
+     description of the phase is "backend verified, one UI component
+     unverified".

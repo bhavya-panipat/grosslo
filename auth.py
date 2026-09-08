@@ -27,6 +27,7 @@ hardening gap found later. So it is never read from there.
 from __future__ import annotations
 
 import os
+import secrets
 from functools import wraps
 
 from flask import session, jsonify, request, g
@@ -71,6 +72,68 @@ def hash_access_code(code: str) -> str:
     # (macOS Command Line Tools 3.9), where the default raises AttributeError
     # at hash time. pbkdf2:sha256 is available everywhere Python is.
     return generate_password_hash(normalize_access_code(code), method="pbkdf2:sha256")
+
+
+def hash_password(password: str) -> str:
+    """
+    Hashes a USER's password (Phase 1.2). Distinct from hash_access_code()
+    above, and the difference is not stylistic.
+
+    hash_access_code() runs normalize_access_code(), which upper-cases and
+    strips. That is correct for the shared demo codes, which were compared
+    case-insensitively client-side long before they were hashed. Applying it to
+    a password would silently make every password case-insensitive and discard
+    leading and trailing characters — collapsing the search space an attacker
+    has to cover, on the credential that actually identifies a person. So
+    passwords are hashed verbatim, with no normalisation whatsoever.
+
+    Same pbkdf2:sha256 pinning as hash_access_code, for the same reason:
+    werkzeug's default is scrypt, and hashlib.scrypt is absent on this repo's
+    interpreter.
+    """
+    if not isinstance(password, str) or not password:
+        raise ValueError("password must be a non-empty string")
+    return generate_password_hash(password, method="pbkdf2:sha256")
+
+
+# A real hash of a value nobody knows, verified against whenever there is no
+# stored hash to verify against. See verify_password() for why this exists.
+# Computed once at import: it costs one pbkdf2 (~0.5s) at startup, not per
+# request.
+_DUMMY_PASSWORD_HASH = generate_password_hash(secrets.token_hex(32), method="pbkdf2:sha256")
+
+
+def verify_password(password_hash: str | None, password: str) -> bool:
+    """
+    Checks a password against a stored hash. False — never an exception — when
+    the user has no local password at all, which is the state an SSO-provisioned
+    user will be in from 1.3 (users.password_hash is nullable, IDENTITY_DESIGN.md
+    3.2). Such a user must fail local login cleanly rather than crash it.
+
+    WHEN THERE IS NO HASH, IT STILL DOES THE WORK. Returning False immediately
+    would be correct and would leak: pbkdf2 is deliberately ~0.5s, so an
+    absent hash answers in single-digit milliseconds while a present one takes
+    half a second. Measured on this machine before this mitigation: 511.6ms for
+    an account that exists against 6.6ms for one that does not — a 77x
+    difference, distinguishable in ONE request, with no statistics needed.
+
+    That made login an account-enumeration oracle even though every response
+    body was byte-identical. Content symmetry and timing symmetry are different
+    guarantees, and step 4 only established the first. Verifying against a
+    fixed dummy hash spends comparable work on both paths so the two are no
+    longer separable by clock.
+
+    Note this is a mitigation, not a proof of constant time: hash comparison
+    cost still varies slightly, and network jitter dwarfs the remainder. It
+    removes an oracle that was usable with a single sample; it does not claim
+    immunity to arbitrarily-many-sample statistical attacks.
+    """
+    if not isinstance(password, str):
+        password = ""
+    if not password_hash:
+        check_password_hash(_DUMMY_PASSWORD_HASH, password)
+        return False
+    return check_password_hash(password_hash, password)
 
 
 def tenant_slug_from_host(host: str | None) -> str | None:
@@ -135,20 +198,133 @@ def verify_login(tenant_id: int, role: str, code: str) -> bool:
     return check_password_hash(hashes[role], normalize_access_code(code))
 
 
-def require_role(*allowed_roles: str):
+# ---------------------------------------------------------------------------
+# Permissions (Phase 1.2, IDENTITY_DESIGN.md 3.1)
+#
+# Routes are guarded by what they DO, not by who is allowed to do it. The
+# alternative — an allow-list of role names at each route — is correct for the
+# roles that exist when it is written and one forgetful edit away from wrong
+# when a role is added, which is the same shape as the "add WHERE tenant_id to
+# the queries we have today" approach 1.1 rejected.
+#
+# The catalogue and the role mapping live in code rather than in a table: they
+# are system-defined in 1.2, and a constant shipping alongside the routes it
+# guards cannot drift from them the way a seeded table can.
+#
+# NOT DEFINED, deliberately: a `submit_row` permission. POST /api/submissions
+# is unauthenticated by design (see its docstring and require_resolved_tenant)
+# so there is no session to hold such a permission. Defining one would imply an
+# enforcement point that does not exist.
+# ---------------------------------------------------------------------------
+PERMISSIONS = (
+    "view_queue",         # GET /api/submissions, GET /api/submissions/<id>
+    "decide_row",         # POST .../decide
+    "export_row",         # POST .../export, POST .../complete
+    "view_audit_log",     # GET /api/audit-log
+    "view_bank_balance",  # GET /api/razorpayx/balance
+    "manage_users",       # the 1.2 user-admin routes
+)
+
+# Derived from what the routes ENFORCE today, not from what the names suggest,
+# so this swap changes no tenant's effective access. In particular `hr` holds
+# view_audit_log because /api/audit-log is guarded by @require_tenant alone
+# today and both roles can already read it — restricting a compliance surface
+# is a product decision, not a side effect of refactoring enforcement.
+ROLE_PERMISSIONS = {
+    "hr": frozenset({"view_queue", "view_audit_log"}),
+    "finance": frozenset({"view_queue", "decide_row", "export_row",
+                          "view_audit_log", "view_bank_balance"}),
+    "owner": frozenset(PERMISSIONS),
+}
+
+
+def current_roles() -> list:
     """
-    Route decorator: 401s unless the current session's role is one of
-    `allowed_roles`. Use @require_role("finance") for finance-only routes,
-    @require_role("hr", "finance") for routes either role may read.
+    The roles this session holds.
+
+    Bridges two session shapes on purpose. Until step 4 a session carries one
+    shared string, `role`; afterwards it carries a real per-user list, `roles`.
+    Reading the list first and falling back means step 2 can swap every route's
+    guard without also changing the session, keeping the two changes separately
+    reviewable — and step 4 becomes additive rather than a second sweep.
     """
+    roles = session.get("roles")
+    if roles is not None:
+        return list(roles)
+    role = session.get("role")
+    return [role] if role else []
+
+
+def has_permission(permission: str) -> bool:
+    if permission not in PERMISSIONS:
+        # A typo'd permission must never silently authorise. Raising beats
+        # returning False, which would look like a plain 403 and hide the bug.
+        raise ValueError(
+            f"unknown permission {permission!r} — must be one of {PERMISSIONS}"
+        )
+    return any(permission in ROLE_PERMISSIONS.get(r, frozenset())
+               for r in current_roles())
+
+
+def require_permission(permission: str):
+    """
+    Route decorator: refuses unless the session's roles grant `permission`.
+
+    RETURNS 403. The caller IS identified and simply may not do this.
+
+    It returned 401 for one step on purpose. require_permission replaced
+    require_role at every route in a single commit whose entire value was that
+    it provably changed no observable behaviour, and quietly improving the
+    status code in that same commit would have made "199 tests stayed 199"
+    unverifiable from the diff — a reviewer could no longer tell whether
+    nothing changed or whether something changed and was not mentioned. So the
+    correction waited and landed on its own, with its own before/after.
+
+    Why 403 is right: 401 means "I do not know who you are", which is
+    require_tenant's answer to a missing session and stays 401. Telling an
+    authenticated user to authenticate again is both wrong and actively
+    unhelpful — a client that reacts to 401 by re-authenticating would loop
+    forever on a permission it will never have.
+    """
+    if permission not in PERMISSIONS:
+        raise ValueError(f"unknown permission {permission!r}")  # at import, not per-request
+
     def decorator(fn):
         @wraps(fn)
         def wrapper(*args, **kwargs):
-            if session.get("role") not in allowed_roles:
-                return jsonify({"error": "Not authenticated for this action."}), 401
+            # ORDER-INDEPENDENT BY CONSTRUCTION. This repeats require_tenant's
+            # check rather than assuming it already ran.
+            #
+            # The duplication is the point. These guards are written as a stack
+            # and decorators EXECUTE TOP-DOWN while being APPLIED bottom-up,
+            # which is easy to get backwards — it was backwards on six routes
+            # for four commits. It was invisible because both guards returned
+            # 401 then: a wrong order produced a right-looking answer, so no
+            # test could see it until 403 forced the two apart.
+            #
+            # Detecting that in review or in a lint rule only catches the next
+            # one after someone writes it. Answering 401 here when there is no
+            # identity at all makes the mistake HARMLESS instead: a route whose
+            # guards are stacked the wrong way round still tells an
+            # unauthenticated caller "who are you?" rather than leaking the
+            # judgement "you may not do this" about someone it cannot name.
+            if session.get("tenant_id") is None:
+                return jsonify({"error": "No tenant context for this session."}), 401
+            if not has_permission(permission):
+                return jsonify({"error": "Not authorised for this action."}), 403
             return fn(*args, **kwargs)
         return wrapper
     return decorator
+
+
+# require_role() lived here until Phase 1.2 step 2 and is deliberately GONE,
+# not kept alongside require_permission as a still-working alternative. Every
+# route it guarded now checks a permission instead, and leaving a second,
+# role-name-based enforcement path in the module is how a future route ends up
+# guarded by the mechanism this phase replaced — the "undeleted superseded
+# code" failure this repo has hit before. Its behaviour is preserved exactly
+# inside require_permission (same 401, same body); what is gone is the ability
+# to write a new route against role names.
 
 
 def current_tenant_id():

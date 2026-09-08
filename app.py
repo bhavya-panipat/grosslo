@@ -27,7 +27,9 @@ from razorpayx_client import (
     fetch_account_balance, RazorpayXNotConfigured, RazorpayXKeyModeError, RazorpayXRequestError,
 )
 from auth import (
-    verify_login, require_role, require_tenant, require_resolved_tenant,
+    verify_login, verify_password, require_permission, require_tenant,
+    require_resolved_tenant, current_roles,
+    ROLE_PERMISSIONS,
     current_tenant_id, resolved_tenant_id, tenant_from_request, TENANT_DOMAIN_SUFFIX,
 )
 import io
@@ -75,7 +77,7 @@ AUDIT_LOG_PATH = "audit_log.jsonl"
 PROCESS_LOG_PATH = "process_log.jsonl"
 
 
-def _append_audit_log(tenant_id, route: str, event: dict) -> None:
+def _append_audit_log(tenant_id, user_id, route: str, event: dict) -> None:
     """
     Appends one JSON line per money-adjacent decision (structure computed,
     compliance/guardrail verdict, payload generated) to a local, gitignored
@@ -109,6 +111,15 @@ def _append_audit_log(tenant_id, route: str, event: dict) -> None:
     rather than degrading quietly — the degrade-gracefully rule above covers
     the filesystem being unwritable, not a caller that does not know who it is
     acting for.
+
+    user_id is required too, and unlike tenant_id it MAY be None — the two are
+    not the same kind of value (§3.4). tenant_id is the partition key and a
+    line without one belongs to nobody. user_id answers "who", and there is
+    exactly one honest None: POST /api/submissions is deliberately
+    unauthenticated, so a row submitted through the public flow genuinely has
+    no person behind it. Recording None there is the truthful answer, the same
+    one historical rows give with a NULL decided_by_user_id. It is a required
+    ARGUMENT so no call site can forget to think about it.
     """
     if tenant_id is None:
         raise ValueError(
@@ -118,7 +129,8 @@ def _append_audit_log(tenant_id, route: str, event: dict) -> None:
             "tenant — a stateless compute route with no authenticated session — use "
             "_append_process_log() instead. Do not reintroduce a nullable tenant_id here."
         )
-    _write_log_line(AUDIT_LOG_PATH, {"tenant_id": tenant_id, "route": route, **event})
+    _write_log_line(AUDIT_LOG_PATH,
+                    {"tenant_id": tenant_id, "user_id": user_id, "route": route, **event})
 
 
 def _append_process_log(route: str, event: dict) -> None:
@@ -137,7 +149,8 @@ def _append_process_log(route: str, event: dict) -> None:
     re-creating, at the HTTP layer, exactly the cross-tenant visibility the
     split exists to remove.
     """
-    _write_log_line(PROCESS_LOG_PATH, {"tenant_id": None, "route": route, **event})
+    _write_log_line(PROCESS_LOG_PATH,
+                    {"tenant_id": None, "user_id": None, "route": route, **event})
 
 
 def _log_compute_event(route: str, event: dict) -> None:
@@ -157,7 +170,7 @@ def _log_compute_event(route: str, event: dict) -> None:
     if tenant_id is None:
         _append_process_log(route, event)
     else:
-        _append_audit_log(tenant_id, route, event)
+        _append_audit_log(tenant_id, session.get("user_id"), route, event)
 
 
 def _write_log_line(path: str, payload: dict) -> None:
@@ -203,6 +216,102 @@ def _rate_limited(key: str) -> bool:
         return True
     attempts.append(now)
     return False
+
+
+# ---------------------------------------------------------------------------
+# Login throttling (Phase 1.2 step 6, IDENTITY_DESIGN.md 3.5).
+#
+# Login was unguarded before this. That was defensible while there was one
+# shared code per role per tenant and no username to enumerate; with named
+# accounts it becomes credential stuffing against a known list of people, which
+# is a different and worse problem.
+#
+# KEYED ON BOTH THE ACCOUNT AND THE IP, whichever trips first, because either
+# alone is wrong: an attacker distributing attempts across addresses defeats an
+# IP-only limit, while an IP-only limit also punishes a whole NAT'd office for
+# one person's typos. The account key is (tenant_id, email) — never email
+# alone, or one tenant's traffic could lock an account in another.
+#
+# The backoff is TIMED, not a permanent lock. A permanent lock is itself a
+# denial of service an attacker can trigger against a named person just by
+# failing to log in as them enough times.
+#
+# In-memory and per-process, carrying exactly the limitation the submission
+# limiter above already names: this resets on restart and does not survive
+# multiple workers behind a load balancer. §6 resolved to keep it that way for
+# 1.2 — moving it to Postgres would be solving a Phase 4 scale problem inside
+# an identity phase — so it is a real, named limitation, not a claim of
+# production hardening.
+# ---------------------------------------------------------------------------
+_LOGIN_ATTEMPTS: dict[str, list[float]] = {}
+_LOGIN_WINDOW_SECONDS = int(os.environ.get("LOGIN_WINDOW_SECONDS", 300))
+_LOGIN_MAX_PER_ACCOUNT = int(os.environ.get("LOGIN_MAX_PER_ACCOUNT", 5))
+# The IP threshold is TUNABLE AND DEFAULTS DELIBERATELY HIGH, because it is the
+# blunt half of this control and the one that misfires on real users.
+#
+# The window is SLIDING — entries older than it are pruned on every check — so
+# failures cannot accumulate across a working day; verified, not assumed (500
+# failures older than the window leave zero survivors and do not throttle).
+# What CAN happen is a burst inside one window. Modelled against organic
+# behaviour rather than only against attack traffic: one NAT'd office, everyone
+# arriving at 9am, at a 10% mistyped-password rate, reaches 20 failures at
+# roughly 200 staff and 50 at 500 staff. The original value of 20 would have
+# locked out a mid-size company's entire morning, which is precisely the
+# failure keying on the account as well as the IP was meant to avoid — arriving
+# as a burst instead of as one attacker.
+#
+# 100 covers a ~1000-person single-egress office at a 10% typo rate. A larger
+# deployment MUST raise it; a single-tenant deployment behind one office IP may
+# reasonably raise it a lot. The per-account limit is the real protection here
+# and is unaffected by office size, because organic failures spread across many
+# accounts while an attacker's concentrate on few.
+_LOGIN_MAX_PER_IP = int(os.environ.get("LOGIN_MAX_PER_IP", 100))
+
+
+def _login_keys(tenant_id, email: str) -> list:
+    """
+    The keys one attempt counts against. The account key is recorded even for
+    an email that does not exist — otherwise the limiter's own behaviour would
+    differ between real and unknown accounts, turning it into the enumeration
+    oracle 3.5 exists to prevent.
+    """
+    ip = request.headers.get("X-Forwarded-For", request.remote_addr or "unknown").split(",")[0].strip()
+    keys = [(f"ip:{ip}", _LOGIN_MAX_PER_IP)]
+    if email:
+        keys.append((f"acct:{tenant_id}:{email}", _LOGIN_MAX_PER_ACCOUNT))
+    return keys
+
+
+def _login_throttled(tenant_id, email: str) -> bool:
+    """True if this attempt should be refused before any credential is checked."""
+    now = time.time()
+    for key, limit in _login_keys(tenant_id, email):
+        attempts = _LOGIN_ATTEMPTS.setdefault(key, [])
+        attempts[:] = [t for t in attempts if now - t < _LOGIN_WINDOW_SECONDS]
+        if len(attempts) >= limit:
+            return True
+    return False
+
+
+def _record_login_failure(tenant_id, email: str) -> None:
+    now = time.time()
+    for key, _ in _login_keys(tenant_id, email):
+        _LOGIN_ATTEMPTS.setdefault(key, []).append(now)
+
+
+def _clear_login_failures(tenant_id, email: str) -> None:
+    """
+    A successful login clears that ACCOUNT's failures, so someone who mistypes
+    twice and then succeeds is not left one typo from a lockout. The IP counter
+    is deliberately left alone: an attacker who guesses one account correctly
+    should not thereby reset the budget they are burning against every other.
+
+    Not clearing the IP counter is safe to do because the window is sliding —
+    it self-clears in LOGIN_WINDOW_SECONDS regardless. If this were a
+    cumulative counter, never clearing it would eventually throttle a busy
+    shared office through ordinary typing alone, with no attack involved.
+    """
+    _LOGIN_ATTEMPTS.pop(f"acct:{tenant_id}:{email}", None)
 
 
 def _structure_to_dict(s):
@@ -791,7 +900,7 @@ def api_create_submission():
     reason /api/batch-audit's docstring describes — a live API call per
     row doesn't scale.
 
-    DELIBERATELY NOT @require_role-gated, unlike the read/decide/export
+    DELIBERATELY NOT permission-gated, unlike the read/decide/export
     routes below. This route is also called from /optimize/batch (a fully
     public, ungated page)'s "Submit correction" flow — gating it behind an
     HR session would break that already-working, already-demoed public
@@ -927,7 +1036,7 @@ def api_create_submission():
 
     result = review_queue.create_submission(resolved_tenant_id(), source, built_rows,
                                             submitted_by=data.get("submitted_by", "hr"))
-    _append_audit_log(resolved_tenant_id(), "/api/submissions", {
+    _append_audit_log(resolved_tenant_id(), session.get("user_id"), "/api/submissions", {
         "submission_id": result["submission_id"], "source": source,
         "rows_submitted": len(built_rows), "duplicates_skipped": len(result["duplicates"]),
     })
@@ -935,16 +1044,16 @@ def api_create_submission():
 
 
 @app.route("/api/submissions", methods=["GET"])
-@require_role("hr", "finance")
 @require_tenant
+@require_permission("view_queue")
 def api_list_submissions():
     status = request.args.get("status")
     return jsonify({"submissions": review_queue.list_submissions(current_tenant_id(), status)})
 
 
 @app.route("/api/submissions/<int:submission_id>", methods=["GET"])
-@require_role("hr", "finance")
 @require_tenant
+@require_permission("view_queue")
 def api_get_submission(submission_id):
     """Finance's detail view — includes the before/after diff per row, built over already-computed data only."""
     submission = review_queue.get_submission(current_tenant_id(), submission_id)
@@ -956,8 +1065,8 @@ def api_get_submission(submission_id):
 
 
 @app.route("/api/submissions/<int:submission_id>/rows/<int:row_index>/decide", methods=["POST"])
-@require_role("finance")
 @require_tenant
+@require_permission("decide_row")
 def api_decide_row(submission_id, row_index):
     """
     Finance's approve/reject action on one row. Idempotent: a second call
@@ -977,11 +1086,17 @@ def api_decide_row(submission_id, row_index):
 
     try:
         # decided_by now comes from the verified session, not client
-        # input — @require_role("finance") guarantees this is "finance" in
+        # input — @require_permission("decide_row") guarantees the caller may
         # practice, but it's genuinely server-verified now rather than an
         # unenforced client-supplied string.
+        # session["role"] is gone as of step 4; roles are a per-user list now.
+        # decided_by keeps its current meaning — a ROLE LABEL — because the
+        # real attribution (decided_by_user_id) is step 5's job, and widening
+        # this column's meaning here would blur which step introduced it.
+        roles = current_roles()
         result = review_queue.decide_row(current_tenant_id(), submission_id, row_index, decision, reason,
-                                         decided_by=session["role"])
+                                         decided_by=roles[0] if roles else "unknown",
+                                         decided_by_user_id=session.get("user_id"))
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
 
@@ -992,7 +1107,7 @@ def api_decide_row(submission_id, row_index):
             "message": f"This row was already {result['current_status']} — no second decision was recorded.",
         }), 409
 
-    _append_audit_log(current_tenant_id(), "/api/submissions/decide", {
+    _append_audit_log(current_tenant_id(), session.get("user_id"), "/api/submissions/decide", {
         "submission_id": submission_id, "row_index": row_index, "decision": decision, "reason": reason,
     })
     return jsonify({
@@ -1004,8 +1119,8 @@ def api_decide_row(submission_id, row_index):
 
 
 @app.route("/api/submissions/<int:submission_id>/rows/<int:row_index>/export", methods=["POST"])
-@require_role("finance")
 @require_tenant
+@require_permission("export_row")
 def api_export_approved_row(submission_id, row_index):
     """
     Closes the loop after Finance approves: generates the correct kind of
@@ -1049,7 +1164,7 @@ def api_export_approved_row(submission_id, row_index):
         buf = io.BytesIO()
         wb.save(buf)
         buf.seek(0)
-        _append_audit_log(current_tenant_id(), "/api/submissions/export", {
+        _append_audit_log(current_tenant_id(), session.get("user_id"), "/api/submissions/export", {
             "submission_id": submission_id, "row_index": row_index, "export_type": "salary_revision",
         })
         review_queue.mark_exported(current_tenant_id(), submission_id, row_index)
@@ -1105,7 +1220,7 @@ def api_export_approved_row(submission_id, row_index):
         payload["WARNING_DO_NOT_UPLOAD"] = SOURCE_ACCOUNT_PLACEHOLDER_LABEL
         payload["source_account_is_placeholder"] = True
 
-    _append_audit_log(current_tenant_id(), "/api/submissions/export", {
+    _append_audit_log(current_tenant_id(), session.get("user_id"), "/api/submissions/export", {
         "submission_id": submission_id, "row_index": row_index, "export_type": "razorpayx_payout",
         "total_capital_outlay": forecast["total_capital_outlay"],
         # Recorded per-export: a compliance trail should say which payloads
@@ -1124,8 +1239,8 @@ def api_export_approved_row(submission_id, row_index):
 
 
 @app.route("/api/submissions/<int:submission_id>/rows/<int:row_index>/complete", methods=["POST"])
-@require_role("finance")
 @require_tenant
+@require_permission("export_row")
 def api_complete_approved_row(submission_id, row_index):
     """
     Records Finance's final confirmation on an approved row — "Simulate
@@ -1149,7 +1264,7 @@ def api_complete_approved_row(submission_id, row_index):
         return jsonify({"error": f"row is '{row['status']}', not approved — nothing to confirm"}), 400
 
     review_queue.mark_dispatched(current_tenant_id(), submission_id, row_index)
-    _append_audit_log(current_tenant_id(), "/api/submissions/complete", {"submission_id": submission_id, "row_index": row_index})
+    _append_audit_log(current_tenant_id(), session.get("user_id"), "/api/submissions/complete", {"submission_id": submission_id, "row_index": row_index})
     return jsonify({"status": "ok"})
 
 
@@ -1196,6 +1311,7 @@ def api_commit_history():
 
 @app.route("/api/audit-log")
 @require_tenant
+@require_permission("view_audit_log")
 def api_audit_log():
     """
     Read-only view of the local audit trail _append_audit_log() writes on
@@ -1248,14 +1364,104 @@ def api_audit_log():
     return jsonify({"entries": entries[-limit:], "total_logged": len(entries)})
 
 
+# ---------------------------------------------------------------------------
+# User administration (Phase 1.2 step 3). Behind manage_users, which only the
+# `owner` role holds — so nothing can reach these until step 4 teaches login to
+# mint an owner session, or until the admin CLI creates the first owner.
+# ---------------------------------------------------------------------------
+
+def _validate_roles(roles):
+    """Roles are validated HERE, not in review_queue: auth.py owns the
+    permission model, and importing it into the persistence layer would invert
+    the dependency. An unknown role is refused rather than stored and silently
+    granting nothing."""
+    if not isinstance(roles, list) or any(not isinstance(r, str) for r in roles):
+        return None, "roles must be a list of role names"
+    unknown = [r for r in roles if r not in ROLE_PERMISSIONS]
+    if unknown:
+        return None, f"unknown role(s): {', '.join(unknown)}. Valid: {', '.join(sorted(ROLE_PERMISSIONS))}"
+    return roles, None
+
+
+@app.route("/api/users", methods=["GET"])
+@require_tenant
+@require_permission("manage_users")
+def api_list_users():
+    return jsonify({"users": review_queue.list_users(current_tenant_id())})
+
+
+@app.route("/api/users", methods=["POST"])
+@require_tenant
+@require_permission("manage_users")
+def api_create_user():
+    data = request.get_json(force=True) or {}
+    roles, error = _validate_roles(data.get("roles", []))
+    if error:
+        return jsonify({"error": error}), 400
+    try:
+        user = review_queue.create_user(
+            current_tenant_id(), data.get("email", ""), data.get("display_name", ""),
+            roles, password=data.get("password"), status=data.get("status", "active"),
+        )
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    _append_audit_log(current_tenant_id(), session.get("user_id"), "/api/users", {
+        "action": "create_user", "target_user_id": user["id"], "email": user["email"],
+        "roles": user["roles"],
+    })
+    return jsonify(user), 201
+
+
+@app.route("/api/users/<int:user_id>/roles", methods=["PUT"])
+@require_tenant
+@require_permission("manage_users")
+def api_set_user_roles(user_id):
+    data = request.get_json(force=True) or {}
+    roles, error = _validate_roles(data.get("roles", []))
+    if error:
+        return jsonify({"error": error}), 400
+    user = review_queue.set_user_roles(current_tenant_id(), user_id, roles)
+    if user is None:
+        return jsonify({"error": "user not found"}), 404
+    _append_audit_log(current_tenant_id(), session.get("user_id"), "/api/users", {
+        "action": "set_roles", "target_user_id": user_id, "roles": user["roles"],
+    })
+    return jsonify(user)
+
+
+@app.route("/api/users/<int:user_id>/status", methods=["PUT"])
+@require_tenant
+@require_permission("manage_users")
+def api_set_user_status(user_id):
+    """
+    Disable, rather than delete. submission_rows.decided_by_user_id references
+    users(id), so removing a person would break or orphan the attribution on
+    every decision they made — destroying audit history to tidy a user list.
+    """
+    data = request.get_json(force=True) or {}
+    status = data.get("status")
+    try:
+        user = review_queue.set_user_status(current_tenant_id(), user_id, status)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    if user is None:
+        return jsonify({"error": "user not found"}), 404
+    _append_audit_log(current_tenant_id(), session.get("user_id"), "/api/users", {
+        "action": "set_status", "target_user_id": user_id, "status": user["status"],
+    })
+    return jsonify(user)
+
+
 @app.route("/api/auth/login", methods=["POST"])
 def api_auth_login():
     """
-    Server-side verification of the shared HR/Finance demo code — see
-    auth.py. Two shared role-codes, not per-person accounts, by deliberate
-    scope. On success, sets a real signed, HttpOnly, expiring session
-    cookie; role-gate.tsx reads GET /api/auth/session on load instead of
-    checking sessionStorage.
+    Per-user login (Phase 1.2 step 4). Email + password, resolved WITHIN the
+    tenant the subdomain names — never from a tenant field in the body, per
+    MULTI_TENANT_DESIGN.md 3.3.
+
+    Also the one place a tenant's retired shared access code is still accepted,
+    and only to bootstrap that tenant's first owner: see api_auth_bootstrap()
+    and IDENTITY_DESIGN.md 3.3. A code login does NOT produce a usable session.
     """
     tenant = tenant_from_request()
     if tenant is None:
@@ -1268,20 +1474,146 @@ def api_auth_login():
                      "(e.g. acme." + TENANT_DOMAIN_SUFFIX + ").",
         }), 401
 
-    data = request.get_json(force=True)
-    role = data.get("role")
-    code = data.get("code", "")
-    if not verify_login(tenant["id"], role, code):
-        return jsonify({"error": "That code doesn't match — try again."}), 401
+    data = request.get_json(force=True) or {}
+    attempted_email = (data.get("email") or "").strip().lower()
+    if _login_throttled(tenant["id"], attempted_email):
+        # Checked before any credential is verified, so a throttled attempt
+        # also costs no pbkdf2 work — the limiter doubles as the defence
+        # against using login as a CPU amplifier.
+        return jsonify({
+            "error": "Too many sign-in attempts. Wait a few minutes and try again.",
+        }), 429
+
+    # --- shared-code path: bootstrap only, and only once per tenant ----------
+    if data.get("code") is not None and data.get("password") is None:
+        if not _tenant_accepts_bootstrap_code(tenant["id"]):
+            return jsonify({
+                "error": "Shared access codes are no longer used for this workspace. "
+                         "Sign in with your email and password.",
+            }), 401
+        if not verify_login(tenant["id"], data.get("role"), data.get("code", "")):
+            _record_login_failure(tenant["id"], attempted_email)
+            return jsonify({"error": "That code doesn't match — try again."}), 401
+        session.clear()
+        # Deliberately NOT session["tenant_id"]: a bootstrap session must be
+        # able to do exactly one thing. Every guarded route runs @require_tenant
+        # first, so without that key this session is refused everywhere except
+        # the bootstrap route below, which reads its own key. A session minted
+        # from a shared secret never gets to act as a person.
+        session["bootstrap_tenant_id"] = tenant["id"]
+        session.permanent = True
+        return jsonify({
+            "bootstrap_required": True,
+            "tenant": {"id": tenant["id"], "slug": tenant["slug"],
+                       "display_name": tenant["display_name"]},
+            "message": "Set up the first account for this workspace. The shared "
+                       "access code stops working once you do.",
+        })
+
+    # --- normal path: a real person -----------------------------------------
+    email = attempted_email
+    password = data.get("password") or ""
+    user = review_queue.get_user_by_email(tenant["id"], email) if email else None
+    # The password is ALWAYS verified, even when there is no account to verify
+    # it against, because this endpoint must not be an enumeration oracle by
+    # CONTENT or by TIMING (IDENTITY_DESIGN.md 3.5). Short-circuiting on a
+    # missing user would answer in milliseconds where a real one takes ~0.5s of
+    # pbkdf2 — measured at 77x before this was fixed, which is a single-request
+    # oracle regardless of the response body being byte-identical.
+    #
+    # Order matters: verify FIRST, evaluate the outcome after, so no branch can
+    # skip the work. verify_password() spends comparable effort against a fixed
+    # dummy hash when the stored hash is absent.
+    if user is None:
+        password_ok = verify_password(None, password)
+    else:
+        password_ok = review_queue.verify_user_password(tenant["id"], user["id"], password)
+    if user is None or user["status"] != "active" or not password_ok:
+        _record_login_failure(tenant["id"], email)
+        return jsonify({"error": "That email and password don't match — try again."}), 401
+
     session.clear()
-    session["role"] = role
-    # The seam 1.2 inherits (3.3/5): 1.1's only job is getting tenant_id into
-    # the session correctly. 1.2 replaces `role` with real per-user role data
-    # without touching how tenant_id got here.
+    session["user_id"] = user["id"]
     session["tenant_id"] = tenant["id"]
+    session["roles"] = user["roles"]
     session.permanent = True
-    return jsonify({"role": role, "tenant": {"id": tenant["id"], "slug": tenant["slug"],
-                                             "display_name": tenant["display_name"]}})
+    _clear_login_failures(tenant["id"], email)
+    review_queue.record_login(tenant["id"], user["id"])
+    return jsonify({
+        "user": {"id": user["id"], "email": user["email"],
+                 "display_name": user["display_name"], "roles": user["roles"]},
+        "tenant": {"id": tenant["id"], "slug": tenant["slug"],
+                   "display_name": tenant["display_name"]},
+    })
+
+
+def _tenant_accepts_bootstrap_code(tenant_id: int) -> bool:
+    """
+    BOTH conditions, not either (IDENTITY_DESIGN.md 3.3): the codes have never
+    been retired, AND the tenant has no users. The timestamp records the
+    transition; the zero-users check means a tenant whose timestamp was somehow
+    cleared still cannot re-enter through the old door once real accounts
+    exist.
+    """
+    settings = review_queue.get_tenant_bootstrap_state(tenant_id)
+    if settings is None or settings["codes_disabled_at"] is not None:
+        return False
+    return review_queue.count_users(tenant_id) == 0
+
+
+@app.route("/api/auth/bootstrap", methods=["POST"])
+def api_auth_bootstrap():
+    """
+    Consumes a bootstrap session to create a tenant's first owner, then
+    permanently retires that tenant's shared access codes.
+
+    This is what makes IDENTITY_DESIGN.md §2's second clause true — that no
+    state-changing action can be performed by a principal the system cannot
+    name. The shared secret's only remaining power is to create exactly one
+    named account, once, and then stop existing.
+    """
+    tenant_id = session.get("bootstrap_tenant_id")
+    if tenant_id is None:
+        return jsonify({"error": "No bootstrap in progress."}), 401
+    # Re-checked, not trusted from the session: the session was minted earlier,
+    # and another request (or the admin CLI) may have created the first user in
+    # between. This is the guard that makes the code single-use even under a
+    # replayed or concurrent request.
+    if not _tenant_accepts_bootstrap_code(tenant_id):
+        session.clear()
+        return jsonify({
+            "error": "This workspace already has accounts. Sign in with your "
+                     "email and password.",
+        }), 409
+
+    data = request.get_json(force=True) or {}
+    password = data.get("password") or ""
+    if len(password) < 8:
+        return jsonify({"error": "Password must be at least 8 characters."}), 400
+    try:
+        user = review_queue.create_user(
+            tenant_id, data.get("email", ""), data.get("display_name", ""),
+            ["owner"], password=password,
+        )
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    review_queue.disable_tenant_access_codes(tenant_id)
+    session.clear()
+    session["user_id"] = user["id"]
+    session["tenant_id"] = tenant_id
+    session["roles"] = user["roles"]
+    session.permanent = True
+    review_queue.record_login(tenant_id, user["id"])
+    _append_audit_log(tenant_id, user["id"], "/api/auth/bootstrap", {
+        "action": "bootstrap_owner_created", "user_id": user["id"],
+        "email": user["email"], "shared_codes_retired": True,
+    })
+    return jsonify({
+        "user": {"id": user["id"], "email": user["email"],
+                 "display_name": user["display_name"], "roles": user["roles"]},
+        "shared_codes_retired": True,
+    })
 
 
 @app.route("/api/auth/logout", methods=["POST"])
@@ -1292,12 +1624,16 @@ def api_auth_logout():
 
 @app.route("/api/auth/session", methods=["GET"])
 def api_auth_session():
-    return jsonify({"role": session.get("role"), "tenant_id": session.get("tenant_id")})
+    return jsonify({
+        "user_id": session.get("user_id"),
+        "tenant_id": session.get("tenant_id"),
+        "roles": session.get("roles", []),
+    })
 
 
 @app.route("/api/razorpayx/balance", methods=["GET"])
-@require_role("finance")
 @require_tenant
+@require_permission("view_bank_balance")
 def api_razorpayx_balance():
     """
     The one route in this codebase that makes a real, live call to
@@ -1327,7 +1663,7 @@ def api_razorpayx_balance():
     except RazorpayXRequestError as e:
         return jsonify({"configured": True, "live": False, "error": str(e), "status_code": e.status_code}), 502
 
-    _append_audit_log(current_tenant_id(), "/api/razorpayx/balance", {"live_call": True})
+    _append_audit_log(current_tenant_id(), session.get("user_id"), "/api/razorpayx/balance", {"live_call": True})
     return jsonify({"configured": True, "live": True, "balance": balance})
 
 
