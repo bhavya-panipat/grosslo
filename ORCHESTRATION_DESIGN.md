@@ -163,9 +163,18 @@ a field being present. This is what makes §2's second clause testable, and it
 is the direct answer to the failure mode in §2: a dropped stage must break a
 test.
 
-Deliberately NOT a new user-facing surface. `execution_trace.py` already builds
-the narrative the UI shows; this is internal bookkeeping for the orchestrator
-and its tests, and must not duplicate or replace that.
+**`stages_run` IS exposed in the API response** (§6's resolved decision, which
+reverses an earlier draft of this section that kept it internal). The reasoning
+that changed it: a hidden, test-only assertion that a stage ran is verifiable
+only by the test suite — nobody outside the code can confirm it. A visible
+field makes "the compliance stage executed" a checkable fact for the frontend
+and for any future audit trail, which is the same reasoning behind
+`orchestration.py`'s `checked` field recording what was evaluated including
+what did NOT fire.
+
+It does not duplicate or replace `execution_trace.py`, which builds the
+human-readable narrative the UI shows. This is the machine-checkable list of
+what ran.
 
 ## 4. Concrete shape
 
@@ -208,20 +217,34 @@ starting principle. 2.4's legal-change monitoring runs outside this pipeline
 entirely but writes the rule set 2.2's stage reads.
 
 2.1 explicitly does NOT ship: any new rule, any new LLM call, any change to
-what a stage computes, any change to the extract → optimize human checkpoint.
+what a stage computes, any change to the extract → optimize human checkpoint,
+or the batch path sharing the orchestrator (§6). The single deliberate addition
+to the response is `stages_run` (§3.4), named here because everything else
+about this phase claims to change nothing.
 
-## 6. Open decisions needing an explicit call, not a silent default
+## 6. Decisions needing an explicit call, not a silent default
 
-- **Where the characterization baseline lives.** A committed JSON fixture is
-  reviewable in a diff and shows exactly what changed if it ever does; a
-  generated-at-test-time comparison cannot drift but proves less. The fixture
-  is only meaningful if a reviewer would actually notice it changing.
-- **Whether `stages_run` is exposed in the API response.** It is internal
-  bookkeeping (§3.4). Exposing it would make the pipeline self-describing to
-  the frontend, but adds a public field this phase promised not to add.
-- **Whether the batch path shares the orchestrator.** `/api/batch-audit` runs
-  its own per-row sequence. Folding it in is more consistency; leaving it is a
-  smaller, more attributable first change.
+All three resolved before implementation. Recorded rather than deleted, so the
+reasoning that produced §3.4 and §7 stays legible.
+
+- **RESOLVED — the characterization baseline is a COMMITTED FIXTURE**, not
+  regenerated at test time. A regenerated baseline only proves the code agrees
+  with itself, and cannot catch a pre-existing regression. It has to be a fixed
+  point that requires a deliberate change to move — the same property that
+  makes a commit a real checkpoint rather than a description of the present.
+- **RESOLVED — `stages_run` IS exposed in the API response.** This reverses the
+  earlier draft (§3.4 updated accordingly): a test-only assertion that a stage
+  ran is confirmable only from inside the test suite, and the fact that a
+  compliance check executed is exactly the kind of thing an audit trail should
+  be able to state. Same reasoning as `orchestration.py`'s `checked` field.
+  It is a new public field, which this phase otherwise avoids — called out
+  rather than slipped in, since the phase's whole claim is that it changes
+  nothing.
+- **RESOLVED — `/api/batch-audit` stays separate for this change.** 2.1's
+  justification rests on being a narrow, provably behaviour-identical move, and
+  folding in a second, differently-shaped endpoint makes "same test count
+  before and after" harder to trust cleanly. It shares the orchestrator later,
+  as its own small follow-up with its own before/after, once this proves out.
 
 ## 7. Suggested internal sequencing for 2.1
 
