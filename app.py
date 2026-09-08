@@ -27,7 +27,8 @@ from razorpayx_client import (
     fetch_account_balance, RazorpayXNotConfigured, RazorpayXKeyModeError, RazorpayXRequestError,
 )
 from auth import (
-    verify_login, require_permission, require_tenant, require_resolved_tenant, current_roles,
+    verify_login, verify_password, require_permission, require_tenant,
+    require_resolved_tenant, current_roles,
     ROLE_PERMISSIONS,
     current_tenant_id, resolved_tenant_id, tenant_from_request, TENANT_DOMAIN_SUFFIX,
 )
@@ -243,9 +244,28 @@ def _rate_limited(key: str) -> bool:
 # production hardening.
 # ---------------------------------------------------------------------------
 _LOGIN_ATTEMPTS: dict[str, list[float]] = {}
-_LOGIN_WINDOW_SECONDS = 300          # 5 minutes
-_LOGIN_MAX_PER_ACCOUNT = 5
-_LOGIN_MAX_PER_IP = 20               # higher: a shared office egress is normal
+_LOGIN_WINDOW_SECONDS = int(os.environ.get("LOGIN_WINDOW_SECONDS", 300))
+_LOGIN_MAX_PER_ACCOUNT = int(os.environ.get("LOGIN_MAX_PER_ACCOUNT", 5))
+# The IP threshold is TUNABLE AND DEFAULTS DELIBERATELY HIGH, because it is the
+# blunt half of this control and the one that misfires on real users.
+#
+# The window is SLIDING — entries older than it are pruned on every check — so
+# failures cannot accumulate across a working day; verified, not assumed (500
+# failures older than the window leave zero survivors and do not throttle).
+# What CAN happen is a burst inside one window. Modelled against organic
+# behaviour rather than only against attack traffic: one NAT'd office, everyone
+# arriving at 9am, at a 10% mistyped-password rate, reaches 20 failures at
+# roughly 200 staff and 50 at 500 staff. The original value of 20 would have
+# locked out a mid-size company's entire morning, which is precisely the
+# failure keying on the account as well as the IP was meant to avoid — arriving
+# as a burst instead of as one attacker.
+#
+# 100 covers a ~1000-person single-egress office at a 10% typo rate. A larger
+# deployment MUST raise it; a single-tenant deployment behind one office IP may
+# reasonably raise it a lot. The per-account limit is the real protection here
+# and is unaffected by office size, because organic failures spread across many
+# accounts while an attacker's concentrate on few.
+_LOGIN_MAX_PER_IP = int(os.environ.get("LOGIN_MAX_PER_IP", 100))
 
 
 def _login_keys(tenant_id, email: str) -> list:
@@ -285,6 +305,11 @@ def _clear_login_failures(tenant_id, email: str) -> None:
     twice and then succeeds is not left one typo from a lockout. The IP counter
     is deliberately left alone: an attacker who guesses one account correctly
     should not thereby reset the budget they are burning against every other.
+
+    Not clearing the IP counter is safe to do because the window is sliding —
+    it self-clears in LOGIN_WINDOW_SECONDS regardless. If this were a
+    cumulative counter, never clearing it would eventually throttle a busy
+    shared office through ordinary typing alone, with no attack involved.
     """
     _LOGIN_ATTEMPTS.pop(f"acct:{tenant_id}:{email}", None)
 
@@ -1489,12 +1514,21 @@ def api_auth_login():
     email = attempted_email
     password = data.get("password") or ""
     user = review_queue.get_user_by_email(tenant["id"], email) if email else None
-    # Identical response whether the account is absent, has no local password,
-    # is disabled, or the password is simply wrong — this endpoint must not be
-    # a user-enumeration oracle (IDENTITY_DESIGN.md 3.5).
-    if (user is None
-            or user["status"] != "active"
-            or not review_queue.verify_user_password(tenant["id"], user["id"], password)):
+    # The password is ALWAYS verified, even when there is no account to verify
+    # it against, because this endpoint must not be an enumeration oracle by
+    # CONTENT or by TIMING (IDENTITY_DESIGN.md 3.5). Short-circuiting on a
+    # missing user would answer in milliseconds where a real one takes ~0.5s of
+    # pbkdf2 — measured at 77x before this was fixed, which is a single-request
+    # oracle regardless of the response body being byte-identical.
+    #
+    # Order matters: verify FIRST, evaluate the outcome after, so no branch can
+    # skip the work. verify_password() spends comparable effort against a fixed
+    # dummy hash when the stored hash is absent.
+    if user is None:
+        password_ok = verify_password(None, password)
+    else:
+        password_ok = review_queue.verify_user_password(tenant["id"], user["id"], password)
+    if user is None or user["status"] != "active" or not password_ok:
         _record_login_failure(tenant["id"], email)
         return jsonify({"error": "That email and password don't match — try again."}), 401
 

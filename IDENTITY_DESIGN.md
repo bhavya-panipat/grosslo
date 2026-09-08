@@ -231,6 +231,46 @@ Stated plainly: the existing limiter is in-memory and per-process, which
 hardening. 1.2 does not fix that; it is the same limitation applied to one more
 route, and §6 records it.
 
+**Known and accepted gap: this does not stop distributed credential stuffing.**
+Keying on the account and on the IP defeats single-source brute force — one
+machine hammering one account, or one machine sweeping many. It does not defeat
+an attacker who spreads attempts across many source addresses *and* many target
+accounts at once, staying under both thresholds simultaneously. That is not an
+exotic edge case; it is the standard evolution of credential stuffing once
+naive rate limits exist, and no per-request counter at this layer detects it,
+because every individual request is indistinguishable from a legitimate one.
+
+Catching it requires looking at aggregate behaviour across the whole request
+volume — a WAF, or anomaly detection over login outcomes — which is
+infrastructure, not application logic, and belongs with the same later-phase
+work as the durable rate-limit store. Named here so that "we have rate
+limiting" is never mistaken for "we are protected against credential
+stuffing". They are different claims and only the first is true.
+
+**Threshold tuning is a real operational input, not a constant.** The window is
+sliding, so failures cannot accumulate across a day. What can happen is a burst
+inside one window: one NAT'd office at a 10% mistyped-password rate reaches 20
+failures at roughly 200 staff and 50 at 500. An IP threshold picked against
+attack traffic alone would lock out a whole company's morning — the exact
+failure that keying on the account was meant to avoid, arriving as a burst
+rather than as an attacker. `LOGIN_MAX_PER_IP`, `LOGIN_MAX_PER_ACCOUNT` and
+`LOGIN_WINDOW_SECONDS` are therefore environment-tunable, and the IP default is
+set for a ~1000-person single-egress office rather than for the tightest number
+that still passes a test. The per-account limit is the control that actually
+protects an individual, and it is unaffected by office size: organic failures
+spread across many accounts, while an attacker's concentrate on few.
+
+**Timing symmetry, not just content symmetry.** Returning a byte-identical body
+for "no such account" and "wrong password" is necessary and NOT sufficient. If
+a real account costs a ~0.5s pbkdf2 verify and a nonexistent one short-circuits
+in milliseconds, the endpoint is still an enumeration oracle — measured here at
+77x (511.6ms vs 6.6ms), distinguishable in a single request with no statistics.
+`verify_password()` therefore verifies against a fixed dummy hash whenever
+there is no stored hash, bringing all four cases (real, absent, disabled, no
+password set) within 1.02x of each other. This is a mitigation, not a proof of
+constant time: it removes an oracle usable from one sample, and does not claim
+immunity to arbitrarily-many-sample statistical attacks.
+
 ### 3.6 `users` and `user_roles` are tenant-owned, and get the same two layers
 
 They carry `tenant_id NOT NULL REFERENCES tenants(id)` and join

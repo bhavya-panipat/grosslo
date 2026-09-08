@@ -27,6 +27,7 @@ hardening gap found later. So it is never read from there.
 from __future__ import annotations
 
 import os
+import secrets
 from functools import wraps
 
 from flask import session, jsonify, request, g
@@ -95,14 +96,42 @@ def hash_password(password: str) -> str:
     return generate_password_hash(password, method="pbkdf2:sha256")
 
 
+# A real hash of a value nobody knows, verified against whenever there is no
+# stored hash to verify against. See verify_password() for why this exists.
+# Computed once at import: it costs one pbkdf2 (~0.5s) at startup, not per
+# request.
+_DUMMY_PASSWORD_HASH = generate_password_hash(secrets.token_hex(32), method="pbkdf2:sha256")
+
+
 def verify_password(password_hash: str | None, password: str) -> bool:
     """
     Checks a password against a stored hash. False — never an exception — when
     the user has no local password at all, which is the state an SSO-provisioned
     user will be in from 1.3 (users.password_hash is nullable, IDENTITY_DESIGN.md
     3.2). Such a user must fail local login cleanly rather than crash it.
+
+    WHEN THERE IS NO HASH, IT STILL DOES THE WORK. Returning False immediately
+    would be correct and would leak: pbkdf2 is deliberately ~0.5s, so an
+    absent hash answers in single-digit milliseconds while a present one takes
+    half a second. Measured on this machine before this mitigation: 511.6ms for
+    an account that exists against 6.6ms for one that does not — a 77x
+    difference, distinguishable in ONE request, with no statistics needed.
+
+    That made login an account-enumeration oracle even though every response
+    body was byte-identical. Content symmetry and timing symmetry are different
+    guarantees, and step 4 only established the first. Verifying against a
+    fixed dummy hash spends comparable work on both paths so the two are no
+    longer separable by clock.
+
+    Note this is a mitigation, not a proof of constant time: hash comparison
+    cost still varies slightly, and network jitter dwarfs the remainder. It
+    removes an oracle that was usable with a single sample; it does not claim
+    immunity to arbitrarily-many-sample statistical attacks.
     """
-    if not password_hash or not isinstance(password, str):
+    if not isinstance(password, str):
+        password = ""
+    if not password_hash:
+        check_password_hash(_DUMMY_PASSWORD_HASH, password)
         return False
     return check_password_hash(password_hash, password)
 

@@ -673,3 +673,57 @@ class TestLoginThrottling(AuthTestCase):
             flask_app._LOGIN_ATTEMPTS[key] = [expired] * len(flask_app._LOGIN_ATTEMPTS[key])
         self.assertEqual(self._attempt(password=_TEST_PASSWORD).status_code, 200,
                          "the account must recover on its own once the window passes")
+
+
+class TestLoginTimingSymmetry(AuthTestCase):
+    """
+    §3.5. Byte-identical responses are necessary and NOT sufficient: if a real
+    account costs a pbkdf2 verify and a nonexistent one short-circuits, the
+    endpoint is still an enumeration oracle by clock. Measured at 77x before
+    the fix — a single-request distinguisher, no statistics needed.
+    """
+
+    def setUp(self):
+        super().setUp()
+        flask_app._LOGIN_ATTEMPTS.clear()
+
+    def _median_ms(self, email, n=5):
+        import statistics
+        samples = []
+        for _ in range(n):
+            flask_app._LOGIN_ATTEMPTS.clear()
+            client = _client()
+            start = time.perf_counter()
+            client.post("/api/auth/login", json={"email": email, "password": "wrongpassword"})
+            samples.append(time.perf_counter() - start)
+        return statistics.median(samples) * 1000
+
+    def test_a_missing_hash_still_costs_a_verification(self):
+        # The structural guarantee underneath the timing one, asserted without
+        # a clock so it cannot go quietly flaky.
+        from unittest.mock import patch
+        import auth
+        with patch.object(auth, "check_password_hash", return_value=False) as spy:
+            self.assertFalse(auth.verify_password(None, "anything"))
+            self.assertEqual(spy.call_count, 1,
+                             "no stored hash must still perform one verification")
+
+    def test_existing_and_nonexistent_accounts_take_comparable_time(self):
+        _ensure_user(self.tenant_id, "finance")
+        real = self._median_ms("finance@acme.test")
+        fake = self._median_ms("ghost@acme.test")
+        ratio = max(real, fake) / min(real, fake)
+        # Generous bound: the real measured ratio is ~1.02 and the pre-fix one
+        # was ~77, so anything under 3 distinguishes "fixed" from "broken"
+        # without turning machine load into a test failure.
+        self.assertLess(ratio, 3.0,
+                        f"timing oracle: real={real:.0f}ms fake={fake:.0f}ms ratio={ratio:.1f}x")
+
+    def test_a_disabled_user_and_one_with_no_password_are_also_symmetric(self):
+        _ensure_user(self.tenant_id, "finance")
+        review_queue.create_user(self.tenant_id, "nopw@acme.test", "No Password", ["finance"])
+        disabled = review_queue.create_user(self.tenant_id, "off@acme.test", "Off", ["finance"])
+        review_queue.set_user_status(self.tenant_id, disabled["id"], "disabled")
+        times = [self._median_ms(e, n=3) for e in
+                 ("finance@acme.test", "nopw@acme.test", "off@acme.test", "ghost@acme.test")]
+        self.assertLess(max(times) / min(times), 3.0, f"asymmetric: {times}")
