@@ -270,15 +270,21 @@ def require_permission(permission: str):
     """
     Route decorator: refuses unless the session's roles grant `permission`.
 
-    RETURNS 401, BYTE-IDENTICAL TO require_role, ON PURPOSE. This decorator
-    replaces require_role at every route in one step, and that step's entire
-    value is that it provably changes no observable behaviour — so it does not
-    also change a status code. 403 is the semantically correct answer here (401
-    means "I do not know who you are", which is the wrong thing to tell a
-    caller who IS identified and simply may not do this, and a client that
-    reacts to 401 by re-authenticating would loop). Changing it is a real,
-    separate decision about the HTTP contract, not a side effect of moving the
-    enforcement point — so it is flagged rather than folded in here.
+    RETURNS 403. The caller IS identified and simply may not do this.
+
+    It returned 401 for one step on purpose. require_permission replaced
+    require_role at every route in a single commit whose entire value was that
+    it provably changed no observable behaviour, and quietly improving the
+    status code in that same commit would have made "199 tests stayed 199"
+    unverifiable from the diff — a reviewer could no longer tell whether
+    nothing changed or whether something changed and was not mentioned. So the
+    correction waited and landed on its own, with its own before/after.
+
+    Why 403 is right: 401 means "I do not know who you are", which is
+    require_tenant's answer to a missing session and stays 401. Telling an
+    authenticated user to authenticate again is both wrong and actively
+    unhelpful — a client that reacts to 401 by re-authenticating would loop
+    forever on a permission it will never have.
     """
     if permission not in PERMISSIONS:
         raise ValueError(f"unknown permission {permission!r}")  # at import, not per-request
@@ -287,7 +293,7 @@ def require_permission(permission: str):
         @wraps(fn)
         def wrapper(*args, **kwargs):
             if not has_permission(permission):
-                return jsonify({"error": "Not authenticated for this action."}), 401
+                return jsonify({"error": "Not authorised for this action."}), 403
             return fn(*args, **kwargs)
         return wrapper
     return decorator

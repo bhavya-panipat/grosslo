@@ -254,7 +254,11 @@ class TestRouteProtection(AuthTestCase):
             f"/api/submissions/{submission_id}/rows/0/decide",
             json={"decision": "approve"},
         )
-        self.assertEqual(wrong_role.status_code, 401)
+        # 403, not 401: this caller IS identified and simply may not decide.
+        # 401 would tell an authenticated user to authenticate again, and a
+        # client that reacts to 401 by re-authenticating would loop forever on
+        # a permission it will never have.
+        self.assertEqual(wrong_role.status_code, 403)
 
         # Finance session succeeds.
         self.client.post("/api/auth/logout")

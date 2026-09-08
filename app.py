@@ -1044,16 +1044,16 @@ def api_create_submission():
 
 
 @app.route("/api/submissions", methods=["GET"])
-@require_permission("view_queue")
 @require_tenant
+@require_permission("view_queue")
 def api_list_submissions():
     status = request.args.get("status")
     return jsonify({"submissions": review_queue.list_submissions(current_tenant_id(), status)})
 
 
 @app.route("/api/submissions/<int:submission_id>", methods=["GET"])
-@require_permission("view_queue")
 @require_tenant
+@require_permission("view_queue")
 def api_get_submission(submission_id):
     """Finance's detail view — includes the before/after diff per row, built over already-computed data only."""
     submission = review_queue.get_submission(current_tenant_id(), submission_id)
@@ -1065,8 +1065,8 @@ def api_get_submission(submission_id):
 
 
 @app.route("/api/submissions/<int:submission_id>/rows/<int:row_index>/decide", methods=["POST"])
-@require_permission("decide_row")
 @require_tenant
+@require_permission("decide_row")
 def api_decide_row(submission_id, row_index):
     """
     Finance's approve/reject action on one row. Idempotent: a second call
@@ -1119,8 +1119,8 @@ def api_decide_row(submission_id, row_index):
 
 
 @app.route("/api/submissions/<int:submission_id>/rows/<int:row_index>/export", methods=["POST"])
-@require_permission("export_row")
 @require_tenant
+@require_permission("export_row")
 def api_export_approved_row(submission_id, row_index):
     """
     Closes the loop after Finance approves: generates the correct kind of
@@ -1239,8 +1239,8 @@ def api_export_approved_row(submission_id, row_index):
 
 
 @app.route("/api/submissions/<int:submission_id>/rows/<int:row_index>/complete", methods=["POST"])
-@require_permission("export_row")
 @require_tenant
+@require_permission("export_row")
 def api_complete_approved_row(submission_id, row_index):
     """
     Records Finance's final confirmation on an approved row — "Simulate
@@ -1632,8 +1632,8 @@ def api_auth_session():
 
 
 @app.route("/api/razorpayx/balance", methods=["GET"])
-@require_permission("view_bank_balance")
 @require_tenant
+@require_permission("view_bank_balance")
 def api_razorpayx_balance():
     """
     The one route in this codebase that makes a real, live call to

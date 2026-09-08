@@ -695,8 +695,11 @@ class TestUserAdministration(TenantIsolationTestCase):
         with client.session_transaction(base_url=ALPHA_HOST) as sess:
             sess["tenant_id"] = self.alpha
             sess["roles"] = ["finance"]      # finance holds no manage_users
-        self.assertEqual(client.get("/api/users").status_code, 401)
-        self.assertEqual(client.post("/api/users", json={}).status_code, 401)
+        # 403: finance is a known principal that lacks manage_users. Contrast
+        # with a session carrying no tenant at all, which is 401 — the two are
+        # different answers to different questions and no longer conflated.
+        self.assertEqual(client.get("/api/users").status_code, 403)
+        self.assertEqual(client.post("/api/users", json={}).status_code, 403)
 
     def test_unknown_roles_are_refused_not_silently_stored(self):
         # A stored role nobody grants permissions for would look assigned and
