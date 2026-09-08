@@ -34,6 +34,7 @@ from auth import (
 )
 import io
 import review_queue
+import pipeline
 from diff_view import build_diff
 from salary_revision_export import build_salary_revision_workbook, TEMPLATE_HONESTY_LABEL
 
@@ -314,25 +315,6 @@ def _clear_login_failures(tenant_id, email: str) -> None:
     _LOGIN_ATTEMPTS.pop(f"acct:{tenant_id}:{email}", None)
 
 
-def _structure_to_dict(s):
-    return {
-        "ctc": s.ctc, "basic": s.basic, "hra": s.hra, "lta": s.lta,
-        "special_allowance": s.special_allowance,
-        "employer_pf": s.employer_pf, "employer_nps": s.employer_nps,
-        "nps_opted": s.nps_opted,
-    }
-
-
-def _optresult_to_dict(r):
-    return {
-        "regime": r.regime,
-        "structure": _structure_to_dict(r.structure),
-        "taxable_income": r.taxable_income,
-        "tax_breakdown": r.tax_breakdown,
-        "basic_pct": r.basic_pct,
-    }
-
-
 def _build_current_structure(extracted: dict, ctc: float, regime_for_nps: str) -> "SalaryStructure | None":
     """
     Build a concrete SalaryStructure from as-extracted offer-letter data.
@@ -403,73 +385,27 @@ def _build_optimize_response(ctc, rent_paid, city, nps_opted, current_extracted,
     return value, with real SalaryStructure objects (not yet flattened to
     JSON), so callers that need those objects (guardrail checks, treasury
     forecasts) don't have to recompute optimize() a second time.
+
+    AS OF PHASE 2.1 this is a thin caller over pipeline.run(). The signature
+    and return shape are deliberately unchanged: 54 call sites across app.py
+    and four test modules reference this, and changing them in the same commit
+    as the restructure would make the diff impossible to review as the pure
+    structural move it claims to be. The sequence itself now lives in
+    pipeline.STAGES, where its order is declared rather than implied by
+    statement order — see ORCHESTRATION_DESIGN.md.
     """
-    result = optimize(ctc=ctc, rent_paid=rent_paid, city=city, nps_opted=nps_opted)
-
-    response = {
-        "ctc": result["ctc"],
-        "old_regime_best": _optresult_to_dict(result["old_regime_best"]),
-        "new_regime_best": _optresult_to_dict(result["new_regime_best"]),
-        "recommended_regime": result["recommended"].regime,
-        "annual_saving": result["annual_tax_saving_vs_other_regime"],
-    }
-
-    # Build the as-offered structure (if extraction supplied one) BEFORE
-    # compliance checking — compliance must check what was actually offered,
-    # not the optimizer's own recommendation. Checking the recommendation
-    # is nearly circular: the optimizer enforces a 50-60% basic band by
-    # construction, so rules like R1 (basic < 50% of CTC) can structurally
-    # never fire against it. Real compliance risk lives in the offer itself.
-    current_structure = None
-    if isinstance(current_extracted, dict):
-        current_structure = _build_current_structure(current_extracted, ctc, result["recommended"].regime)
-
-    # Attach explanation for the recommended structure
-    explanation = explain_result(result, rent_paid, city, skip_ai=skip_ai)
-    response["explanation"] = explanation
-
-    # Compliance checks the AS-OFFERED structure when we have one (the real
-    # risk surface); only falls back to the recommended structure when
-    # nothing was extracted, so there's still something to check.
-    structure_to_check = current_structure if current_structure is not None else result["recommended"].structure
-    compliance = flag_compliance(structure_to_check, rent_paid, skip_ai=skip_ai)
-    response["compliance"] = compliance
-    response["compliance_checked_against"] = "as_offered" if current_structure is not None else "recommended"
-
-    # Negotiation copilot — ONLY when the caller supplied a real extracted
-    # current structure (from /api/extract, after the user reviewed/corrected
-    # it). A manually-entered CTC-only input has no "offered" structure to
-    # negotiate away from, so we don't fabricate one.
-    if current_structure is not None:
-        current_best = best_regime_for_given_structure(current_structure, rent_paid, city)
-        negotiation = negotiate(
-            current_structure=current_structure,
-            current_best=current_best,
-            recommended=result["recommended"].structure,
-            recommended_regime=result["recommended"].regime,
-            recommended_tax=result["recommended"].tax_breakdown,
-            ctc=ctc,
-            skip_ai=skip_ai,
-        )
-        response["negotiation"] = negotiation
-
-    # Radar/ring metrics — reuse data already computed above, no new work.
-    extraction_ran = current_structure is not None
-    negotiation_ran = current_structure is not None
-    negotiation_ai_backed = response["negotiation"]["ai_backed"] if negotiation_ran else False
-
-    response["metrics"] = {
-        "optimization_value_pct": optimization_value_pct(ctc, rent_paid, city, nps_opted),
-        "compliance_pct": compliance_pct(compliance["flags"]),
-        "ai_coverage_pct": ai_coverage_pct(
-            extraction_ran=extraction_ran, extraction_ai_backed=extraction_ai_backed,
-            explanation_ai_backed=explanation["ai_backed"], compliance_ai_backed=compliance["ai_backed"],
-            negotiation_ran=negotiation_ran, negotiation_ai_backed=negotiation_ai_backed,
-            compliance_ran=len(compliance["flags"]) > 0,
-        ),
-    }
-
-    return response, result
+    ctx = pipeline.PipelineContext(
+        ctc=ctc, rent_paid=rent_paid, city=city, nps_opted=nps_opted,
+        current_extracted=current_extracted,
+        extraction_ai_backed=extraction_ai_backed,
+        skip_ai=skip_ai,
+        # Injected rather than imported: pipeline.py must not import app.py,
+        # which imports it. _build_current_structure() stays here because it is
+        # extraction-shaped input handling, not a pipeline stage.
+        build_current_structure=_build_current_structure,
+    )
+    pipeline.run(ctx)
+    return ctx.response, ctx.result
 
 
 @app.route("/api/optimize", methods=["POST"])

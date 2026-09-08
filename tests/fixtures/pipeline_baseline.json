@@ -71,7 +71,15 @@
       },
       "taxable_income": 722200.0
     },
-    "recommended_regime": "new"
+    "recommended_regime": "new",
+    "stages_run": [
+      "optimize",
+      "current_structure",
+      "explain",
+      "compliance",
+      "negotiate",
+      "metrics"
+    ]
   },
   "clean_pass_no_flags": {
     "annual_saving": 147170.4,
@@ -145,7 +153,15 @@
       },
       "taxable_income": 1494400.0
     },
-    "recommended_regime": "new"
+    "recommended_regime": "new",
+    "stages_run": [
+      "optimize",
+      "current_structure",
+      "explain",
+      "compliance",
+      "negotiate",
+      "metrics"
+    ]
   },
   "code_on_wages_floor_breach": {
     "annual_saving": 106184.0,
@@ -229,7 +245,15 @@
       },
       "taxable_income": 1486000.0
     },
-    "recommended_regime": "new"
+    "recommended_regime": "new",
+    "stages_run": [
+      "optimize",
+      "current_structure",
+      "explain",
+      "compliance",
+      "negotiate",
+      "metrics"
+    ]
   },
   "code_on_wages_floor_exactly_at_50pct": {
     "annual_saving": 106184.0,
@@ -306,7 +330,15 @@
       },
       "taxable_income": 1486000.0
     },
-    "recommended_regime": "new"
+    "recommended_regime": "new",
+    "stages_run": [
+      "optimize",
+      "current_structure",
+      "explain",
+      "compliance",
+      "negotiate",
+      "metrics"
+    ]
   },
   "epfo_aggregate_ceiling_breach": {
     "annual_saving": 81120.0,
@@ -393,7 +425,15 @@
       },
       "taxable_income": 3122000.0
     },
-    "recommended_regime": "new"
+    "recommended_regime": "new",
+    "stages_run": [
+      "optimize",
+      "current_structure",
+      "explain",
+      "compliance",
+      "negotiate",
+      "metrics"
+    ]
   },
   "extraction_mismatch_components_exceed_ctc": {
     "annual_saving": 86132.8,
@@ -478,7 +518,15 @@
       },
       "taxable_income": 851600.0
     },
-    "recommended_regime": "new"
+    "recommended_regime": "new",
+    "stages_run": [
+      "optimize",
+      "current_structure",
+      "explain",
+      "compliance",
+      "negotiate",
+      "metrics"
+    ]
   },
   "no_extraction_falls_back_to_recommended": {
     "annual_saving": 56066.4,
@@ -545,7 +593,15 @@
       },
       "taxable_income": 1202400.0
     },
-    "recommended_regime": "new"
+    "recommended_regime": "new",
+    "stages_run": [
+      "optimize",
+      "current_structure",
+      "explain",
+      "compliance",
+      "negotiate",
+      "metrics"
+    ]
   },
   "nps_opted_non_metro": {
     "annual_saving": 156270.4,
@@ -623,6 +679,14 @@
       },
       "taxable_income": 1625200.0
     },
-    "recommended_regime": "new"
+    "recommended_regime": "new",
+    "stages_run": [
+      "optimize",
+      "current_structure",
+      "explain",
+      "compliance",
+      "negotiate",
+      "metrics"
+    ]
   }
 }
