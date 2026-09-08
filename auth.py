@@ -292,6 +292,24 @@ def require_permission(permission: str):
     def decorator(fn):
         @wraps(fn)
         def wrapper(*args, **kwargs):
+            # ORDER-INDEPENDENT BY CONSTRUCTION. This repeats require_tenant's
+            # check rather than assuming it already ran.
+            #
+            # The duplication is the point. These guards are written as a stack
+            # and decorators EXECUTE TOP-DOWN while being APPLIED bottom-up,
+            # which is easy to get backwards — it was backwards on six routes
+            # for four commits. It was invisible because both guards returned
+            # 401 then: a wrong order produced a right-looking answer, so no
+            # test could see it until 403 forced the two apart.
+            #
+            # Detecting that in review or in a lint rule only catches the next
+            # one after someone writes it. Answering 401 here when there is no
+            # identity at all makes the mistake HARMLESS instead: a route whose
+            # guards are stacked the wrong way round still tells an
+            # unauthenticated caller "who are you?" rather than leaking the
+            # judgement "you may not do this" about someone it cannot name.
+            if session.get("tenant_id") is None:
+                return jsonify({"error": "No tenant context for this session."}), 401
             if not has_permission(permission):
                 return jsonify({"error": "Not authorised for this action."}), 403
             return fn(*args, **kwargs)

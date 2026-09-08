@@ -369,3 +369,80 @@ class TestSharedCodeRetirementIsComplete(IdentityTestCase):
         created = client.post("/api/users", json={
             "email": "second@alpha.test", "display_name": "Second", "roles": ["finance"]})
         self.assertEqual(created.status_code, 201)
+
+
+class TestGuardOrderCannotReintroduceTheBug(IdentityTestCase):
+    """
+    The latent bug this phase's worst find lived in, and why it hid.
+
+    @require_permission sat above @require_tenant on six routes for four
+    commits. Decorators are APPLIED bottom-up but EXECUTE top-down, so
+    permission was judged before identity — an unauthenticated caller was told
+    "you may not do this" about a principal the system could not name.
+
+    It was invisible BY CONSTRUCTION, not by anyone failing to look: both
+    guards returned 401 at the time, so a wrong order produced a right-looking
+    answer. Two wrong states coincided. Nothing could see it until the 403
+    change forced them apart.
+
+    Finding the known instances does not stop the next one, and a review
+    convention only catches it after it is written. So the mistake is made
+    HARMLESS as well as detectable — both are asserted here.
+    """
+
+    def test_require_permission_alone_still_401s_an_unidentified_caller(self):
+        """
+        The structural guarantee: order-independence. A route guarded ONLY by
+        require_permission — the exact shape a wrong stack collapses to — must
+        still answer 401, not 403, when there is no session.
+        """
+        from auth import require_permission
+
+        @require_permission("view_queue")
+        def _route():
+            return "reached", 200
+
+        with flask_app.app.test_request_context():
+            body, status = _route()
+            self.assertEqual(status, 401,
+                             "an unidentified caller must not be told 'you may not'")
+
+    def test_require_permission_alone_still_403s_an_identified_one(self):
+        from auth import require_permission
+        from flask import session as flask_session
+
+        @require_permission("manage_users")
+        def _route():
+            return "reached", 200
+
+        with flask_app.app.test_request_context():
+            flask_session["tenant_id"] = self.alpha
+            flask_session["roles"] = ["finance"]      # holds no manage_users
+            _body, status = _route()
+            self.assertEqual(status, 403)
+
+    def test_every_guarded_route_establishes_identity_before_judging_access(self):
+        """
+        The convention check, kept even though the structural fix above makes a
+        wrong order harmless: a reader should still be able to see the intent
+        in the decorator stack, and a route that reads wrongly is a route
+        someone will copy.
+        """
+        import re
+        app_src = open(os.path.join(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))), "app.py")).read()
+        identity = ("require_tenant", "require_resolved_tenant")
+        violations = []
+        for deco, fn in re.findall(
+                r'((?:@app\.route\([^\n]*\)\n)(?:@[^\n]+\n)*)def (\w+)', app_src):
+            stack = [d for d in re.findall(r'@(\w+)', deco)
+                     if d in identity + ("require_permission",)]
+            if "require_permission" not in stack:
+                continue
+            perm_at = stack.index("require_permission")
+            id_at = next((i for i, d in enumerate(stack) if d in identity), None)
+            if id_at is None or id_at > perm_at:
+                violations.append((fn, stack))
+        self.assertEqual(violations, [],
+                         "these routes judge access before establishing identity: "
+                         f"{violations}")
