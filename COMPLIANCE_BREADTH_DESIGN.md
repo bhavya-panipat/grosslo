@@ -247,30 +247,48 @@ lowering the bar on the next citation.
 
 ## 4. Concrete shape
 
-```python
-# compliance_rules.py
-@dataclass(frozen=True)
-class Rule:
-    id: str
-    severity: str            # High | Medium | Low
-    rationale: str
-    predicate: Callable      # (structure, rent_paid) -> bool
-    status: str              # "active" | "candidate"
-    source_url: str          # captured, live-verified primary source
-    provision: str           # the specific section/rule cited
-    verified_on: str         # ISO date the citation was checked
-    reviewed_by: str | None  # None until a human signs off
-```
+**The authoritative field list is the `Rule` dataclass in
+`compliance_rules.py`. This section deliberately does not reproduce it.**
 
-`_check_rules()` iterates `RULES`, evaluating only `status == "active"`.
-R1–R6 migrate as active with their existing text preserved byte-for-byte, so the
-migration itself changes no output.
+It used to. The sketch written before implementation had `verified_on` and
+`reviewed_by: str | None`; what shipped has `citation_checked_on` and
+`reviewed_by: str = ""`, and gained `check`, `why`, `claim_type`, `instrument`,
+`instrument_status`, `basis` and `threshold_origin` as the phase went on. The
+sketch was never updated, and **the whole-diff read caught it — a stale
+hand-maintained copy of the rule shape, in the design document whose §3.3
+argues that a second hand-maintained copy always drifts.** Reproducing the list
+here again, correctly, would only reset the clock on the same failure.
+
+So what this section records is the *shape decisions*, which are stable, rather
+than the field names, which are not:
+
+- **A rule is one frozen object.** Predicate, both text registers, severity,
+  status and provenance travel together, so a rule's justification cannot
+  change in one file and not another. Frozen because activating a candidate
+  must be a source change visible in a diff, not something application code can
+  do at runtime.
+- **Evidence is typed by the KIND of claim**, because demanding the wrong kind
+  is actively harmful — a convention rule pressured into attaching a provision
+  produces a citation that does not say what the rule claims, which is worse
+  than no citation because it looks like evidence.
+- **The two claims stay separate.** "The cited provision exists and says this"
+  and "this predicate correctly implements it" are different assertions, and
+  only the first can be established by fetching a document.
+- **Citation state is three-valued, not two** — never attempted, attempted and
+  unresolved, verified — because "uncheckable from here" is worse than
+  "unchecked" and collapsing them loses what a reviewer needs.
+- **The instrument is tracked separately from the text**, since a citation can
+  match its source perfectly and still point at a repealed Act.
+
+`_check_rules()` iterates `active_rules()`. R1–R6 migrated as active with their
+existing text preserved byte-for-byte, so the migration itself changed no
+output.
 
 ## 5. What 2.2 hands to 2.3 and 2.4
 
 2.3's adversarial verification argues over a rule set that is now data, so it can
 name which rule it disagrees about. 2.4's citation-verification skill has a
-`source_url` and `verified_on` per rule to re-check on a schedule — the standing
+`source_url` and `citation_checked_on` per rule to re-check on a schedule — the standing
 legal-change monitor becomes "re-verify these provisions", not "re-read the
 codebase".
 

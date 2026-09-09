@@ -23,7 +23,7 @@ additional advice.
 **This table is generated** from `compliance_rules.py`, which is the single
 source of truth for every rule's predicate, text, severity and provenance. Edit
 the rules there and re-run `scripts/generate_compliance_rules_md.py`; edits made
-directly to the table below will be overwritten, and a test fails if the two
+directly to the table above will be overwritten, and a test fails if the two
 fall out of sync. The prose in this document is hand-written and is not
 generated.
 
