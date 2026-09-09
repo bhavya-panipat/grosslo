@@ -16,8 +16,14 @@ from dotenv import load_dotenv
 load_dotenv()  # must run before ai_layer is imported — it reads ANTHROPIC_API_KEY at import time
 
 from flask import Flask, request, jsonify, send_from_directory, send_file, session
-from optimizer import optimize, best_regime_for_given_structure, sensitivity_sweep, optimization_value_pct
-from ai_layer import extract_from_text, explain_result, flag_compliance, negotiate, compliance_pct, ai_coverage_pct, answer_query, evaluate_band_guardrail, EPFO_AGGREGATE_CEILING
+from optimizer import optimize, best_regime_for_given_structure, sensitivity_sweep
+# explain_result / negotiate / compliance_pct / ai_coverage_pct moved to
+# pipeline.py in Phase 2.1 and are no longer referenced here. Removed in the
+# same pass that superseded them rather than left as unused imports — this
+# repo has been bitten before by code that was agreed-obsolete but not
+# actually deleted. (derive_nps below was already unused before 2.1; left
+# alone, since it is not this phase's to change.)
+from ai_layer import extract_from_text, flag_compliance, answer_query, evaluate_band_guardrail, EPFO_AGGREGATE_CEILING
 from tax_engine import SalaryStructure, derive_pf, derive_nps
 from payroll_breakdown import treasury_forecast
 from penalty_exposure import build_scenario_table
