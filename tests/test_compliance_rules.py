@@ -104,3 +104,65 @@ class TestActiveAndCandidatePartitionTheRuleSet(unittest.TestCase):
         # proof are step 4, and the first candidates are step 5 — this pins that
         # ordering so a rule cannot arrive before the gate that holds it.
         self.assertEqual(compliance_rules.candidate_rules(), ())
+
+
+class TestTheDocumentIsGeneratedNotMaintained(unittest.TestCase):
+    """
+    compliance_rules.md's table is derived from compliance_rules.py. Without a
+    test, "generated" would mean "generated at some point", and the drift this
+    phase exists to remove would return through the side door — someone edits
+    the table because it is right there and readable, and nothing notices.
+    """
+
+    def test_the_committed_table_matches_what_the_generator_produces(self):
+        import subprocess
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        result = subprocess.run(
+            [sys.executable, os.path.join(root, "scripts", "generate_compliance_rules_md.py"),
+             "--check"],
+            capture_output=True, text=True, cwd=root)
+        self.assertEqual(result.returncode, 0,
+                         f"compliance_rules.md is out of sync with compliance_rules.py.\n"
+                         f"{result.stdout}{result.stderr}")
+
+    def test_the_hand_written_prose_survives_generation(self):
+        # §6 resolved to GENERATE this file rather than replace it, because the
+        # readable artefact is the property worth preserving. If generation ever
+        # started clobbering the editorial context, the file would still be
+        # "in sync" and would have lost the thing it was kept for.
+        doc = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                "compliance_rules.md")).read()
+        for passage in ("not legal advice", "How this list is used",
+                        "Known gap this table surfaces"):
+            with self.subTest(passage=passage):
+                self.assertIn(passage, doc)
+
+    def test_both_registers_are_carried_and_are_actually_different(self):
+        # The correction step 2 made to step 1's description: `rationale` and
+        # `why` are two registers, not one field that drifted. If they were ever
+        # collapsed, the generated table would start showing users' flag text
+        # instead of the reviewer-facing justification, which is precisely the
+        # readability the generated document exists to present.
+        for rule in compliance_rules.RULES:
+            with self.subTest(rule=rule.id):
+                self.assertTrue(rule.why.strip(), "missing documentation register")
+                self.assertNotEqual(rule.rationale, rule.why,
+                                    "the two registers have been collapsed into one")
+
+    def test_a_candidate_would_be_marked_as_such_in_the_table(self):
+        # Asserted on the renderer directly, since no candidate exists yet. An
+        # unmarked candidate in a compliance table is the "looks authoritative,
+        # is unreviewed" failure the whole protocol prevents — so the marking is
+        # verified before the first candidate depends on it.
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))), "scripts"))
+        import generate_compliance_rules_md as gen
+        from unittest.mock import patch
+        fake = compliance_rules.Rule(
+            id="R99", severity="High", check="test", rationale="r", why="w",
+            predicate=lambda s, rp: True, status=CANDIDATE)
+        with patch.object(compliance_rules, "RULES", compliance_rules.RULES + (fake,)):
+            table = gen.render_table()
+        self.assertIn("R99", table)
+        self.assertIn("CANDIDATE", table)
+        self.assertIn("cannot fire", table)

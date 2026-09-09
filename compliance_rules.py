@@ -4,11 +4,16 @@ compliance_rules.py — the single source of truth for the compliance rule set
 
 WHY THIS FILE EXISTS. A rule used to live in three places: the table in
 compliance_rules.md, the if-chain in ai_layer._check_rules(), and the constant
-TOTAL_COMPLIANCE_RULES = 6. They had already drifted — R1's rationale was 481
-characters in the table and 375 in the code, and the table claimed the breach
-carried "real penalty exposure" where the code's text did not. Nothing detected
-that, and going from 6 rules to N is precisely the change that makes three
-hand-maintained copies bite.
+TOTAL_COMPLIANCE_RULES = 6, with nothing linking them. Going from 6 rules to N
+is precisely the change that makes three hand-maintained copies bite.
+
+An earlier description of this called the two rationale texts "drift". Comparing
+all six showed that was wrong, and the correction matters: they are two
+REGISTERS — one addressed to the user whose structure was flagged, one to a
+reviewer reading the rule set — neither a stale copy of the other. Both are now
+fields on one object (see the note above RULES). The real risk was never that
+one had drifted; it was that a rule's justification could change in one file and
+not the other with nothing noticing.
 
 Now: the predicate, the text, the severity and the provenance are one object.
 compliance_rules.md is GENERATED from this (scripts/generate_compliance_rules_md.py),
@@ -63,7 +68,11 @@ class Rule:
     id: str
     severity: str                    # High | Medium | Low
     check: str                       # short human-readable condition, for the table
-    rationale: str                   # the exact text emitted on a flag
+    rationale: str                   # the exact text emitted on a flag, addressed
+                                     # to the user: what is wrong with THIS structure
+    why: str                         # why the rule exists at all, addressed to a
+                                     # reader of the rule set — a reviewer or a CA.
+                                     # A DIFFERENT REGISTER, not a copy: see below.
     predicate: Callable              # (structure, rent_paid) -> bool
     status: str                      # ACTIVE | CANDIDATE
     # Provenance. Empty on R1-R6 only because they predate this protocol and
@@ -81,15 +90,30 @@ class Rule:
 
 
 # ---------------------------------------------------------------------------
-# R1-R6. Migrated from ai_layer._check_rules() with the rationale text copied
-# BYTE-FOR-BYTE from the code, not from compliance_rules.md.
+# R1-R6. `rationale` is copied BYTE-FOR-BYTE from ai_layer._check_rules(), so
+# the migration changes no output. `why` is copied byte-for-byte from
+# compliance_rules.md's table.
 #
-# That choice resolves the existing drift in the only direction that changes no
-# output: the code's text is what actually reached users, so adopting it keeps
-# this migration behaviour-identical. The table's extra clause ("with real
-# penalty exposure") is not lost — it was never in any response — but it will
-# disappear from the generated table in step 2, which is a real content change
-# to a human-readable document and is called out there rather than here.
+# TWO FIELDS, NOT ONE THAT DRIFTED — a correction to how step 1 described this.
+# The two texts differ for all six rules, and comparing them shows why: they are
+# different registers, written for different readers, and neither is a stale
+# copy of the other. R2 is the clearest example:
+#
+#   rationale (emitted, addressed to the user):
+#     "No employer PF component despite CTC above Rs 6L/year — PF is
+#      near-universal at this level; confirm this isn't an oversight."
+#   why (documentation, addressed to a reviewer):
+#     "PF is near-universal for salaried employees above minimum wage
+#      thresholds; a missing PF component at this CTC level is unusual and
+#      worth confirming isn't an oversight"
+#
+# Collapsing them would have destroyed the documentation register that the
+# generated table exists to present — the readable artefact a CA opens first.
+#
+# The REAL problem was never that one had drifted from the other: it is that
+# they were maintained in two files with nothing linking them, so a rule's
+# justification could change in one and not the other and nothing would notice.
+# Holding both on one object fixes that without flattening the distinction.
 # ---------------------------------------------------------------------------
 
 RULES: tuple = (
@@ -97,6 +121,7 @@ RULES: tuple = (
         id="R1", severity="High",
         check="Basic salary < 50% of CTC",
         rationale="Basic salary is below 50% of CTC, violating the Code on Wages 2025 requirement that Basic + DA be at least 50% of total remuneration (no DA field in this tool — Basic alone is the relevant component for a private-sector structure). This triggers automatic reclassification of the excess allowances as \"wages\" for PF and gratuity purposes, not just a market-convention miss.",
+        why="Statutory violation, not a soft convention: the Code on Wages 2025 (effective 21 Nov 2025) requires Basic + DA to be at least 50% of total remuneration — this tool has no separate DA field (scoped to private-sector employees, where DA doesn't apply), so Basic alone is the relevant component. Falling below this line triggers automatic reclassification of the excess allowances as \"wages\" for PF and gratuity purposes, with real penalty exposure — not just a market-convention miss",
         predicate=lambda s, rent_paid: (s.basic / s.ctc if s.ctc else 0) < 0.50,
         status=ACTIVE,
     ),
@@ -104,6 +129,7 @@ RULES: tuple = (
         id="R2", severity="Medium",
         check="CTC > Rs 6L/year but employer PF = 0",
         rationale="No employer PF component despite CTC above Rs 6L/year — PF is near-universal at this level; confirm this isn't an oversight.",
+        why="PF is near-universal for salaried employees above minimum wage thresholds; a missing PF component at this CTC level is unusual and worth confirming isn't an oversight",
         predicate=lambda s, rent_paid: s.ctc > 600_000 and s.employer_pf == 0,
         status=ACTIVE,
     ),
@@ -111,6 +137,7 @@ RULES: tuple = (
         id="R3", severity="Low",
         check="HRA claimed but rent_paid = 0 or not provided",
         rationale="HRA is structured into the salary but no rent payment was provided — the HRA exemption requires actual rent with documentation.",
+        why="HRA exemption requires actual rent payment with supporting documentation; claiming HRA structure without a rent input suggests the exemption may not be realizable",
         predicate=lambda s, rent_paid: s.hra > 0 and rent_paid <= 0,
         status=ACTIVE,
     ),
@@ -118,6 +145,7 @@ RULES: tuple = (
         id="R4", severity="Low",
         check="LTA > 10% of CTC",
         rationale="LTA exceeds 10% of CTC, above typical company policy ceilings, and may not be realizable given actual travel requirements.",
+        why="Exceeds typical company LTA policy ceilings; may not be realizable given actual travel-and-bills requirements",
         predicate=lambda s, rent_paid: bool(s.ctc) and s.lta > 0.10 * s.ctc,
         status=ACTIVE,
     ),
@@ -125,6 +153,7 @@ RULES: tuple = (
         id="R5", severity="High",
         check="Aggregate employer PF + NPS > Rs 7.5L/year",
         rationale="Aggregate employer PF + NPS exceeds Rs 7.5L/year — the excess is a taxable perquisite under Section 17(2)(vii), which this tool's tax engine does not currently model.",
+        why="The excess over Rs 7.5L is a taxable perquisite under Section 17(2)(vii) — NOT currently modeled in tax_engine.py's tax calculation, so any structure crossing this threshold has an unmodeled tax liability the tool doesn't account for",
         predicate=lambda s, rent_paid: (s.employer_pf + s.employer_nps) > 750_000,
         status=ACTIVE,
     ),
@@ -132,6 +161,7 @@ RULES: tuple = (
         id="R6", severity="Low",
         check="Special allowance = 0",
         rationale="Special allowance is zero, leaving no flexible cash component — check this wasn't an input error.",
+        why="Leaves no flexible cash component; unusual structure that may indicate an input error rather than a deliberate choice",
         predicate=lambda s, rent_paid: s.special_allowance == 0,
         status=ACTIVE,
     ),
