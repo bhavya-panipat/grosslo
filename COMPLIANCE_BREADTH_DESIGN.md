@@ -144,6 +144,50 @@ display showing an ambiguous bare number recreates the problem being solved:
 - `frontend/lib/api-types.ts` — declares the new fields
 - `tests/test_finos.py` — three tests asserting against hardcoded sixths
 
+### 3.5 Which law the rules describe: forward-looking, the Income-tax Act, 2025
+
+**Decided, with the audit-sweep question resolved from the code rather than
+from preference.**
+
+Today is inside FY2026-27, which the Income-tax Act, 2025 (Act 30 of 2025)
+governs. That is not a future state to prepare for; it is the current one, for
+both of this tool's flows.
+
+The one case that could have justified a second, transitional rule set is
+return-filing reconciliation: auditing compensation actually paid, or a return
+actually filed, for a period before 1 April 2026 would fall under the 1961 Act.
+**The code says that capability does not exist.** `/api/batch-audit`'s own
+docstring describes auditing "CURRENT (as-offered/as-is) structures ... the real
+tax on the structure as it stands today", and more decisively:
+
+- **No route accepts a fiscal or assessment period.** There is no
+  `assessment_year`, `financial_year`, or equivalent input anywhere in the
+  application.
+- **The batch CSV carries only structure components** — basic, hra, lta,
+  special_allowance, employer_pf, employer_nps, nps_opted, rent_paid, city.
+  Nothing identifies which year a row belongs to.
+- The single `FY` reference in the codebase is a comment in `tax_engine.py`
+  about slab continuity, not a period parameter.
+
+A tool that cannot be told which year it is auditing cannot reconcile a prior
+year's filing. So audit-sweep is current-payroll-health only, "both" is ruled
+out on evidence, and **single scope — the 2025 Act — is correct and complete.**
+
+**Named forcing function, so this does not silently become wrong:** if
+return-filing reconciliation is ever added — any input that identifies a past
+assessment period — this decision must be revisited in the same change. At that
+point the tool would genuinely span two statutes, and a single-instrument rule
+set would start giving the wrong answer for the older one. That is the trigger
+to split, and it should be reconsidered then rather than inherited.
+
+**This does not change R5.** R5 remains active, honestly labelled, and a
+known-open violation citing the superseded 1961 Act. The scope decision says
+which law the rule *should* describe; it does not supply the successor provision
+number, which remains unidentified because no primary source was reachable. Two
+independent attempts — mine and a reviewer's — hit the same wall, which is
+evidence of a genuine access problem for this phase rather than grounds for
+lowering the bar on the next citation.
+
 ## 4. Concrete shape
 
 ```python
