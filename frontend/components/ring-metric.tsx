@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 
 type Metric = {
+  /** Shown beside the percentage so the number carries its own history. */
+  detail?: string;
   label: string;
   value: number;
   color: string;
@@ -18,6 +20,12 @@ export default function RingMetrics({
   metrics: {
     optimization_value_pct: number;
     compliance_pct: number;
+    // What compliance_pct was computed from (Phase 2.2). The denominator grows
+    // as rules are added, so a bare percentage cannot distinguish "5 of 6
+    // passed" from "5 of 6 passed against a different rule set". Optional
+    // because responses stored before 2.2 lack them.
+    rules_triggered?: number;
+    rules_total?: number;
     ai_coverage_pct: number;
   } | null;
 }) {
@@ -30,7 +38,19 @@ export default function RingMetrics({
 
   const items: Metric[] = [
     { label: "Optimization value", value: metrics?.optimization_value_pct ?? 0, color: "#F3BA2F" },
-    { label: "Compliance", value: metrics?.compliance_pct ?? 0, color: "#7DD3A8" },
+    {
+      label: "Compliance",
+      value: metrics?.compliance_pct ?? 0,
+      color: "#7DD3A8",
+      // The ratio is shown ALONGSIDE the percentage, never instead of it. A
+      // bare "83.3%" is honest at a single point in time and misleading across
+      // two, because the denominator moves when the rule set grows — this is
+      // what lets a reader see that rather than having to already know it.
+      detail:
+        metrics?.rules_total !== undefined
+          ? `${(metrics.rules_total ?? 0) - (metrics.rules_triggered ?? 0)}/${metrics.rules_total} rules`
+          : undefined,
+    },
     { label: "AI coverage", value: metrics?.ai_coverage_pct ?? 0, color: "#9CA3AF" },
   ];
 
@@ -91,6 +111,9 @@ export default function RingMetrics({
             </span>
             <span className="font-mono text-neutral-300">
               {metrics ? `${m.value}%` : "—"}
+              {metrics && m.detail ? (
+                <span className="ml-1.5 text-neutral-500">({m.detail})</span>
+              ) : null}
             </span>
           </div>
         ))}

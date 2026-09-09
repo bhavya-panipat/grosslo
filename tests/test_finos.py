@@ -15,7 +15,7 @@ from optimizer import (
 )
 from ai_layer import (
     extract_from_text, explain_result, flag_compliance, negotiate, _check_rules,
-    compliance_pct, ai_coverage_pct, answer_query, evaluate_band_guardrail,
+    compliance_pct, compliance_ratio, ai_coverage_pct, answer_query, evaluate_band_guardrail,
 )
 from payroll_breakdown import monthly_professional_tax, annual_professional_tax, treasury_forecast
 from unittest.mock import patch, Mock
@@ -672,11 +672,34 @@ class TestComplianceAndCoverageMetrics(unittest.TestCase):
     def test_compliance_pct_zero_flags_is_100(self):
         self.assertEqual(compliance_pct([]), 100.0)
 
-    def test_compliance_pct_all_six_flags_is_zero(self):
-        self.assertEqual(compliance_pct([{"rule_id": f"R{i}"} for i in range(1, 7)]), 0.0)
+    def test_compliance_pct_every_active_rule_flagged_is_zero(self):
+        # Derived from the rule set, not hardcoded to six: the denominator moves
+        # as rules are added, and a test pinned to 6 would fail for the right
+        # reason but tell you the wrong thing.
+        import compliance_rules
+        every = [{"rule_id": r.id} for r in compliance_rules.active_rules()]
+        self.assertEqual(compliance_pct(every), 0.0)
 
-    def test_compliance_pct_one_flag_is_five_sixths(self):
-        self.assertAlmostEqual(compliance_pct([{"rule_id": "R1"}]), 83.3, places=1)
+    def test_compliance_pct_one_flag_is_one_rule_short_of_perfect(self):
+        import compliance_rules
+        total = compliance_rules.total_active()
+        expected = round((total - 1) / total * 100, 1)
+        self.assertAlmostEqual(compliance_pct([{"rule_id": "R1"}]), expected, places=1)
+
+    def test_compliance_ratio_reports_what_the_percentage_came_from(self):
+        # The percentage alone is honest locally and deceptive in aggregate —
+        # two equal-looking scores from different dates are not the same claim.
+        import compliance_rules
+        ratio = compliance_ratio([{"rule_id": "R1"}])
+        self.assertEqual(ratio["rules_triggered"], 1)
+        self.assertEqual(ratio["rules_total"], compliance_rules.total_active())
+
+    def test_the_ratio_denominator_excludes_candidates(self):
+        # A rule awaiting review must never make a structure look more
+        # compliant than it was actually checked for.
+        import compliance_rules
+        self.assertEqual(compliance_ratio([])["rules_total"],
+                         len([r for r in compliance_rules.RULES if r.is_active]))
 
     def test_ai_coverage_excludes_not_run_capabilities_from_denominator(self):
         # Only explanation + compliance ran, both AI-backed -> 100%, not 50%

@@ -362,9 +362,36 @@ TOTAL_COMPLIANCE_RULES = compliance_rules.total_active()
 
 
 def compliance_pct(flags: list) -> float:
-    """(total rules - flags triggered) / total rules, as a percentage."""
+    """
+    (active rules - flags triggered) / active rules, as a percentage.
+
+    THE DENOMINATOR MOVES AS THE RULE SET GROWS, and that is the truthful
+    computation — freezing it at 6 would leave a metric that silently stops
+    meaning what its name says while still returning a plausible number, which
+    is the failure this project keeps finding (COMPLIANCE_BREADTH_DESIGN.md
+    §3.4).
+
+    But a live denominator is honest locally and deceptive in aggregate: two
+    equal-looking percentages from different points in time are not the same
+    claim, and nothing in a bare number says so. compliance_ratio() below
+    exists for that reason, and every consumer reports the ratio alongside the
+    percentage rather than the percentage alone.
+    """
     triggered = len(flags)
     return round((TOTAL_COMPLIANCE_RULES - triggered) / TOTAL_COMPLIANCE_RULES * 100, 1)
+
+
+def compliance_ratio(flags: list) -> dict:
+    """
+    What the percentage was computed FROM, so a reader can reconstruct why two
+    equal-looking scores from different dates are not the same claim instead of
+    having to already know the rule set changed.
+
+    `rules_total` counts only rules that can fire. A candidate awaiting review
+    must never inflate the denominator and make a structure look more compliant
+    than it was checked for.
+    """
+    return {"rules_triggered": len(flags), "rules_total": TOTAL_COMPLIANCE_RULES}
 
 
 def ai_coverage_pct(extraction_ran: bool, extraction_ai_backed: bool,

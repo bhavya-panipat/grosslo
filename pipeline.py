@@ -44,7 +44,7 @@ from dataclasses import dataclass, field
 from optimizer import (optimize, best_regime_for_given_structure,
                        optimization_value_pct)
 from ai_layer import (explain_result, flag_compliance, negotiate,
-                      compliance_pct, ai_coverage_pct)
+                      compliance_pct, compliance_ratio, ai_coverage_pct)
 
 
 @dataclass
@@ -170,6 +170,10 @@ def metrics_stage(ctx: PipelineContext) -> None:
         "optimization_value_pct": optimization_value_pct(
             ctx.ctc, ctx.rent_paid, ctx.city, ctx.nps_opted),
         "compliance_pct": compliance_pct(ctx.compliance["flags"]),
+        # Reported alongside the percentage, never instead of it: the number
+        # carries its own history so a reader can tell two equal-looking scores
+        # from different dates apart (COMPLIANCE_BREADTH_DESIGN.md §3.4).
+        **compliance_ratio(ctx.compliance["flags"]),
         "ai_coverage_pct": ai_coverage_pct(
             extraction_ran=extraction_ran,
             extraction_ai_backed=ctx.extraction_ai_backed,

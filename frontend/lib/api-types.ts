@@ -71,6 +71,14 @@ export type OptimizeResponse = {
   metrics: {
     optimization_value_pct: number;
     compliance_pct: number;
+    /** What compliance_pct was computed from. Reported alongside the
+     *  percentage, never instead of it: the denominator grows as rules are
+     *  added, so two equal-looking percentages from different dates are not
+     *  the same claim. Optional only because responses stored before Phase 2.2
+     *  lack these. rules_total counts rules that can actually fire — a
+     *  candidate awaiting review never inflates it. */
+    rules_triggered?: number;
+    rules_total?: number;
     ai_coverage_pct: number;
   };
   execution_trace?: TraceStage[];
