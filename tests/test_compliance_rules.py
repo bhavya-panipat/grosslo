@@ -757,3 +757,107 @@ class TestTheThresholdOriginQuestionIsAsked(unittest.TestCase):
                     self.assertTrue(rule.threshold_origin.strip(),
                                     "a post-protocol rule advanced without "
                                     "answering the threshold-origin question")
+
+
+class TestTheCAReviewPacketIsGeneratedAndTrue(unittest.TestCase):
+    """
+    Step 6's deliverable. Generated rather than hand-written for the same reason
+    compliance_rules.md is: a reviewer signing off on a hand-maintained summary
+    would be approving something that no longer has to match the code.
+
+    The stronger property is that its worked examples are COMPUTED. A packet
+    claiming "this structure is flagged" about a structure that is not flagged
+    would put a wrong example in front of the one person whose job is to check
+    the reasoning.
+    """
+
+    def _run(self, *args):
+        import subprocess
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        return subprocess.run(
+            [sys.executable, os.path.join(root, "scripts",
+                                          "generate_ca_review_packet.py"), *args],
+            capture_output=True, text=True, cwd=root)
+
+    def test_the_committed_packet_matches_what_the_generator_produces(self):
+        result = self._run("--check")
+        self.assertEqual(result.returncode, 0,
+                         f"CA_REVIEW_PACKET.md is stale.\n{result.stdout}{result.stderr}")
+
+    def test_every_candidate_appears_in_the_packet(self):
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(root, "docs", "CA_REVIEW_PACKET.md")) as f:
+            packet = f.read()
+        for rule in compliance_rules.candidate_rules():
+            with self.subTest(rule=rule.id):
+                self.assertIn(rule.id, packet)
+                self.assertIn(rule.rationale, packet,
+                              "the packet does not show the text a reader would see")
+                self.assertIn(rule.threshold_origin, packet,
+                              "the packet omits where the threshold came from")
+
+    def test_the_packet_says_candidates_cannot_fire(self):
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(root, "docs", "CA_REVIEW_PACKET.md")) as f:
+            packet = f.read()
+        # A packet that presented candidates without saying they are inert would
+        # read as a list of live rules awaiting rubber-stamping.
+        self.assertIn("cannot fire", packet)
+
+    def test_a_mislabelled_worked_example_fails_generation(self):
+        # The load-bearing property, proven rather than asserted: relabelling an
+        # example to disagree with its predicate must stop generation.
+        import re
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        path = os.path.join(root, "scripts", "generate_ca_review_packet.py")
+        with open(path) as f:
+            original = f.read()
+        # Flip the LAST should_flag literal in R8's example block.
+        broken = original.replace(
+            "employer_nps=0, nps_opted=False), 0, True),\n    ],",
+            "employer_nps=0, nps_opted=False), 0, False),\n    ],")
+        self.assertNotEqual(broken, original, "sabotage did not apply")
+        try:
+            with open(path, "w") as f:
+                f.write(broken)
+            result = self._run()
+            self.assertNotEqual(result.returncode, 0,
+                                "a mislabelled worked example was published")
+            self.assertIn("worked example", result.stderr + result.stdout)
+        finally:
+            with open(path, "w") as f:
+                f.write(original)
+        # And the packet on disk must be unchanged by the failed run.
+        self.assertEqual(self._run("--check").returncode, 0)
+
+    def test_every_active_rule_question_names_a_rule_that_still_exists(self):
+        # The packet asks five questions about live rules. If one were deleted
+        # or renamed, the packet would ask a CA about a rule that is not there.
+        sys.path.insert(0, os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
+        import generate_ca_review_packet as gen
+        known = {r.id for r in compliance_rules.RULES}
+        for rule_id, _question in gen.ACTIVE_RULE_QUESTIONS:
+            with self.subTest(rule=rule_id):
+                self.assertIn(rule_id, known)
+
+    def test_every_worked_example_names_a_rule_that_still_exists(self):
+        sys.path.insert(0, os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
+        import generate_ca_review_packet as gen
+        known = {r.id for r in compliance_rules.RULES}
+        for rule_id in gen.EXAMPLES:
+            with self.subTest(rule=rule_id):
+                self.assertIn(rule_id, known)
+
+    def test_each_candidate_has_examples_in_both_directions(self):
+        # A rule shown only firing tells a reviewer nothing about where its
+        # line falls — the same both-states discipline as the candidate gate.
+        sys.path.insert(0, os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
+        import generate_ca_review_packet as gen
+        for rule in compliance_rules.candidate_rules():
+            with self.subTest(rule=rule.id):
+                outcomes = {flags for _l, _s, _r, flags in gen.EXAMPLES.get(rule.id, [])}
+                self.assertEqual(outcomes, {True, False},
+                                 "a candidate is shown in only one state")
