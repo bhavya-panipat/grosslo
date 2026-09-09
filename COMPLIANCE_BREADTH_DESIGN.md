@@ -262,6 +262,44 @@ reasoning behind §3 and §7 stays legible.
   settle — that is the trigger to build the stronger record, and it should be
   reconsidered then rather than inherited quietly.
 
+### 6.1 OPEN — a convention rule whose threshold is a statutory number
+
+**Not resolved. Raised here rather than decided, because deciding it silently
+is exactly the failure the claim-type split exists to prevent.**
+
+A third candidate was drafted for the first batch and then held back: *HRA
+structured above 50% of basic*, on the ground that `hra_exemption()` caps the
+exemption at 50% of basic (metro) or 40% (non-metro) regardless of rent, so the
+excess can never be exempted and is dead weight in the structure.
+
+It is a genuinely useful rule and its basis is internal — it is derived from
+this tool's own exemption formula. But **the 50% figure in that formula is a
+statutory number**, and that creates a problem the protocol does not currently
+catch:
+
+- Labelled CONVENTION, it ships with a `basis` and no citation. That is a
+  statutory threshold travelling without a citation, wearing convention
+  clothing.
+- Labelled STATUTORY, it needs a provision and a source — and those are exactly
+  what is unreachable from this environment (§3.5, R1, R5).
+
+`protocol_violations()` detects the reverse error — a convention rule that
+*carries* a provision — but nothing detects a statutory number with no
+provision attached, and nothing mechanically can: the check would have to know
+which numbers are statutory, which is the interpretation step.
+
+**Why this matters beyond one rule:** it shows the access problem is not
+confined to the statutory side of the rule set. It reaches any convention rule
+whose threshold happens to originate in a statute, which is a large fraction of
+plausible payroll rules. That is a narrowing of what can be drafted from here,
+and it should be an explicit decision rather than something absorbed silently.
+
+Three ways this could go, none of them taken yet: ship it as CONVENTION with the
+tension recorded in its `basis`; hold it until a primary source is reachable and
+ship it as STATUTORY; or add a fourth claim type for "derived from a statutory
+figure this tool already implements", whose evidence is the implementing code
+rather than the statute.
+
 ## 7. Suggested internal sequencing for 2.2
 
 1. Migrate R1–R6 to the data structure with no behaviour change — the

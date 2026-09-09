@@ -15,6 +15,8 @@ additional advice.
 | R4 | LTA > 10% of CTC | Exceeds typical company LTA policy ceilings; may not be realizable given actual travel-and-bills requirements | Low | active |
 | R5 | Aggregate employer PF + NPS > Rs 7.5L/year | The excess over Rs 7.5L is a taxable perquisite under Section 17(2)(vii) — NOT currently modeled in tax_engine.py's tax calculation, so any structure crossing this threshold has an unmodeled tax liability the tool doesn't account for | High | active |
 | R6 | Special allowance = 0 | Leaves no flexible cash component; unusual structure that may indicate an input error rather than a deliberate choice | Low | active |
+| R7 | Employer NPS contribution present but nps_opted is false | The two inputs contradict each other, and the contradiction is not inert: tax_engine.taxable_income_for_structure() subtracts structure.employer_nps from taxable income in BOTH regime branches without ever reading nps_opted, so an inconsistent pair silently produces a deduction and a lower tax number. Flags the inconsistency for confirmation; does not assert which of the two inputs is wrong | High | **CANDIDATE — cannot fire, awaiting review** |
+| R8 | Salary components do not sum to the stated CTC | A meta-rule: it does not describe a defect in the compensation structure but tells the reader that other rules' output cannot be trusted for this row. SalaryStructure.total() exists in tax_engine.py to express exactly this reconciliation, and before this rule was drafted it had no call sites anywhere in the repository — the invariant was written down and never checked | High | **CANDIDATE — cannot fire, awaiting review** |
 
 <!-- END GENERATED RULES TABLE -->
 

@@ -30,7 +30,14 @@ PRE_MIGRATION = [
 class TestMigrationPreservedTheRuleSet(unittest.TestCase):
 
     def test_the_same_six_rules_exist_with_the_same_severities_in_order(self):
-        self.assertEqual([(r.id, r.severity) for r in compliance_rules.RULES],
+        # NARROWED at step 5, deliberately. This asserted the WHOLE rule list
+        # equalled PRE_MIGRATION, which also froze the rule set's length — a
+        # property the migration never claimed and that step 5 exists to
+        # change. Its real claim is that R1-R6 came through the migration
+        # unaltered and in order, which is still asserted exactly, against the
+        # same hand-written PRE_MIGRATION list. Rules added later must appear
+        # AFTER them, so flag order for the original six cannot shift.
+        self.assertEqual([(r.id, r.severity) for r in compliance_rules.RULES][:6],
                          PRE_MIGRATION)
 
     def test_flag_order_is_the_declaration_order(self):
@@ -101,11 +108,32 @@ class TestActiveAndCandidatePartitionTheRuleSet(unittest.TestCase):
             with self.subTest(rule=rule.id):
                 self.assertIn(rule.status, (ACTIVE, CANDIDATE))
 
-    def test_there_are_no_candidates_yet(self):
-        # Step 1 is the migration only. The gate mechanism and its both-states
-        # proof are step 4, and the first candidates are step 5 — this pins that
-        # ordering so a rule cannot arrive before the gate that holds it.
-        self.assertEqual(compliance_rules.candidate_rules(), ())
+    def test_the_first_candidate_batch_is_exactly_R7_and_R8_and_is_inert(self):
+        # REPLACES test_there_are_no_candidates_yet, which asserted
+        # candidate_rules() == () to pin step ordering: no rule could arrive
+        # before the gate that holds it. Step 5 is that arrival, so the old
+        # assertion had to go — but what it was protecting has not, and is
+        # re-pinned here against the named batch rather than against emptiness.
+        self.assertEqual([r.id for r in compliance_rules.candidate_rules()],
+                         ["R7", "R8"])
+        for rule in compliance_rules.candidate_rules():
+            with self.subTest(rule=rule.id):
+                self.assertFalse(rule.is_active)
+                self.assertFalse(rule.implementation_is_reviewed,
+                                 "a candidate shipped already marked reviewed")
+                self.assertNotIn(rule.id, [r.id for r in compliance_rules.active_rules()])
+
+    def test_the_first_batch_makes_no_statutory_claim(self):
+        # The batch was drafted as CONVENTION rules deliberately: the primary
+        # sources needed to back a statutory claim are unreachable from this
+        # environment (see R1 and R5). A statutory rule appearing here would
+        # mean that constraint was quietly dropped.
+        for rule in compliance_rules.candidate_rules():
+            with self.subTest(rule=rule.id):
+                self.assertEqual(rule.claim_type, compliance_rules.CONVENTION)
+                self.assertTrue(rule.basis.strip())
+                self.assertFalse(rule.provision.strip())
+                self.assertFalse(rule.source_url.strip())
 
 
 class TestTheDocumentIsGeneratedNotMaintained(unittest.TestCase):
@@ -538,3 +566,117 @@ class TestTheGoverningInstrumentCheck(unittest.TestCase):
         # The successor provision must NOT have been guessed.
         self.assertNotIn("2025", r5.provision,
                          "a successor section number appears to have been invented")
+
+
+class TestTheFirstBatchesBasesAreTrueNotJustStated(unittest.TestCase):
+    """
+    A convention rule's `basis` is the whole of its evidence — there is no
+    citation behind it to fall back on. Prose alone makes it unfalsifiable:
+    a plausible-sounding basis and a true one read identically.
+
+    R7 and R8 were drafted with bases consisting only of claims about THIS
+    repository, precisely so they could be checked rather than believed. These
+    tests check them. If a refactor makes one of these claims false, the rule's
+    justification has evaporated and a reviewer must be told — silently keeping
+    the rule would leave it resting on a reason that no longer holds.
+    """
+
+    def _rule(self, rule_id):
+        return next(r for r in compliance_rules.RULES if r.id == rule_id)
+
+    # ---- R7's basis --------------------------------------------------------
+
+    def test_R7_claim_1_tax_ignores_nps_opted_entirely(self):
+        # "compute_tax() subtracts employer_nps in both regimes without ever
+        # reading nps_opted." If this became false, R7 would be pointing at a
+        # contradiction that no longer has any consequence.
+        import tax_engine
+        for regime in ("old", "new"):
+            opted = SalaryStructure(
+                ctc=2_000_000, basic=1_000_000, hra=300_000, lta=0,
+                special_allowance=500_000, employer_pf=120_000,
+                employer_nps=80_000, nps_opted=True)
+            not_opted = SalaryStructure(
+                ctc=2_000_000, basic=1_000_000, hra=300_000, lta=0,
+                special_allowance=500_000, employer_pf=120_000,
+                employer_nps=80_000, nps_opted=False)
+            with self.subTest(regime=regime):
+                self.assertEqual(
+                    tax_engine.taxable_income_for_structure(opted, regime, 300_000, "metro"),
+                    tax_engine.taxable_income_for_structure(not_opted, regime, 300_000, "metro"),
+                    "nps_opted now changes taxable income — R7's basis claim 1 "
+                    "is false and the rule needs redrafting")
+
+    def test_R7_claim_2_the_builder_cannot_produce_the_flagged_pair(self):
+        # "derive_nps() returns 0.0 when opted_in is false, so build_structure()
+        # can never produce employer_nps > 0 with nps_opted false."
+        import tax_engine
+        for regime in ("old", "new"):
+            built = tax_engine.build_structure(
+                ctc=2_000_000, basic_pct=0.50, hra_pct_of_remaining=0.40,
+                lta=0.0, regime=regime, nps_opted=False)
+            with self.subTest(regime=regime):
+                self.assertEqual(built.employer_nps, 0.0)
+                self.assertFalse(self._rule("R7").predicate(built, 0),
+                                 "a structure from this tool's own builder trips "
+                                 "R7 — the rule would flag ordinary output")
+
+    def test_R7_fires_on_the_externally_reachable_pair(self):
+        # The counterpart: the rule must actually match the case it describes,
+        # or claims 1 and 2 would be true of a predicate that catches nothing.
+        inconsistent = SalaryStructure(
+            ctc=2_000_000, basic=1_000_000, hra=300_000, lta=0,
+            special_allowance=500_000, employer_pf=120_000,
+            employer_nps=80_000, nps_opted=False)
+        self.assertTrue(self._rule("R7").predicate(inconsistent, 0))
+
+    # ---- R8's basis --------------------------------------------------------
+
+    def test_R8_claim_the_share_of_ctc_rules_still_fire_on_an_unreconciled_row(self):
+        # "R1 (basic/ctc) and R4 (lta/ctc) still compute and still flag against
+        # a denominator that does not describe the structure." That consequence
+        # is the entire reason R8 is worth having.
+        unreconciled = SalaryStructure(
+            ctc=5_000_000, basic=400_000, hra=200_000, lta=600_000,
+            special_allowance=100_000, employer_pf=48_000,
+            employer_nps=0, nps_opted=False)     # components sum to ~1.35L, not 50L
+        self.assertTrue(self._rule("R8").predicate(unreconciled, 0),
+                        "R8 does not flag a structure that plainly does not reconcile")
+        fired = [f["rule_id"] for f in ai_layer._check_rules(unreconciled, rent_paid=0)]
+        self.assertIn("R1", fired)
+        self.assertIn("R4", fired)
+
+    def test_R8_does_not_fire_on_a_structure_this_tool_built(self):
+        # build_structure() derives special_allowance as the residual, so its
+        # output reconciles by construction. A meta-rule that flags the tool's
+        # own output would be noise on every well-formed row.
+        import tax_engine
+        for ctc in (600_000, 2_000_000, 5_000_000):
+            built = tax_engine.build_structure(
+                ctc=ctc, basic_pct=0.50, hra_pct_of_remaining=0.40,
+                lta=50_000, regime="old", nps_opted=True)
+            with self.subTest(ctc=ctc):
+                self.assertFalse(self._rule("R8").predicate(built, 0),
+                                 "R8 flags a structure built by this tool")
+
+    def test_R8_tolerance_absorbs_rounding_but_not_a_missing_component(self):
+        # The tolerance is a judgement, and its two edges are what a reviewer
+        # would want to move. Pinning both makes any change to it visible.
+        base = dict(ctc=1_000_000, basic=500_000, hra=200_000, lta=0,
+                    employer_pf=60_000, employer_nps=0, nps_opted=False)
+        # Off by Rs 2 — rounding scale, must not flag (tolerance = Rs 5,000).
+        near = SalaryStructure(special_allowance=240_000 - 2, **base)
+        self.assertFalse(self._rule("R8").predicate(near, 0))
+        # Off by Rs 20,000 — a missing component's scale, must flag.
+        far = SalaryStructure(special_allowance=240_000 - 20_000, **base)
+        self.assertTrue(self._rule("R8").predicate(far, 0))
+
+    def test_R8_ignores_a_zero_ctc_rather_than_dividing_by_it(self):
+        empty = SalaryStructure(
+            ctc=0, basic=0, hra=0, lta=0, special_allowance=0,
+            employer_pf=0, employer_nps=0, nps_opted=False)
+        self.assertFalse(self._rule("R8").predicate(empty, 0))
+
+
+if __name__ == "__main__":
+    unittest.main()

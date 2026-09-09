@@ -291,6 +291,51 @@ RULES: tuple = (
         basis="A structure with no flexible cash component is unusual enough to be worth confirming, and a zero here is more often an incomplete input than a deliberate design. This is an input-sanity heuristic rather than a norm drawn from any survey or policy source, and is recorded as such -- there is no external basis to cite and none is claimed.",
         status=ACTIVE,
     ),
+
+    # -----------------------------------------------------------------------
+    # R7-R8: the FIRST batch drafted under the candidate-rule protocol
+    # (design §3.1, §6 "small first batch"). Both are CANDIDATE and therefore
+    # inert: they appear in the generated table for a reviewer, and cannot
+    # produce a flag on any structure or move the denominator.
+    #
+    # WHY BOTH BASES ARE INTERNAL TO THIS REPOSITORY, AND WHAT THAT COST.
+    # A convention rule needs a stated basis, not a statute. But a basis like
+    # "typical market practice" is only honest if the practice was actually
+    # surveyed, and the same access wall that blocked R1's and R5's primary
+    # sources blocks that too -- no policy sample, survey or published norm was
+    # reachable from this environment either. R2 and R4 already show what
+    # happens without that discipline: two thresholds whose derivation is
+    # recorded as UNKNOWN because nobody wrote it down.
+    #
+    # So the access problem constrains the convention side as well, not only
+    # the statutory side. The bases below are therefore drawn from the ONE
+    # source that can be verified from here: this repository's own code. Every
+    # factual claim in them names a file and can be checked by reading it.
+    # That is a real narrowing of what this batch can cover -- it excludes any
+    # rule whose justification is an external norm -- and it is recorded rather
+    # than worked around.
+    # -----------------------------------------------------------------------
+    Rule(
+        id="R7", severity="High",
+        check="Employer NPS contribution present but nps_opted is false",
+        rationale="An employer NPS contribution is present but this employee is not recorded as having opted into NPS. The tax computation deducts the employer NPS contribution regardless of the opt-in flag, so the tax figure shown for this structure may be understated — confirm the opt-in status before relying on it.",
+        why="The two inputs contradict each other, and the contradiction is not inert: tax_engine.taxable_income_for_structure() subtracts structure.employer_nps from taxable income in BOTH regime branches without ever reading nps_opted, so an inconsistent pair silently produces a deduction and a lower tax number. Flags the inconsistency for confirmation; does not assert which of the two inputs is wrong",
+        predicate=lambda s, rent_paid: s.employer_nps > 0 and not s.nps_opted,
+        claim_type=CONVENTION,
+        basis="Derived entirely from this repository's own code, and checkable by reading it. (1) tax_engine.taxable_income_for_structure() computes taxable income as `... - structure.employer_nps` in both the old- and new-regime branches, and nps_opted appears nowhere in that function -- so the deduction is applied whether or not the employee opted in. (2) This pair is UNREACHABLE through the tool's own builder: tax_engine.derive_nps() returns 0.0 when opted_in is false, so build_structure() can never produce it. (3) It IS reachable through /api/batch-audit, which reads `employer_nps` and `nps_opted` as independent CSV columns with independent defaults and performs no cross-field validation. That combination -- impossible internally, reachable externally, and consequential when it occurs -- is the whole basis. NOT CLAIMED, AND DELIBERATELY LEFT FOR THE REVIEWER: whether the employer-contribution deduction is legally available without employee opt-in. That is an interpretation question about the governing provision, this rule does not answer it, and the rationale is worded to flag a contradiction rather than to assert that the tax is wrong in law.",
+        status=CANDIDATE,
+    ),
+    Rule(
+        id="R8", severity="High",
+        check="Salary components do not sum to the stated CTC",
+        rationale="The salary components listed do not add up to the stated CTC. Every share-of-CTC check in this report — basic as a percentage of CTC, LTA as a percentage of CTC — is computed against a CTC figure that does not describe this structure, so those results are unreliable until the inputs reconcile.",
+        why="A meta-rule: it does not describe a defect in the compensation structure but tells the reader that other rules' output cannot be trusted for this row. SalaryStructure.total() exists in tax_engine.py to express exactly this reconciliation, and before this rule was drafted it had no call sites anywhere in the repository — the invariant was written down and never checked",
+        predicate=lambda s, rent_paid: (
+            s.ctc > 0 and abs(s.total() - s.ctc) > max(1.0, 0.005 * s.ctc)),
+        claim_type=CONVENTION,
+        basis="Arithmetic, plus two verifiable facts about this repository. (1) SalaryStructure.total() is defined in tax_engine.py and, before this rule, had NO call sites anywhere in the codebase -- the reconciliation it expresses was written down and never enforced. (Stated with that qualifier deliberately: this rule's own predicate is now the only caller, so an unqualified 'zero call sites' would be false the moment the rule exists, and a reviewer checking the claim by grepping would find it contradicted. No PRODUCTION path enforces the invariant, which is the part that matters.) (2) /api/batch-audit builds a SalaryStructure from seven independently-parsed CSV columns with no cross-field validation, so an unreconciled row is reachable; the extraction path is not affected, since it derives special_allowance as the residual and therefore reconciles by construction. When a row does not reconcile, R1 (basic/ctc) and R4 (lta/ctc) still compute and still flag, against a denominator that does not describe the structure. No external norm is claimed and none is needed: this is an internal-consistency check. THE TOLERANCE IS A JUDGEMENT, NOT A DERIVATION, and is recorded as one: Rs 1 or 0.5% of CTC, whichever is larger, chosen to absorb the 2-decimal rounding in derive_pf() and derive_nps() without absorbing a genuinely missing component. Nothing external sets that figure. A reviewer should move it if 0.5% is too loose -- at a Rs 50L CTC it tolerates a Rs 25,000 discrepancy, which may well be too much.",
+        status=CANDIDATE,
+    ),
 )
 
 
