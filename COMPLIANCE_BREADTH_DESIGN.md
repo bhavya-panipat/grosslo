@@ -149,6 +149,20 @@ display showing an ambiguous bare number recreates the problem being solved:
 **Decided, with the audit-sweep question resolved from the code rather than
 from preference.**
 
+**On what the basis for this is, because the first answer was weaker and is
+superseded rather than merely supplemented.** The question was first approached
+by reasoning about how audit-sweep would realistically be used — whether anyone
+would plausibly point it at a prior year. That argument is defeasible by a
+single user doing the unexpected thing, and it would have left the decision
+resting on a prediction about behaviour. The argument recorded below is
+different in kind: it asks whether the *inputs required to make the transitional
+case possible exist at all*. They do not. That cannot be defeated by a user
+behaving unusually — only by a code change that adds a period input, which is
+precisely what the forcing function at the end of this section catches. The
+capability check is therefore the basis for this decision, and the
+realistic-usage argument is not a supporting reason for it; it is the weaker
+answer it replaced.
+
 Today is inside FY2026-27, which the Income-tax Act, 2025 (Act 30 of 2025)
 governs. That is not a future state to prepare for; it is the current one, for
 both of this tool's flows.
