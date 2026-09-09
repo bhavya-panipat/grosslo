@@ -176,16 +176,33 @@ codebase".
 2.2 explicitly does NOT ship: any active rule beyond R1–R6, any LLM involvement
 in rule matching, or a CA's approval.
 
-## 6. Open decisions needing an explicit call, not a silent default
+## 6. Decisions needing an explicit call, not a silent default
 
-- **How many candidate rules to draft.** More gives the CA more to review in one
-  pass; fewer keeps the first review small enough to actually happen.
-- **Whether `compliance_rules.md` is generated or replaced.** Generating keeps
-  the human-readable artefact; replacing it with a pointer removes a file people
-  may be linking to.
-- **Where `reviewed_by` lives.** In code beside the rule is simplest and makes
-  the diff the audit trail; a separate signed record is stronger but is
-  infrastructure this phase would have to invent.
+All three resolved before implementation. Recorded rather than deleted, so the
+reasoning behind §3 and §7 stays legible.
+
+- **RESOLVED — draft a SMALL first batch, 2–3 candidates, not a comprehensive
+  set.** This is the first end-to-end run of the candidate-rule protocol, and
+  what is being tested is the process itself: whether the citation format is
+  usable, what "reviewed" turns out to require in practice, and how much
+  friction the status flip carries. A small batch surfaces that before a CA's
+  attention is committed at scale — the same instinct as porting two tables
+  before any tenancy logic touched them.
+- **RESOLVED — `compliance_rules.md` is GENERATED, not replaced.** The
+  human-readable artefact is the property worth preserving, not merely its
+  content: it is the file a reviewer, a CA, or a future contributor opens first.
+  It becomes derived output from the single source of truth rather than a
+  hand-maintained second copy that can drift from the code again.
+- **RESOLVED — `reviewed_by` lives in code beside the rule, and the diff is the
+  audit trail.** A separate signed-record system is stronger but would be
+  infrastructure invented speculatively, before anything needs it.
+
+  **Named forcing function, so this does not become permanent by default:
+  revisit the moment a SECOND reviewing party exists.** One reviewer's sign-off
+  in a commit is attributable because the commit is attributable. Two make
+  "who approved this rule" ambiguous in exactly the way a git blame cannot
+  settle — that is the trigger to build the stronger record, and it should be
+  reconsidered then rather than inherited quietly.
 
 ## 7. Suggested internal sequencing for 2.2
 
