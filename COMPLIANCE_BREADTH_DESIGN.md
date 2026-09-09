@@ -123,6 +123,37 @@ The drift already present between the table and the code (§1) is the argument:
 two hand-maintained copies of the same rationale diverged without anything
 noticing, and a third copy is about to be added for every new rule.
 
+### 3.3.1 Standing principle: writing a claim down does not verify it
+
+**A falsifiable basis is only better than prose if the claims in it were
+actually checked. Writing them down is not checking them — grepping is.**
+
+This is stated as a standing principle rather than as a note about one rule,
+because both instances of it in this phase were caught by accident, on the way
+to doing something else.
+
+R7's basis named `compute_tax()` as the function that deducts employer NPS. That
+function exists — it takes an already-computed taxable income and never touches
+`employer_nps`. The claim read as specific and verifiable and would have sent a
+reviewer to the wrong function. It was found by grepping for the function name,
+not by re-reading the sentence.
+
+**The self-referential trap, which is the generalizable half.** R8's basis
+claimed `SalaryStructure.total()` has "zero call sites anywhere in the
+repository". That was true when written and **false the instant R8 shipped**,
+because R8's own predicate calls it. A reviewer verifying the claim by grepping
+would have found it contradicted by the rule asserting it.
+
+The category: **a rule whose basis describes the absence of something can create
+that something by existing.** It cannot be caught by checking the claim before
+writing the rule, because the rule is what falsifies it. Any future
+falsifiable-basis rule that says "nothing does X" or "there are no Y" needs the
+check re-run *after* the rule exists, and needs its wording scoped to what stays
+true — for R8, that no **production** path enforces the invariant.
+
+Practical rule for drafting: after writing a basis, grep every factual claim in
+it, then grep them again with the new rule in place.
+
 ### 3.4 `compliance_pct` reports its denominator
 
 **Rejected: freeze the denominator at 6.** Its own framing names the failure
@@ -198,6 +229,13 @@ assessment period — this decision must be revisited in the same change. At tha
 point the tool would genuinely span two statutes, and a single-instrument rule
 set would start giving the wrong answer for the older one. That is the trigger
 to split, and it should be reconsidered then rather than inherited.
+
+**Independently corroborated after the decision was made.** A reviewer's search
+found that FY2025-26 returns still use 1961 numbering and the 2025 Act's
+numbering applies from Tax Year 2026-27. That is consistent with this section's
+conclusion and arrived from a different direction — a timing fact about the
+changeover rather than an argument about this tool's inputs. Recorded as
+corroboration, not as the basis: the basis is the capability check above.
 
 **This does not change R5.** R5 remains active, honestly labelled, and a
 known-open violation citing the superseded 1961 Act. The scope decision says
