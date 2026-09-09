@@ -40,7 +40,7 @@ no guardrail run does NOT fast-track — see classify_row()'s priority order.
 """
 
 from __future__ import annotations
-from ai_layer import TOTAL_COMPLIANCE_RULES
+import compliance_rules
 
 _SEVERITY_RANK = {"Low": 1, "Medium": 2, "High": 3}
 VALID_ROUTES = {"auto_pass_candidate", "needs_review", "guardrail_not_run", "escalate"}
@@ -66,7 +66,9 @@ def classify_row(compliance: dict, guardrail: dict | None) -> dict:
                                  # each line quoting the real message verbatim.
                                  # Empty list = nothing fired.
       "checked": {
-        "compliance_rules_evaluated": int,       # TOTAL_COMPLIANCE_RULES, always 6
+        "compliance_rules_evaluated": int,       # how many ACTIVE rules ran; not a
+                                                 # constant — the rule set grows, and
+                                                 # candidates awaiting review are excluded
         "compliance_flags_triggered": int,
         "guardrail_evaluated": bool,              # False if guardrail param is None
         "guardrail_checks_failed": int | None,    # None if guardrail_evaluated is False
@@ -112,7 +114,7 @@ def classify_row(compliance: dict, guardrail: dict | None) -> dict:
         "severity": severity,
         "reasons": reasons,
         "checked": {
-            "compliance_rules_evaluated": TOTAL_COMPLIANCE_RULES,
+            "compliance_rules_evaluated": compliance_rules.total_active(),
             "compliance_flags_triggered": len(flags),
             "guardrail_evaluated": guardrail_evaluated,
             "guardrail_checks_failed": len(failing_checks) if guardrail_evaluated else None,

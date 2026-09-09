@@ -354,11 +354,14 @@ def _check_rules(structure, rent_paid: float) -> list[dict]:
 # Radar/ring metrics: Compliance % and AI Coverage %
 # ---------------------------------------------------------------------------
 
-# Derived from the rule set, never declared: a hand-maintained count is the
-# third place a rule used to live, and the one most likely to go stale when a
-# rule is added. Candidates are excluded — a rule that cannot fire must not
-# inflate the denominator (COMPLIANCE_BREADTH_DESIGN.md §3.4).
-TOTAL_COMPLIANCE_RULES = compliance_rules.total_active()
+# There is deliberately NO module-level rule count here any more.
+#
+# It was TOTAL_COMPLIANCE_RULES = 6 (hand-declared), then briefly
+# TOTAL_COMPLIANCE_RULES = compliance_rules.total_active() — derived, but
+# derived ONCE, at import. That is the same staleness class one layer down: a
+# snapshot that can disagree with the rule set it came from. Every consumer now
+# calls compliance_rules.total_active() at the moment it needs the number, so
+# there is no cached copy that can be wrong.
 
 
 def compliance_pct(flags: list) -> float:
@@ -378,7 +381,8 @@ def compliance_pct(flags: list) -> float:
     percentage rather than the percentage alone.
     """
     triggered = len(flags)
-    return round((TOTAL_COMPLIANCE_RULES - triggered) / TOTAL_COMPLIANCE_RULES * 100, 1)
+    total = compliance_rules.total_active()
+    return round((total - triggered) / total * 100, 1)
 
 
 def compliance_ratio(flags: list) -> dict:
@@ -391,7 +395,8 @@ def compliance_ratio(flags: list) -> dict:
     must never inflate the denominator and make a structure look more compliant
     than it was checked for.
     """
-    return {"rules_triggered": len(flags), "rules_total": TOTAL_COMPLIANCE_RULES}
+    return {"rules_triggered": len(flags),
+            "rules_total": compliance_rules.total_active()}
 
 
 def ai_coverage_pct(extraction_ran: bool, extraction_ai_backed: bool,

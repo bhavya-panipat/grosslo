@@ -168,6 +168,48 @@ RULES: tuple = (
 )
 
 
+# R1-R6 predate the candidate-rule protocol. They were verified through the
+# README's "Regulatory currency" pass — a real check, but performed against the
+# rule set as a whole rather than per-rule, so they carry no per-rule
+# source_url/provision/reviewed_by.
+#
+# Named explicitly rather than handled by "provenance is optional", because an
+# optional field exempts every FUTURE rule too. This set is closed: anything
+# added from now on must carry provenance to be active, and the test that
+# enforces it reads this set rather than a length or a date.
+PRE_PROTOCOL_RULE_IDS = frozenset({"R1", "R2", "R3", "R4", "R5", "R6"})
+
+
+def protocol_violations() -> list:
+    """
+    Ways the rule set could violate the candidate-rule protocol, as readable
+    strings. Empty means compliant.
+
+    Checked as data rather than asserted only in tests, so the reason a rule is
+    rejected is available to whoever is looking at the rule set — including the
+    generated document and any future review tooling — not only to whoever runs
+    the suite.
+    """
+    problems = []
+    for rule in RULES:
+        pre = rule.id in PRE_PROTOCOL_RULE_IDS
+        if rule.is_active and not pre:
+            # Activation requires a recorded human decision. Without this, a
+            # candidate could be promoted by editing one word.
+            if not rule.reviewed_by.strip():
+                problems.append(f"{rule.id} is active but records no reviewed_by")
+            if not rule.reviewed_on.strip():
+                problems.append(f"{rule.id} is active but records no reviewed_on")
+        if not pre:
+            # Citation is required to SHIP, not merely to activate: a candidate
+            # exists so a reviewer can check it, and one without a source is
+            # asking them to verify a claim with no stated origin.
+            for field in ("source_url", "provision", "verified_on"):
+                if not getattr(rule, field).strip():
+                    problems.append(f"{rule.id} carries no {field}")
+    return problems
+
+
 def active_rules() -> tuple:
     """
     The rules that may actually fire. Candidates are excluded HERE, once, rather

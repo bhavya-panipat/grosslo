@@ -66,14 +66,16 @@ class TestMigrationPreservedTheRuleSet(unittest.TestCase):
 
 class TestTheCountIsDerivedNotDeclared(unittest.TestCase):
 
-    def test_total_compliance_rules_comes_from_the_rule_set(self):
-        self.assertEqual(ai_layer.TOTAL_COMPLIANCE_RULES,
-                         compliance_rules.total_active())
+    def test_no_module_level_snapshot_of_the_count_survives(self):
+        # A derived-once constant is the same staleness class as a hardcoded
+        # one, just harder to spot: it agrees with the rule set at import and
+        # can disagree afterwards. Consumers must read it live.
+        self.assertFalse(hasattr(ai_layer, "TOTAL_COMPLIANCE_RULES"),
+                         "a cached rule count reappeared in ai_layer")
 
-    def test_it_still_equals_six_after_the_migration(self):
-        # The migration's own claim: nothing changed. Asserted separately from
-        # the line above, which would pass even if both had drifted together.
-        self.assertEqual(ai_layer.TOTAL_COMPLIANCE_RULES, 6)
+    def test_the_count_is_still_six_after_the_migration(self):
+        # The migration's own claim: nothing changed.
+        self.assertEqual(compliance_rules.total_active(), 6)
 
     def test_the_denominator_counts_only_rules_that_can_fire(self):
         # A candidate must not make a compliance score look better by inflating
@@ -166,3 +168,118 @@ class TestTheDocumentIsGeneratedNotMaintained(unittest.TestCase):
         self.assertIn("R99", table)
         self.assertIn("CANDIDATE", table)
         self.assertIn("cannot fire", table)
+
+
+class TestTheCandidateGate(unittest.TestCase):
+    """
+    The gate, proven in BOTH directions (design §3.2). A gate asserted only in
+    its closed state might be closed for the wrong reason — because the fixture
+    never tripped the rule at all, because the predicate is broken, because the
+    rule was silently dropped. The same structure must fire once the status
+    flips, or "it did not fire" proves nothing.
+
+    Built while zero candidates exist, so the mechanism is testable before any
+    rule depends on it.
+    """
+
+    def _probe_rule(self, status):
+        # Fires on any structure at all, so "it did not fire" can only be the
+        # gate — never the predicate failing to match.
+        return compliance_rules.Rule(
+            id="R99", severity="High",
+            check="always true — gate probe",
+            rationale="probe rationale", why="probe why",
+            predicate=lambda s, rent_paid: True,
+            status=status,
+            source_url="https://example.invalid/probe",
+            provision="Probe provision",
+            verified_on="2026-09-09",
+            reviewed_by="Test Reviewer" if status == ACTIVE else "",
+            reviewed_on="2026-09-09" if status == ACTIVE else "",
+        )
+
+    def _structure(self):
+        return SalaryStructure(
+            ctc=1_800_000, basic=1_080_000, hra=0, lta=0,
+            special_allowance=590_400, employer_pf=129_600,
+            employer_nps=0, nps_opted=False)
+
+    def test_a_candidate_cannot_fire_and_the_identical_structure_fires_once_reviewed(self):
+        from unittest.mock import patch
+        structure = self._structure()
+
+        with patch.object(compliance_rules, "RULES",
+                          compliance_rules.RULES + (self._probe_rule(CANDIDATE),)):
+            while_candidate = [f["rule_id"] for f in ai_layer._check_rules(structure, 0)]
+
+        with patch.object(compliance_rules, "RULES",
+                          compliance_rules.RULES + (self._probe_rule(ACTIVE),)):
+            while_reviewed = [f["rule_id"] for f in ai_layer._check_rules(structure, 0)]
+
+        self.assertNotIn("R99", while_candidate,
+                         "an unreviewed rule fired — the gate is open")
+        self.assertIn("R99", while_reviewed,
+                      "the SAME structure did not fire once reviewed, so the "
+                      "candidate case proved nothing about the gate")
+
+    def test_a_candidate_does_not_inflate_the_denominator(self):
+        from unittest.mock import patch
+        before = compliance_rules.total_active()
+        with patch.object(compliance_rules, "RULES",
+                          compliance_rules.RULES + (self._probe_rule(CANDIDATE),)):
+            self.assertEqual(compliance_rules.total_active(), before,
+                             "a rule that cannot fire changed the denominator")
+            # And the score must not improve just because an inert rule exists.
+            self.assertEqual(ai_layer.compliance_pct([]), 100.0)
+            self.assertEqual(ai_layer.compliance_ratio([])["rules_total"], before)
+
+    def test_activating_a_candidate_does_move_the_denominator(self):
+        # The counterpart. Without this, the test above would also pass if
+        # total_active() were hardcoded.
+        from unittest.mock import patch
+        before = compliance_rules.total_active()
+        with patch.object(compliance_rules, "RULES",
+                          compliance_rules.RULES + (self._probe_rule(ACTIVE),)):
+            self.assertEqual(compliance_rules.total_active(), before + 1)
+
+
+class TestTheProtocolIsEnforcedNotJustDocumented(unittest.TestCase):
+
+    def test_the_rule_set_currently_satisfies_the_protocol(self):
+        self.assertEqual(compliance_rules.protocol_violations(), [])
+
+    def test_an_active_rule_without_a_recorded_reviewer_is_a_violation(self):
+        from unittest.mock import patch
+        unreviewed = compliance_rules.Rule(
+            id="R98", severity="Low", check="c", rationale="r", why="w",
+            predicate=lambda s, rp: False, status=ACTIVE,
+            source_url="https://example.invalid/x", provision="P",
+            verified_on="2026-09-09")   # no reviewed_by / reviewed_on
+        with patch.object(compliance_rules, "RULES",
+                          compliance_rules.RULES + (unreviewed,)):
+            problems = compliance_rules.protocol_violations()
+        self.assertTrue(any("R98" in p and "reviewed_by" in p for p in problems), problems)
+
+    def test_a_rule_without_a_citation_is_a_violation_even_as_a_candidate(self):
+        # Citation is required to SHIP, not merely to activate: a candidate
+        # exists so a reviewer can check it, and one with no stated source asks
+        # them to verify a claim with no origin.
+        from unittest.mock import patch
+        uncited = compliance_rules.Rule(
+            id="R97", severity="Low", check="c", rationale="r", why="w",
+            predicate=lambda s, rp: False, status=CANDIDATE)
+        with patch.object(compliance_rules, "RULES",
+                          compliance_rules.RULES + (uncited,)):
+            problems = compliance_rules.protocol_violations()
+        self.assertTrue(any("R97" in p and "source_url" in p for p in problems), problems)
+
+    def test_the_pre_protocol_exemption_is_a_closed_named_set(self):
+        # Grandfathering R1-R6 by naming them, rather than by making provenance
+        # optional — an optional field would exempt every future rule too.
+        self.assertEqual(compliance_rules.PRE_PROTOCOL_RULE_IDS,
+                         frozenset({"R1", "R2", "R3", "R4", "R5", "R6"}))
+        for rule in compliance_rules.RULES:
+            if rule.id not in compliance_rules.PRE_PROTOCOL_RULE_IDS:
+                with self.subTest(rule=rule.id):
+                    self.assertTrue(rule.source_url.strip(),
+                                    "a post-protocol rule shipped with no citation")
