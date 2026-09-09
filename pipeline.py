@@ -102,6 +102,17 @@ def current_structure_stage(ctx: PipelineContext) -> None:
     before compliance_stage — see this module's docstring for why checking the
     recommendation instead would make compliance structurally unable to fire.
     """
+    if ctx.build_current_structure is None:
+        # Checked unconditionally, not only on the branch that calls it.
+        # Otherwise a context built without this dependency runs all six stages
+        # fine whenever current_extracted is None and dies with a bare
+        # "'NoneType' object is not callable" the moment an extraction is
+        # present — the same shape of latent, input-dependent disagreement this
+        # phase exists to remove.
+        raise ValueError(
+            "PipelineContext.build_current_structure is required. It is injected "
+            "rather than imported because pipeline.py must not import app.py, "
+            "which imports it — pass app._build_current_structure.")
     if isinstance(ctx.current_extracted, dict):
         ctx.current_structure = ctx.build_current_structure(
             ctx.current_extracted, ctx.ctc, ctx.result["recommended"].regime)

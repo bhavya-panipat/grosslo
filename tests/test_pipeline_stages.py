@@ -20,7 +20,6 @@ sequence here, not something that quietly slips in — which is why the expected
 list is asserted exactly rather than as a subset.
 """
 
-import json
 import os
 import sys
 import unittest

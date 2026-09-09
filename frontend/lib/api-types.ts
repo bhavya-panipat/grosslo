@@ -45,6 +45,15 @@ export type NegotiationResponse = {
   guard_triggered: boolean;
 };
 
+/** Which pipeline stages ran, in order (Phase 2.1). Present on every
+ *  /api/optimize response and persisted into each stored submission row, so
+ *  "the compliance check executed for THIS row" is a checkable fact rather
+ *  than an assumption. Optional in the type only because rows stored before
+ *  2.1 have no such field. */
+export type PipelineStage =
+  | "optimize" | "current_structure" | "explain"
+  | "compliance" | "negotiate" | "metrics";
+
 export type OptimizeResponse = {
   ctc: number;
   old_regime_best: OptResult;
@@ -54,6 +63,10 @@ export type OptimizeResponse = {
   explanation: { explanation: string; ai_backed: boolean; guard_triggered: boolean };
   compliance: { flags: ComplianceFlag[]; ai_backed: boolean; guard_triggered?: boolean };
   compliance_checked_against: "as_offered" | "recommended";
+  // Which pipeline stages ran, in declared order. Optional in the type only
+  // because submission rows stored before Phase 2.1 have no such field; every
+  // response produced since does.
+  stages_run?: PipelineStage[];
   negotiation?: NegotiationResponse; // present iff request included current_structure
   metrics: {
     optimization_value_pct: number;

@@ -246,6 +246,21 @@ or the batch path sharing the orchestrator (§6). The single deliberate addition
 to the response is `stages_run` (§3.4), named here because everything else
 about this phase claims to change nothing.
 
+**And that addition PERSISTS, which this document did not originally say.**
+`POST /api/submissions` stores the pipeline's response verbatim into
+`submission_rows.computed_json`, so every row created from now on carries the
+stage list. Found by reading the assembled diff, not by a failing test — the
+characterization baseline pins the function's return value, not what a route
+does with it.
+
+Kept rather than suppressed, because it makes §3.4's argument stronger rather
+than weaker: the auditable claim becomes "the compliance stage ran for THIS
+stored row", checkable long after the request is gone, instead of only "the API
+said so at the time". It is additive, and rows stored before 2.1 simply lack
+the field — which is why `stages_run` is optional in the TypeScript type. But
+a data-shape change in a phase whose whole claim is that it changes nothing has
+to be stated, not left for someone to discover in a database.
+
 ## 6. Decisions needing an explicit call, not a silent default
 
 All three resolved before implementation. Recorded rather than deleted, so the
