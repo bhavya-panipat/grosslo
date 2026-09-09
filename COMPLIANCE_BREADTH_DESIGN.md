@@ -114,10 +114,19 @@ state might be closed for the wrong reason.
 
 ### 3.3 One source of truth for a rule
 
-**Chosen: rules become data**, each carrying id, predicate, severity,
-rationale, status, and provenance (source URL, provision, verified-on date,
-reviewed-by). `compliance_rules.md` is generated from that data rather than
-maintained beside it, and `TOTAL_COMPLIANCE_RULES` is derived, not declared.
+**Chosen: rules become data**, each carrying id, predicate, severity, its text,
+status, and provenance — the source, the provision, the date the citation was
+checked, and who reviewed the implementation. (Field names live in the code;
+§4 says why this document does not restate them.) `compliance_rules.md` is
+generated from that data rather than maintained beside it.
+
+**What shipped went further than this section originally proposed, and the
+difference matters.** The plan was for `TOTAL_COMPLIANCE_RULES` to be *derived
+rather than declared*. Deriving it still left a module-level constant computed
+once at import — the same staleness class one layer down, agreeing with the rule
+set at import and free to disagree afterwards. It was therefore **removed
+entirely**, and every consumer now calls `total_active()` at the moment it needs
+the number. A test asserts no cached count reappears in `ai_layer`.
 
 The drift already present between the table and the code (§1) is the argument:
 two hand-maintained copies of the same rationale diverged without anything
@@ -430,3 +439,58 @@ rather than the statute.
    citation, all INACTIVE.
 6. Produce the CA review packet: each candidate's draft text, its cited
    provision, the captured source, and the structures it would flag.
+
+## 8. What this phase hands to people, with dates
+
+All six steps in §7 are done and merged. **The mechanism is closed; the phase is
+not.** Two work items remain that no amount of further engineering can discharge,
+and both carry a date, because "pending" without one is how a documented gap
+becomes a permanent one.
+
+### 8.1 Primary-source lookup — DUE 2026-09-13 (this week)
+
+`docs/PRIMARY_SOURCE_LOOKUP_TASK.md`. Two lookups, one browser session,
+realistically 15–30 minutes.
+
+**Prioritised above the CA packet despite being much the smaller task, and the
+reason is not effort but exposure.** R5 is ACTIVE. It fires today, on real
+structures, citing Section 17(2)(vii) of the Income-tax Act, **1961** — an Act
+repealed with effect from 1 April 2026. That is a live rule pointing at dead
+law, not a hypothetical. The candidates can wait precisely because the gate
+holds them inert; R5 has no such gate, because it is not a candidate.
+
+The lookup is also fully unblocked: one person, one session, no scheduling and
+no dependency on anyone else's availability.
+
+### 8.2 CA review packet — 30-DAY TRIGGER, set 2026-09-10, fires 2026-10-10
+
+`docs/CA_REVIEW_PACKET.md`. Two candidate rules and five questions on rules that
+are already live.
+
+**The clock is on ENGAGING a reviewer, not on the review itself.** The review is
+small — the citation work is done, the worked examples are computed, and the
+questions are written. What has no natural deadline is *finding the person*, and
+that is the step that quietly does not happen.
+
+**If no reviewer is engaged by 2026-10-10, that is the trigger to escalate
+finding one** — the same shape as §6's `reviewed_by` forcing function, which
+fires when a second reviewing party appears. Neither trigger is a reminder to
+re-read this document; each names a condition and an action.
+
+### 8.3 The honest cost of having looked
+
+Recorded plainly rather than softened, because it is a real consequence of this
+phase and not a footnote to it.
+
+The two candidates are inert, so nothing degrades while they wait — that is the
+gate working as designed. **The five questions on ACTIVE rules are not inert.**
+R2's Rs 6L threshold and R4's 10% ceiling have no recorded derivation and are
+firing on real structures today. R1's emitted text names the Code on Wages by
+the wrong year. R5 cites a repealed Act.
+
+None of that was created by this phase; all of it was made *visible* by it. But
+visibility has a cost: these are now **known-unaddressed** findings rather than
+unknown ones, which is worse in the specific sense that the project can no
+longer claim not to have looked. That is the honest price of the work, and it is
+the argument for 8.1 and 8.2 having dates — not an argument for having looked
+less closely.
