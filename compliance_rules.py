@@ -82,6 +82,16 @@ CONVENTION = "convention"
 #   "2026-09-09"            -> fetched and read on that date
 UNRESOLVED = "unresolved: "
 
+# Whether the cited INSTRUMENT is still the governing law. Separate from
+# whether the cited TEXT says what the rule claims, because those can diverge
+# in the worst possible direction: a citation can match its source perfectly
+# and still point at a repealed Act. That combination reads as verified while
+# citing dead law — strictly worse than an unresolved citation, which at least
+# surfaces as a visible gap.
+IN_FORCE = "in_force"
+SUPERSEDED = "superseded"
+INSTRUMENT_UNKNOWN = "unknown"
+
 
 @dataclass(frozen=True)
 class Rule:
@@ -112,6 +122,10 @@ class Rule:
     source_url: str = ""
     provision: str = ""
     citation_checked_on: str = ""    # ISO date the SOURCE was fetched and read
+    # WHICH INSTRUMENT, and whether it still governs. A section number is only
+    # meaningful relative to an Act, and Acts get repealed.
+    instrument: str = ""             # e.g. "Income-tax Act, 1961"
+    instrument_status: str = INSTRUMENT_UNKNOWN
 
     # ---- Evidence for a CONVENTION claim ----------------------------------
     # What makes this the typical or expected norm. Deliberately not a URL
@@ -139,7 +153,21 @@ class Rule:
         whether the predicate implements it correctly.
         """
         value = self.citation_checked_on.strip()
-        return bool(value) and not value.startswith(UNRESOLVED)
+        if not value or value.startswith(UNRESOLVED):
+            return False
+        # A matched text in a repealed Act is not a verified citation. Requiring
+        # the instrument to be in force is what stops a rule going green while
+        # pointing at law that no longer governs.
+        return self.instrument_status == IN_FORCE
+
+    @property
+    def cites_superseded_law(self) -> bool:
+        """
+        The cited instrument has been repealed or replaced. The rule may still
+        describe a real obligation — the successor Act usually carries the rule
+        forward somewhere — but this citation no longer locates it.
+        """
+        return self.instrument_status == SUPERSEDED
 
     @property
     def citation_attempt_unresolved(self) -> bool:
@@ -198,6 +226,8 @@ RULES: tuple = (
         # text is a behaviour change, not backfill — flagged for the CA review
         # rather than silently edited.
         source_url="https://www.indiacode.nic.in/handle/123456789/15793",
+        instrument="Code on Wages, 2019 (Act 29 of 2019)",
+        instrument_status=IN_FORCE,
         provision="Code on Wages, 2019 (Act 29 of 2019), s. 2(y) — definition of \"wages\"; proviso on excluded allowances exceeding one-half of all remuneration. In force 21 Nov 2025.",
         citation_checked_on="unresolved: attempted 2026-09-09; no primary source reachable from this environment. indiacode.nic.in returned connection-refused then HTTP 403, labour.gov.in HTTP 403, incometaxindia.gov.in HTTP 403 on two URLs. The only reachable copies were secondary aggregators, and PDF-only, with no PDF text extractor available here. Search snippets summarised both provisions consistently, but a snippet is not a fetched primary source and is not recorded as one.",
         status=ACTIVE,
@@ -239,9 +269,16 @@ RULES: tuple = (
         why="The excess over Rs 7.5L is a taxable perquisite under Section 17(2)(vii) — NOT currently modeled in tax_engine.py's tax calculation, so any structure crossing this threshold has an unmodeled tax liability the tool doesn't account for",
         predicate=lambda s, rent_paid: (s.employer_pf + s.employer_nps) > 750_000,
         claim_type=STATUTORY,
+        instrument="Income-tax Act, 1961",
+        # SUPERSEDED, not merely old: the 2025 Act replaced the 1961 Act from
+        # 1 April 2026. The underlying obligation (a composite Rs 7.5L ceiling
+        # on employer PF/NPS/superannuation contributions) very likely survives
+        # in the successor Act — but this citation no longer locates it, and the
+        # successor's provision number is deliberately NOT guessed here.
+        instrument_status=SUPERSEDED,
         source_url="https://www.incometaxindia.gov.in/w/section-17",
         provision="Income-tax Act, s. 17(2)(vii) — employer contributions to recognised PF, NPS and approved superannuation fund exceeding Rs 7,50,000 in aggregate treated as a perquisite.",
-        citation_checked_on="unresolved: attempted 2026-09-09; no primary source reachable from this environment. indiacode.nic.in returned connection-refused then HTTP 403, labour.gov.in HTTP 403, incometaxindia.gov.in HTTP 403 on two URLs. The only reachable copies were secondary aggregators, and PDF-only, with no PDF text extractor available here. Search snippets summarised both provisions consistently, but a snippet is not a fetched primary source and is not recorded as one.",
+        citation_checked_on="unresolved: TWO SEPARATE PROBLEMS, neither settled. (1) CITATION UNREACHABLE - attempted 2026-09-09, incometaxindia.gov.in returned HTTP 403 on the section pages and on the official Income-tax Act 2025 PDF; indiacode.nic.in refused connection then 403. (2) GOVERNING INSTRUMENT IN DOUBT - s. 17(2)(vii) belongs to the Income-tax Act, 1961, which the Income-tax Act, 2025 (Act 30 of 2025) replaced with effect from 1 April 2026. The repository's own README states this section was 're-checked 2026-09-02 ... Confirmed retained at its original number'; an independent reviewer reports the 2025 Act reorganised numbering substantially and that 17(2)(vii) is unlikely to be the correct current citation. THOSE TWO CLAIMS CONFLICT AND THIS FILE DOES NOT PICK A WINNER. The successor provision was NOT guessed: no primary text was reachable to confirm it, and a secondary comparison table alone is not sufficient. Blocked pending a scope decision on which law this rule should describe.",
         status=ACTIVE,
     ),
     Rule(
@@ -313,6 +350,19 @@ def protocol_violations() -> list:
                 problems.append(
                     f"{rule.id} cites a provision but records no citation_checked_on "
                     f"(neither a check date nor an unresolved attempt)")
+            # CHECK 5: which instrument, and does it still govern.
+            if not rule.instrument.strip():
+                problems.append(
+                    f"{rule.id} cites a provision without naming the instrument it "
+                    f"belongs to — a section number is meaningless without an Act")
+            if rule.instrument_status not in (IN_FORCE, SUPERSEDED, INSTRUMENT_UNKNOWN):
+                problems.append(
+                    f"{rule.id} has unknown instrument_status {rule.instrument_status!r}")
+            if rule.is_active and rule.cites_superseded_law:
+                problems.append(
+                    f"{rule.id} is ACTIVE and cites a superseded instrument "
+                    f"({rule.instrument}) — the obligation may survive in the "
+                    f"successor Act, but this citation no longer locates it")
 
         # CHECK 3 applies to every convention rule, grandfathered or not: an
         # unstated basis is exactly as unreviewable as an unstated citation.

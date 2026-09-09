@@ -246,8 +246,9 @@ class TestTheCandidateGate(unittest.TestCase):
 
 class TestTheProtocolIsEnforcedNotJustDocumented(unittest.TestCase):
 
-    def test_the_rule_set_currently_satisfies_the_protocol(self):
-        self.assertEqual(compliance_rules.protocol_violations(), [])
+    def test_the_rule_set_has_exactly_one_known_open_violation(self):
+        # See test_the_only_open_violation_is_the_known_R5_citation.
+        self.assertEqual(len(compliance_rules.protocol_violations()), 1)
 
     def test_an_active_rule_without_a_recorded_reviewer_is_a_violation(self):
         from unittest.mock import patch
@@ -307,7 +308,12 @@ class TestTheTwoClaimsAreSeparate(unittest.TestCase):
             predicate=lambda s, rp: True, status=CANDIDATE,
             claim_type=compliance_rules.STATUTORY,
             source_url="https://example.invalid/x", provision="P",
-            citation_checked_on="2026-09-09")
+            citation_checked_on="2026-09-09",
+            # An instrument is required for a citation to read as verified —
+            # see TestTheGoverningInstrumentCheck. This test is about the
+            # citation-vs-review distinction, so it supplies a valid one.
+            instrument="Some Act, 2020",
+            instrument_status=compliance_rules.IN_FORCE)
         self.assertTrue(cited_only.citation_is_checked)
         self.assertFalse(cited_only.implementation_is_reviewed,
                          "a fetched source must never count as human review")
@@ -424,8 +430,24 @@ class TestTheFourProtocolChecks(unittest.TestCase):
 
     # --- the shipped rule set satisfies all four ----------------------------
 
-    def test_the_real_rule_set_passes_every_check(self):
-        self.assertEqual(compliance_rules.protocol_violations(), [])
+    def test_the_only_open_violation_is_the_known_R5_citation(self):
+        """
+        R5 is KNOWINGLY in violation, and that is pinned rather than silenced.
+
+        Its citation points at the Income-tax Act, 1961, which the 2025 Act
+        replaced from 1 April 2026. The rule stays ACTIVE on purpose: the
+        underlying Rs 7.5L composite ceiling is very likely still law, and
+        removing a real compliance check because its citation went stale would
+        trade a documentation problem for a coverage gap.
+
+        Pinned as EXACTLY one violation so the known gap stays visible AND any
+        additional violation still fails the build. An assertEqual([]) here
+        would have required either suppressing this or pretending it is fixed.
+        """
+        violations = compliance_rules.protocol_violations()
+        self.assertEqual(len(violations), 1, violations)
+        self.assertIn("R5", violations[0])
+        self.assertIn("superseded", violations[0])
 
     def test_both_statutory_rules_record_a_citation_attempt(self):
         # R1 and R5 are grandfathered on having a backdated REVIEWER, not on
@@ -445,3 +467,74 @@ class TestTheFourProtocolChecks(unittest.TestCase):
             if rule.claim_type == compliance_rules.CONVENTION:
                 with self.subTest(rule=rule.id):
                     self.assertTrue(rule.basis.strip())
+
+
+class TestTheGoverningInstrumentCheck(unittest.TestCase):
+    """
+    A citation can match its source perfectly and still point at a repealed
+    Act. That combination is the worst case: it reads as verified while citing
+    dead law, which is strictly worse than an unresolved citation because an
+    unresolved one is visibly a gap.
+    """
+
+    def _rule(self, rid, **kw):
+        base = dict(id=rid, severity="Low", check="c", rationale="r", why="w",
+                    predicate=lambda s, rp: False, status=CANDIDATE,
+                    claim_type=compliance_rules.STATUTORY,
+                    source_url="https://example.invalid/x", provision="P",
+                    citation_checked_on="2026-09-09",
+                    instrument="Some Act, 1961",
+                    instrument_status=compliance_rules.IN_FORCE)
+        base.update(kw)
+        return compliance_rules.Rule(**base)
+
+    def _violations_with(self, rule):
+        from unittest.mock import patch
+        with patch.object(compliance_rules, "RULES", compliance_rules.RULES + (rule,)):
+            return compliance_rules.protocol_violations()
+
+    def test_a_checked_citation_on_a_superseded_act_does_not_read_as_verified(self):
+        # THE CORE OF THIS FIX. Text matched, date recorded — and still not
+        # verified, because the Act it matched no longer governs.
+        superseded = self._rule("R80", instrument_status=compliance_rules.SUPERSEDED)
+        self.assertFalse(superseded.citation_is_checked,
+                         "a citation into a repealed Act reported as verified")
+        self.assertTrue(superseded.cites_superseded_law)
+
+    def test_the_same_citation_on_an_in_force_act_does_read_as_verified(self):
+        # The other side: without this, the assertion above would also pass if
+        # citation_is_checked simply always returned False.
+        self.assertTrue(self._rule("R80").citation_is_checked)
+
+    def test_an_active_rule_citing_a_superseded_act_is_a_violation(self):
+        active_superseded = self._rule("R81", status=ACTIVE,
+                                       instrument_status=compliance_rules.SUPERSEDED,
+                                       reviewed_by="R", reviewed_on="2026-09-09")
+        problems = self._violations_with(active_superseded)
+        self.assertTrue(any("R81" in p and "superseded" in p for p in problems), problems)
+
+    def test_a_statutory_rule_with_no_named_instrument_is_a_violation(self):
+        # A section number without an Act is not a citation. "17(2)(vii)" means
+        # different things in different statutes, which is exactly how a
+        # citation survives a repeal while silently changing meaning.
+        problems = self._violations_with(self._rule("R82", instrument=""))
+        self.assertTrue(any("R82" in p and "instrument" in p for p in problems), problems)
+
+    def test_a_named_in_force_instrument_does_not_flag(self):
+        problems = self._violations_with(self._rule("R83"))
+        self.assertFalse(any("R83" in p for p in problems), problems)
+
+    def test_both_statutory_rules_name_their_instrument(self):
+        for rule in compliance_rules.RULES:
+            if rule.claim_type == compliance_rules.STATUTORY:
+                with self.subTest(rule=rule.id):
+                    self.assertTrue(rule.instrument.strip())
+
+    def test_R5_is_recorded_as_citing_superseded_law(self):
+        r5 = next(r for r in compliance_rules.RULES if r.id == "R5")
+        self.assertTrue(r5.cites_superseded_law)
+        self.assertFalse(r5.citation_is_checked)
+        self.assertIn("1961", r5.instrument)
+        # The successor provision must NOT have been guessed.
+        self.assertNotIn("2025", r5.provision,
+                         "a successor section number appears to have been invented")
