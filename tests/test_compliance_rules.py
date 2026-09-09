@@ -349,3 +349,99 @@ class TestTheTwoClaimsAreSeparate(unittest.TestCase):
         self.assertEqual(by_id["R5"], compliance_rules.STATUTORY)
         for rid in ("R2", "R3", "R4", "R6"):
             self.assertEqual(by_id[rid], compliance_rules.CONVENTION)
+
+
+class TestTheFourProtocolChecks(unittest.TestCase):
+    """
+    Each check proven in BOTH directions — a rule that satisfies it must not
+    flag, and one that misses it must. A one-sided assertion cannot tell a
+    working check from a check that never fires.
+    """
+
+    def _rule(self, rid, **kw):
+        base = dict(id=rid, severity="Low", check="c", rationale="r", why="w",
+                    predicate=lambda s, rp: False, status=CANDIDATE,
+                    claim_type=compliance_rules.CONVENTION)
+        base.update(kw)
+        return compliance_rules.Rule(**base)
+
+    def _violations_with(self, rule):
+        from unittest.mock import patch
+        with patch.object(compliance_rules, "RULES", compliance_rules.RULES + (rule,)):
+            return compliance_rules.protocol_violations()
+
+    # --- CHECK 2: statutory rule with no citation attempt recorded ----------
+
+    def test_statutory_rule_with_no_citation_attempt_flags(self):
+        r = self._rule("R90", claim_type=compliance_rules.STATUTORY,
+                       source_url="https://example.invalid/x", provision="P",
+                       citation_checked_on="")
+        problems = self._violations_with(r)
+        self.assertTrue(any("R90" in p and "citation_checked_on" in p for p in problems),
+                        problems)
+
+    def test_statutory_rule_with_a_check_date_does_not_flag(self):
+        r = self._rule("R90", claim_type=compliance_rules.STATUTORY,
+                       source_url="https://example.invalid/x", provision="P",
+                       citation_checked_on="2026-09-09")
+        self.assertFalse(any("R90" in p and "citation_checked_on" in p
+                             for p in self._violations_with(r)))
+
+    def test_an_unresolved_attempt_satisfies_the_check_but_is_not_a_check(self):
+        # "Tried and could not reach a primary source" is a recorded outcome and
+        # satisfies the protocol. It must NOT read as a verified citation — the
+        # two are different facts and the schema distinguishes them.
+        r = self._rule("R90", claim_type=compliance_rules.STATUTORY,
+                       source_url="https://example.invalid/x", provision="P",
+                       citation_checked_on=compliance_rules.UNRESOLVED + "403 from source")
+        self.assertFalse(any("R90" in p and "citation_checked_on" in p
+                             for p in self._violations_with(r)))
+        self.assertFalse(r.citation_is_checked, "an unresolved attempt read as verified")
+        self.assertTrue(r.citation_attempt_unresolved)
+
+    # --- CHECK 3: convention rule with no stated basis ----------------------
+
+    def test_convention_rule_with_empty_basis_flags(self):
+        problems = self._violations_with(self._rule("R91", basis=""))
+        self.assertTrue(any("R91" in p and "basis" in p for p in problems), problems)
+
+    def test_convention_rule_with_a_basis_does_not_flag(self):
+        problems = self._violations_with(self._rule("R91", basis="industry practice"))
+        self.assertFalse(any("R91" in p and "basis" in p for p in problems), problems)
+
+    # --- CHECKS 1 and 4 still fire after the restructure --------------------
+
+    def test_statutory_rule_missing_provision_still_flags(self):
+        r = self._rule("R92", claim_type=compliance_rules.STATUTORY,
+                       source_url="https://example.invalid/x",
+                       citation_checked_on="2026-09-09")
+        self.assertTrue(any("R92" in p and "provision" in p
+                            for p in self._violations_with(r)))
+
+    def test_convention_rule_carrying_a_provision_still_flags(self):
+        r = self._rule("R93", basis="industry practice", provision="Section 999")
+        self.assertTrue(any("R93" in p for p in self._violations_with(r)))
+
+    # --- the shipped rule set satisfies all four ----------------------------
+
+    def test_the_real_rule_set_passes_every_check(self):
+        self.assertEqual(compliance_rules.protocol_violations(), [])
+
+    def test_both_statutory_rules_record_a_citation_attempt(self):
+        # R1 and R5 are grandfathered on having a backdated REVIEWER, not on
+        # being citable. Each must record an outcome — a date or an unresolved
+        # attempt — never silence.
+        for rule in compliance_rules.RULES:
+            if rule.claim_type == compliance_rules.STATUTORY:
+                with self.subTest(rule=rule.id):
+                    self.assertTrue(rule.citation_checked_on.strip(),
+                                    f"{rule.id} asserts the law requires something "
+                                    f"and records no attempt to verify it")
+                    self.assertTrue(rule.provision.strip())
+                    self.assertTrue(rule.source_url.strip())
+
+    def test_every_convention_rule_states_its_basis(self):
+        for rule in compliance_rules.RULES:
+            if rule.claim_type == compliance_rules.CONVENTION:
+                with self.subTest(rule=rule.id):
+                    self.assertTrue(rule.basis.strip())

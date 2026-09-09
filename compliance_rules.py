@@ -71,6 +71,17 @@ CANDIDATE = "candidate"
 STATUTORY = "statutory"
 CONVENTION = "convention"
 
+# citation_checked_on has THREE distinguishable states, not two. "Nobody has
+# tried" and "someone tried and could not get to a primary source" are
+# different facts, and the second is worse: it means the claim is uncheckable
+# from here, not merely unchecked. Collapsing them into an empty string would
+# lose exactly the information a reviewer needs.
+#
+#   ""                      -> never attempted
+#   "unresolved: <reason>"  -> attempted, no stable primary source reached
+#   "2026-09-09"            -> fetched and read on that date
+UNRESOLVED = "unresolved: "
+
 
 @dataclass(frozen=True)
 class Rule:
@@ -127,7 +138,17 @@ class Rule:
         the source exists and says what is quoted, and says nothing about
         whether the predicate implements it correctly.
         """
-        return bool(self.citation_checked_on.strip())
+        value = self.citation_checked_on.strip()
+        return bool(value) and not value.startswith(UNRESOLVED)
+
+    @property
+    def citation_attempt_unresolved(self) -> bool:
+        """
+        Someone tried to reach a primary source and could not. Distinct from
+        never having tried, and distinct from having succeeded — a rule in this
+        state is making a statutory claim nobody has been able to confirm.
+        """
+        return self.citation_checked_on.strip().startswith(UNRESOLVED)
 
     @property
     def implementation_is_reviewed(self) -> bool:
@@ -170,6 +191,15 @@ RULES: tuple = (
         why="Statutory violation, not a soft convention: the Code on Wages 2025 (effective 21 Nov 2025) requires Basic + DA to be at least 50% of total remuneration — this tool has no separate DA field (scoped to private-sector employees, where DA doesn't apply), so Basic alone is the relevant component. Falling below this line triggers automatic reclassification of the excess allowances as \"wages\" for PF and gratuity purposes, with real penalty exposure — not just a market-convention miss",
         predicate=lambda s, rent_paid: (s.basic / s.ctc if s.ctc else 0) < 0.50,
         claim_type=STATUTORY,
+        # NAMING DISCREPANCY FOUND WHILE BACKFILLING: this rule's own text says
+        # "Code on Wages 2025". The Act is the Code on Wages, 2019 (Act 29 of
+        # 2019); 21 Nov 2025 is when it came into force, not its year. The
+        # rationale text is left byte-identical here because changing emitted
+        # text is a behaviour change, not backfill — flagged for the CA review
+        # rather than silently edited.
+        source_url="https://www.indiacode.nic.in/handle/123456789/15793",
+        provision="Code on Wages, 2019 (Act 29 of 2019), s. 2(y) — definition of \"wages\"; proviso on excluded allowances exceeding one-half of all remuneration. In force 21 Nov 2025.",
+        citation_checked_on="unresolved: attempted 2026-09-09; no primary source reachable from this environment. indiacode.nic.in returned connection-refused then HTTP 403, labour.gov.in HTTP 403, incometaxindia.gov.in HTTP 403 on two URLs. The only reachable copies were secondary aggregators, and PDF-only, with no PDF text extractor available here. Search snippets summarised both provisions consistently, but a snippet is not a fetched primary source and is not recorded as one.",
         status=ACTIVE,
     ),
     Rule(
@@ -179,6 +209,7 @@ RULES: tuple = (
         why="PF is near-universal for salaried employees above minimum wage thresholds; a missing PF component at this CTC level is unusual and worth confirming isn't an oversight",
         predicate=lambda s, rent_paid: s.ctc > 600_000 and s.employer_pf == 0,
         claim_type=CONVENTION,
+        basis="Employer PF is near-universal for salaried employees above minimum-wage thresholds, so its absence at this income level is more likely an input error than a deliberate structure. THE Rs 6L THRESHOLD ITSELF HAS NO RECORDED DERIVATION: it has been in the code since the initial commit with no stated basis in any commit message, the project brief, or the rules table. Recorded as unknown rather than given a plausible-sounding justification -- an invented basis is the same failure as an invented citation, on the convention side. Needs a reviewer to ground it or move it.",
         status=ACTIVE,
     ),
     Rule(
@@ -188,6 +219,7 @@ RULES: tuple = (
         why="HRA exemption requires actual rent payment with supporting documentation; claiming HRA structure without a rent input suggests the exemption may not be realizable",
         predicate=lambda s, rent_paid: s.hra > 0 and rent_paid <= 0,
         claim_type=CONVENTION,
+        basis="The HRA exemption is only realisable against rent actually paid and documented, so HRA structured with no rent input signals an exemption that may not survive assessment. NOTE FOR REVIEW: the stated reason here is a legal precondition, which arguably makes this STATUTORY rather than a convention. It is classified as a convention because it flags a realisability risk rather than asserting a violation, and its severity is Low -- but that is a judgement a reviewer should confirm or correct, not something this file should settle on its own.",
         status=ACTIVE,
     ),
     Rule(
@@ -197,6 +229,7 @@ RULES: tuple = (
         why="Exceeds typical company LTA policy ceilings; may not be realizable given actual travel-and-bills requirements",
         predicate=lambda s, rent_paid: bool(s.ctc) and s.lta > 0.10 * s.ctc,
         claim_type=CONVENTION,
+        basis="LTA above this share of CTC exceeds what typical company policy ceilings allow and is unlikely to be fully realisable against actual travel and bills. THE 10% FIGURE ITSELF HAS NO RECORDED DERIVATION: present since the initial commit, with no survey, policy sample or source named anywhere in the repository. Recorded as unknown rather than attributed to a norm nobody cited.",
         status=ACTIVE,
     ),
     Rule(
@@ -206,6 +239,9 @@ RULES: tuple = (
         why="The excess over Rs 7.5L is a taxable perquisite under Section 17(2)(vii) — NOT currently modeled in tax_engine.py's tax calculation, so any structure crossing this threshold has an unmodeled tax liability the tool doesn't account for",
         predicate=lambda s, rent_paid: (s.employer_pf + s.employer_nps) > 750_000,
         claim_type=STATUTORY,
+        source_url="https://www.incometaxindia.gov.in/w/section-17",
+        provision="Income-tax Act, s. 17(2)(vii) — employer contributions to recognised PF, NPS and approved superannuation fund exceeding Rs 7,50,000 in aggregate treated as a perquisite.",
+        citation_checked_on="unresolved: attempted 2026-09-09; no primary source reachable from this environment. indiacode.nic.in returned connection-refused then HTTP 403, labour.gov.in HTTP 403, incometaxindia.gov.in HTTP 403 on two URLs. The only reachable copies were secondary aggregators, and PDF-only, with no PDF text extractor available here. Search snippets summarised both provisions consistently, but a snippet is not a fetched primary source and is not recorded as one.",
         status=ACTIVE,
     ),
     Rule(
@@ -215,6 +251,7 @@ RULES: tuple = (
         why="Leaves no flexible cash component; unusual structure that may indicate an input error rather than a deliberate choice",
         predicate=lambda s, rent_paid: s.special_allowance == 0,
         claim_type=CONVENTION,
+        basis="A structure with no flexible cash component is unusual enough to be worth confirming, and a zero here is more often an incomplete input than a deliberate design. This is an input-sanity heuristic rather than a norm drawn from any survey or policy source, and is recorded as such -- there is no external basis to cite and none is claimed.",
         status=ACTIVE,
     ),
 )
@@ -261,14 +298,30 @@ def protocol_violations() -> list:
                 f"{rule.id} is active but no one has reviewed the implementation "
                 f"(reviewed_by/reviewed_on)")
 
+        # CHECK 1 + 2 apply to every statutory rule, grandfathered or not.
+        # R1 and R5 are exempt from having a BACKDATED reviewer, not from being
+        # citable: a rule asserting that the law requires something, with no
+        # provision recorded and no attempt logged, is unverifiable by anyone.
+        if rule.claim_type == STATUTORY:
+            for field in ("source_url", "provision"):
+                if not getattr(rule, field).strip():
+                    problems.append(f"{rule.id} claims statute but carries no {field}")
+            # CHECK 2: a citation nobody has even attempted to reach. The
+            # unresolved marker satisfies this — "tried and could not" is a
+            # recorded outcome; silence is not.
+            if not rule.citation_checked_on.strip():
+                problems.append(
+                    f"{rule.id} cites a provision but records no citation_checked_on "
+                    f"(neither a check date nor an unresolved attempt)")
+
+        # CHECK 3 applies to every convention rule, grandfathered or not: an
+        # unstated basis is exactly as unreviewable as an unstated citation.
+        if rule.claim_type == CONVENTION:
+            if not rule.basis.strip():
+                problems.append(f"{rule.id} is a convention rule with no stated basis")
+
         if not pre:
-            if rule.claim_type == STATUTORY:
-                for field in ("source_url", "provision", "citation_checked_on"):
-                    if not getattr(rule, field).strip():
-                        problems.append(f"{rule.id} claims statute but carries no {field}")
-            elif rule.claim_type == CONVENTION:
-                if not rule.basis.strip():
-                    problems.append(f"{rule.id} is a convention rule with no stated basis")
+            if rule.claim_type == CONVENTION:
                 if rule.provision.strip() or rule.source_url.strip():
                     # A convention rule carrying a provision is either
                     # mislabelled or is citing a statute that does not actually
