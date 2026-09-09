@@ -57,8 +57,13 @@ before it touched the codebase. That was a one-off response to a bug report.
 Naming it here makes it repeatable, so the next place breadth needs to grow does
 not rediscover it.
 
-**The candidate-rule protocol, in five steps:**
+**The candidate-rule protocol, in six steps:**
 
+0. **Answer the threshold-origin question in writing, before drafting
+   proceeds:** *is this threshold's specific number derived from a statute, and
+   how do you know?* Recorded in the rule's `threshold_origin` field. Numbered
+   zero because it gates drafting rather than following it. A rule with no
+   numeric threshold says so — that is a complete answer.
 1. **Draft** the rule as a threshold check, in the same deterministic form R1–R6
    already take.
 2. **Cite a live-verified primary source** — captured URL, the specific
@@ -262,10 +267,38 @@ reasoning behind §3 and §7 stays legible.
   settle — that is the trigger to build the stronger record, and it should be
   reconsidered then rather than inherited quietly.
 
-### 6.1 OPEN — a convention rule whose threshold is a statutory number
+### 6.1 A convention rule whose threshold is a statutory number
 
-**Not resolved. Raised here rather than decided, because deciding it silently
-is exactly the failure the claim-type split exists to prevent.**
+**RESOLVED for every FUTURE rule, by adding step 0 to the protocol (§3.1).
+NOT resolved for the specific HRA candidate, which stays held back.**
+
+The claim-type split was introduced to route around the primary-source access
+problem: a convention rule needs a stated basis, not a citation, so it could be
+drafted without reaching a blocked government site. Drafting the first batch
+showed the split **relocated the dishonesty risk rather than removing it.** A
+convention rule whose threshold is really a statutory figure ships a statutory
+number with no citation, wearing convention clothing — and "typical market
+practice" turns out to need the same verification rigour as a citation, against
+sources that are equally unreachable.
+
+**The resolution is a process gate, not a code gate, and the distinction is
+exact.** `protocol_violations()` now requires every post-protocol rule to carry
+a non-empty `threshold_origin`. What the code enforces is *that the question was
+answered*. Whether the answer is TRUE is a human judgement and cannot be checked
+here — a check would have to know which numbers are statutory, which is the
+interpretation step this project refuses to fake. The value is that no candidate
+advances while the question sits unanswered, so the next rule cannot slide into
+this gap **by omission**, which is how this one nearly arrived.
+
+This does **not** retroactively revisit R1–R8. The pre-protocol set stays closed
+and named; R7 and R8 answered the question as part of adding it.
+
+**Still open, and deliberately narrow:** the held-back HRA candidate (*HRA above
+50% of basic*). Its threshold is a statutory figure, so as CONVENTION it ships a
+statutory number with no citation, and as STATUTORY it needs a provision and
+source. Its citation need is folded into the same human-browser lookup task as
+R5's successor provision — same tools, same session, two lookups. See
+`docs/PRIMARY_SOURCE_LOOKUP_TASK.md`.
 
 A third candidate was drafted for the first batch and then held back: *HRA
 structured above 50% of basic*, on the ground that `hra_exemption()` caps the

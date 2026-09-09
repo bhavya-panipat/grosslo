@@ -29,8 +29,12 @@ a qualified human ships with status="candidate" and CANNOT FIRE. It exists here
 so a reviewer has something executable to act on rather than prose, and so the
 eventual coded version is the thing that was approved. Activating one is an
 explicit status change recording who reviewed it — not a side effect of anything
-else. The five steps:
+else. The six steps:
 
+  0. ANSWER THE THRESHOLD-ORIGIN QUESTION IN WRITING, BEFORE DRAFTING PROCEEDS:
+     "is this threshold's specific number derived from a statute, and how do
+     you know?" Recorded in threshold_origin. Numbered zero because it gates
+     the drafting rather than following it.
   1. Draft the rule as a deterministic threshold check.
   2. Cite a live-verified primary source: captured URL, the specific provision,
      and the date the check was performed. Never a recalled section number.
@@ -39,6 +43,16 @@ else. The five steps:
   5. Citation-checking NEVER substitutes for interpretation. Confirming a
      provision exists and says what is quoted is a different act from judging
      that a threshold correctly implements it.
+
+WHY STEP 0 WAS ADDED AFTER THE FIRST BATCH. The CONVENTION/STATUTORY split was
+introduced to route around the primary-source access problem. Drafting the first
+candidates showed it RELOCATED the risk instead of removing it: a convention
+rule whose threshold is really a statutory figure ships a statutory number with
+no citation, and no automated check can catch that, because catching it requires
+knowing which numbers are statutory. Step 0 cannot be enforced by code either —
+only the presence of an answer can. That is the point. The door is held by
+process; the code only refuses to let a rule advance while the question is
+unanswered.
 
 WHY THAT PROTOCOL, CONCRETELY. optimizer.py's BASIC_PCT_MIN = 0.50 is right
 today because it was checked against a live source after a training cutoff had
@@ -132,6 +146,29 @@ class Rule:
     # field: the honest answer is often "industry practice" or "this tool's own
     # scope decision", and dressing that up as a citation would misrepresent it.
     basis: str = ""
+
+    # ---- Where the NUMBER came from, asked of every rule -------------------
+    # Answers one question in writing, before drafting proceeds: "is this
+    # threshold's specific number derived from a statute, and how do you know?"
+    #
+    # WHY THIS EXISTS AS A SEPARATE FIELD. The CONVENTION/STATUTORY split was
+    # meant to route around the primary-source access problem: a convention
+    # rule needs a basis, not a citation, so it could be drafted without
+    # reaching a blocked government site. That turned out to RELOCATE the
+    # dishonesty risk rather than remove it. A convention rule whose threshold
+    # is really a statutory figure ships a statutory number with no citation,
+    # wearing convention clothing — and protocol_violations() cannot detect it,
+    # because detection would require knowing which numbers are statutory,
+    # which is the interpretation step this whole file refuses to fake.
+    #
+    # WHAT THE CODE ENFORCES, PRECISELY: that this field is NOT EMPTY. That is
+    # all a check can do. Whether the answer is TRUE is a human judgement and
+    # is not, and cannot be, verified here. The value is procedural — a rule
+    # cannot advance while the question sits unanswered, so the next rule
+    # cannot slide into the gap by omission the way it otherwise would.
+    #
+    # A rule with no numeric threshold says so; that is a complete answer.
+    threshold_origin: str = ""
 
     # ---- The human judgement, which is a DIFFERENT claim -------------------
     # reviewed_by asserts that a qualified person judged this rule's PREDICATE
@@ -321,6 +358,7 @@ RULES: tuple = (
         rationale="An employer NPS contribution is present but this employee is not recorded as having opted into NPS. The tax computation deducts the employer NPS contribution regardless of the opt-in flag, so the tax figure shown for this structure may be understated — confirm the opt-in status before relying on it.",
         why="The two inputs contradict each other, and the contradiction is not inert: tax_engine.taxable_income_for_structure() subtracts structure.employer_nps from taxable income in BOTH regime branches without ever reading nps_opted, so an inconsistent pair silently produces a deduction and a lower tax number. Flags the inconsistency for confirmation; does not assert which of the two inputs is wrong",
         predicate=lambda s, rent_paid: s.employer_nps > 0 and not s.nps_opted,
+        threshold_origin="NO NUMERIC THRESHOLD. The predicate compares two input fields for contradiction (employer_nps > 0 against nps_opted false); the only literal is zero, which is not a threshold but the absence of a contribution. Nothing here is derived from a statute, so there is no statutory number hiding in convention clothing. HOW THIS IS KNOWN: by reading the predicate -- it contains no policy figure to source. What IS a statutory question, and is left to the reviewer, is whether the employer-contribution deduction requires employee opt-in; that affects the rule's INTERPRETATION, not the origin of any number in it.",
         claim_type=CONVENTION,
         basis="Derived entirely from this repository's own code, and checkable by reading it. (1) tax_engine.taxable_income_for_structure() computes taxable income as `... - structure.employer_nps` in both the old- and new-regime branches, and nps_opted appears nowhere in that function -- so the deduction is applied whether or not the employee opted in. (2) This pair is UNREACHABLE through the tool's own builder: tax_engine.derive_nps() returns 0.0 when opted_in is false, so build_structure() can never produce it. (3) It IS reachable through /api/batch-audit, which reads `employer_nps` and `nps_opted` as independent CSV columns with independent defaults and performs no cross-field validation. That combination -- impossible internally, reachable externally, and consequential when it occurs -- is the whole basis. NOT CLAIMED, AND DELIBERATELY LEFT FOR THE REVIEWER: whether the employer-contribution deduction is legally available without employee opt-in. That is an interpretation question about the governing provision, this rule does not answer it, and the rationale is worded to flag a contradiction rather than to assert that the tax is wrong in law.",
         status=CANDIDATE,
@@ -332,6 +370,7 @@ RULES: tuple = (
         why="A meta-rule: it does not describe a defect in the compensation structure but tells the reader that other rules' output cannot be trusted for this row. SalaryStructure.total() exists in tax_engine.py to express exactly this reconciliation, and before this rule was drafted it had no call sites anywhere in the repository — the invariant was written down and never checked",
         predicate=lambda s, rent_paid: (
             s.ctc > 0 and abs(s.total() - s.ctc) > max(1.0, 0.005 * s.ctc)),
+        threshold_origin="NOT STATUTORY -- an engineering judgement, and named as one. The tolerance (Rs 1 or 0.5% of CTC, whichever is larger) is not drawn from any Act, rule, or published norm; it was chosen to sit above the 2-decimal rounding in derive_pf() and derive_nps() and below the scale of a genuinely missing component. HOW THIS IS KNOWN: the number was picked while drafting this rule, by the author, for that reason -- there is no source to check because there is no source. A reviewer is free to move it, and moving it changes only this tool's sensitivity, never its compliance with anything external.",
         claim_type=CONVENTION,
         basis="Arithmetic, plus two verifiable facts about this repository. (1) SalaryStructure.total() is defined in tax_engine.py and, before this rule, had NO call sites anywhere in the codebase -- the reconciliation it expresses was written down and never enforced. (Stated with that qualifier deliberately: this rule's own predicate is now the only caller, so an unqualified 'zero call sites' would be false the moment the rule exists, and a reviewer checking the claim by grepping would find it contradicted. No PRODUCTION path enforces the invariant, which is the part that matters.) (2) /api/batch-audit builds a SalaryStructure from seven independently-parsed CSV columns with no cross-field validation, so an unreconciled row is reachable; the extraction path is not affected, since it derives special_allowance as the residual and therefore reconciles by construction. When a row does not reconcile, R1 (basic/ctc) and R4 (lta/ctc) still compute and still flag, against a denominator that does not describe the structure. No external norm is claimed and none is needed: this is an internal-consistency check. THE TOLERANCE IS A JUDGEMENT, NOT A DERIVATION, and is recorded as one: Rs 1 or 0.5% of CTC, whichever is larger, chosen to absorb the 2-decimal rounding in derive_pf() and derive_nps() without absorbing a genuinely missing component. Nothing external sets that figure. A reviewer should move it if 0.5% is too loose -- at a Rs 50L CTC it tolerates a Rs 25,000 discrepancy, which may well be too much.",
         status=CANDIDATE,
@@ -414,6 +453,21 @@ def protocol_violations() -> list:
         if rule.claim_type == CONVENTION:
             if not rule.basis.strip():
                 problems.append(f"{rule.id} is a convention rule with no stated basis")
+
+        # CHECK 6: the threshold-origin question, asked of EVERY claim type.
+        # Deliberately not restricted to convention rules even though that is
+        # where the gap was found: a statutory rule can also carry a number the
+        # provision does not actually specify, and the same question catches it.
+        #
+        # PRESENCE ONLY. This cannot tell a true answer from a confident wrong
+        # one. It exists so that no candidate advances with the question
+        # unanswered — process enforcement, with the code holding the door.
+        if not pre and not rule.threshold_origin.strip():
+            problems.append(
+                f"{rule.id} does not say where its threshold number came from "
+                f"(threshold_origin): every candidate must state in writing "
+                f"whether the number is derived from a statute, and how that is "
+                f"known, before it can advance")
 
         if not pre:
             if rule.claim_type == CONVENTION:

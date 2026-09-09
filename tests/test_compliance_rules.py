@@ -395,7 +395,10 @@ class TestTheFourProtocolChecks(unittest.TestCase):
     def _rule(self, rid, **kw):
         base = dict(id=rid, severity="Low", check="c", rationale="r", why="w",
                     predicate=lambda s, rp: False, status=CANDIDATE,
-                    claim_type=compliance_rules.CONVENTION)
+                    claim_type=compliance_rules.CONVENTION,
+                    # Satisfies CHECK 6 so each test below isolates its own
+                    # check rather than also tripping the threshold-origin one.
+                    threshold_origin="probe: no numeric threshold")
         base.update(kw)
         return compliance_rules.Rule(**base)
 
@@ -512,7 +515,8 @@ class TestTheGoverningInstrumentCheck(unittest.TestCase):
                     source_url="https://example.invalid/x", provision="P",
                     citation_checked_on="2026-09-09",
                     instrument="Some Act, 1961",
-                    instrument_status=compliance_rules.IN_FORCE)
+                    instrument_status=compliance_rules.IN_FORCE,
+                    threshold_origin="probe: no numeric threshold")
         base.update(kw)
         return compliance_rules.Rule(**base)
 
@@ -680,3 +684,76 @@ class TestTheFirstBatchesBasesAreTrueNotJustStated(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTheThresholdOriginQuestionIsAsked(unittest.TestCase):
+    """
+    CHECK 6, added after the first candidate batch. The CONVENTION/STATUTORY
+    split was meant to route around the primary-source access problem; drafting
+    R7 and R8 showed it RELOCATED the risk — a convention rule whose threshold
+    is really a statutory figure ships a statutory number with no citation, and
+    nothing automated can detect that, because detection needs to know which
+    numbers are statutory.
+
+    So this check asserts something deliberately weaker than correctness: that
+    the question was ANSWERED, not that the answer is right. Both directions
+    are proven, because a check asserted only in its failing state might be
+    failing for an unrelated reason.
+    """
+
+    def _rule(self, rid, **kw):
+        base = dict(id=rid, severity="Low", check="c", rationale="r", why="w",
+                    predicate=lambda s, rp: False, status=CANDIDATE,
+                    claim_type=compliance_rules.CONVENTION, basis="b")
+        base.update(kw)
+        return compliance_rules.Rule(**base)
+
+    def _violations_with(self, rule):
+        from unittest.mock import patch
+        with patch.object(compliance_rules, "RULES", compliance_rules.RULES + (rule,)):
+            return compliance_rules.protocol_violations()
+
+    def test_a_rule_that_does_not_say_where_its_number_came_from_is_a_violation(self):
+        problems = self._violations_with(self._rule("R90", threshold_origin=""))
+        self.assertTrue(any("R90" in p and "threshold_origin" in p for p in problems),
+                        problems)
+
+    def test_a_rule_that_answers_the_question_does_not_flag(self):
+        problems = self._violations_with(
+            self._rule("R91", threshold_origin="not statutory; an engineering judgement"))
+        self.assertFalse(any("R91" in p for p in problems), problems)
+
+    def test_the_question_is_asked_of_statutory_rules_too(self):
+        # Not restricted to convention rules even though that is where the gap
+        # was found: a statutory rule can carry a number its provision does not
+        # actually specify, and the same question catches it.
+        problems = self._violations_with(self._rule(
+            "R92", claim_type=compliance_rules.STATUTORY,
+            source_url="https://example.invalid/x", provision="P",
+            citation_checked_on="2026-09-09", instrument="Some Act, 1961",
+            instrument_status=compliance_rules.IN_FORCE, threshold_origin=""))
+        self.assertTrue(any("R92" in p and "threshold_origin" in p for p in problems),
+                        problems)
+
+    def test_whitespace_is_not_an_answer(self):
+        problems = self._violations_with(self._rule("R93", threshold_origin="   \n  "))
+        self.assertTrue(any("R93" in p and "threshold_origin" in p for p in problems),
+                        problems)
+
+    def test_the_grandfathered_six_are_not_retroactively_flagged(self):
+        # Adding step 0 does not reopen R1-R6. The pre-protocol set is closed
+        # and named; this check applies to everything drafted after it.
+        problems = compliance_rules.protocol_violations()
+        for rid in compliance_rules.PRE_PROTOCOL_RULE_IDS:
+            with self.subTest(rule=rid):
+                self.assertFalse(any(rid in p and "threshold_origin" in p
+                                     for p in problems), problems)
+
+    def test_every_post_protocol_rule_has_actually_answered_it(self):
+        # The live assertion, not a probe: R7 and R8 must carry real answers.
+        for rule in compliance_rules.RULES:
+            if rule.id not in compliance_rules.PRE_PROTOCOL_RULE_IDS:
+                with self.subTest(rule=rule.id):
+                    self.assertTrue(rule.threshold_origin.strip(),
+                                    "a post-protocol rule advanced without "
+                                    "answering the threshold-origin question")
