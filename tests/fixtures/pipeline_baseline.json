@@ -16,7 +16,9 @@
     "metrics": {
       "ai_coverage_pct": 0.0,
       "compliance_pct": 100.0,
-      "optimization_value_pct": 0.0
+      "optimization_value_pct": 0.0,
+      "rules_total": 6,
+      "rules_triggered": 0
     },
     "negotiation": {
       "ai_backed": false,
@@ -98,7 +100,9 @@
     "metrics": {
       "ai_coverage_pct": 0.0,
       "compliance_pct": 100.0,
-      "optimization_value_pct": 3.3
+      "optimization_value_pct": 3.3,
+      "rules_total": 6,
+      "rules_triggered": 0
     },
     "negotiation": {
       "ai_backed": false,
@@ -187,7 +191,9 @@
     "metrics": {
       "ai_coverage_pct": 0.0,
       "compliance_pct": 83.3,
-      "optimization_value_pct": 3.0
+      "optimization_value_pct": 3.0,
+      "rules_total": 6,
+      "rules_triggered": 1
     },
     "negotiation": {
       "ai_backed": false,
@@ -272,7 +278,9 @@
     "metrics": {
       "ai_coverage_pct": 0.0,
       "compliance_pct": 100.0,
-      "optimization_value_pct": 3.0
+      "optimization_value_pct": 3.0,
+      "rules_total": 6,
+      "rules_triggered": 0
     },
     "negotiation": {
       "ai_backed": false,
@@ -370,7 +378,9 @@
     "metrics": {
       "ai_coverage_pct": 0.0,
       "compliance_pct": 66.7,
-      "optimization_value_pct": 2.1
+      "optimization_value_pct": 2.1,
+      "rules_total": 6,
+      "rules_triggered": 2
     },
     "negotiation": {
       "ai_backed": false,
@@ -459,7 +469,9 @@
     "metrics": {
       "ai_coverage_pct": 25.0,
       "compliance_pct": 83.3,
-      "optimization_value_pct": 0.0
+      "optimization_value_pct": 0.0,
+      "rules_total": 6,
+      "rules_triggered": 1
     },
     "negotiation": {
       "ai_backed": false,
@@ -545,7 +557,9 @@
     "metrics": {
       "ai_coverage_pct": 0.0,
       "compliance_pct": 100.0,
-      "optimization_value_pct": 3.3
+      "optimization_value_pct": 3.3,
+      "rules_total": 6,
+      "rules_triggered": 0
     },
     "new_regime_best": {
       "basic_pct": 0.6,
@@ -620,7 +634,9 @@
     "metrics": {
       "ai_coverage_pct": 0.0,
       "compliance_pct": 100.0,
-      "optimization_value_pct": 38.9
+      "optimization_value_pct": 38.9,
+      "rules_total": 6,
+      "rules_triggered": 0
     },
     "negotiation": {
       "ai_backed": false,

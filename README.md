@@ -367,6 +367,27 @@ deterministic fallback, and `/health` reports `ai_layer_active: false` so
 this is visible rather than silent — a deliberate design choice, not a
 bolted-on fallback.
 
+## Known unverified surfaces — one standing limitation, not separate gaps
+
+**There is no `node` binary in the environment this was built in**, although
+`frontend/node_modules` is populated. So the frontend cannot be type-checked or
+run here, and every backend claim in this repo has been verified by running it
+while the files below have been reviewed by eye only. They are listed together
+because this is ONE environmental limitation with several instances, not a fresh
+gap each time one appears:
+
+| File | Added in | What must be checked once Node is available |
+|---|---|---|
+| `frontend/components/finance/finance-flow.tsx` (`DecidedBy`) | Phase 1.2 | Type-check; render a decided row and confirm the decider's name appears; render one with a NULL `decided_by_user_id` and confirm it shows as *Unattributed* rather than blank or, worse, attributed to someone |
+| `frontend/lib/api-types.ts` | Phase 2.1, 2.2 | Type-check only — declarations for `stages_run`, `PipelineStage`, and the `rules_triggered`/`rules_total` metric fields |
+| `frontend/components/ring-metric.tsx` | Phase 2.2 | Type-check; confirm the Compliance ring shows the rule ratio beside the percentage, and that a response lacking those fields still renders the bare percentage rather than `undefined/undefined` |
+
+Until each is checked, the honest description of this project is **"backend
+verified, these UI surfaces unverified"**. `IDENTITY_DESIGN.md` §7 and
+`COMPLIANCE_BREADTH_DESIGN.md` reference this table rather than keeping their
+own copies — a second list would be the same drift problem those phases were
+written to remove.
+
 ## What's genuinely AI-native, and what isn't
 
 Being direct about this, because a reviewer will ask: the tax calculation

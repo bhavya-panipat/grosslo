@@ -19,6 +19,7 @@ import os
 import re
 from typing import Optional
 from optimizer import optimize
+import compliance_rules
 from tax_engine import SalaryStructure, NPS_80CCD2_CAP_PCT
 
 try:
@@ -329,59 +330,73 @@ line per flag, no markdown."""
 
 def _check_rules(structure, rent_paid: float) -> list[dict]:
     """
-    Deterministic rule-matching against compliance_rules.md's R1-R6. This
-    part is NOT an LLM call by design — matching numeric thresholds against
-    fixed rules is exactly the kind of deterministic logic that should never
-    be delegated to an LLM. Only the phrasing (below) is LLM territory.
-    """
-    flags = []
-    ctc = structure.ctc
-    basic_pct = structure.basic / ctc if ctc else 0
+    Deterministic rule-matching against the rule set in compliance_rules.py.
+    This part is NOT an LLM call by design — matching numeric thresholds
+    against fixed rules is exactly the kind of deterministic logic that should
+    never be delegated to an LLM. Only the phrasing (below) is LLM territory.
 
-    if basic_pct < 0.50:
-        flags.append({
-            "rule_id": "R1", "severity": "High",
-            "rationale": "Basic salary is below 50% of CTC, violating the Code on Wages 2025 requirement that Basic + DA be at least 50% of total remuneration (no DA field in this tool — Basic alone is the relevant component for a private-sector structure). This triggers automatic reclassification of the excess allowances as \"wages\" for PF and gratuity purposes, not just a market-convention miss.",
-        })
-    if ctc > 600_000 and structure.employer_pf == 0:
-        flags.append({
-            "rule_id": "R2", "severity": "Medium",
-            "rationale": "No employer PF component despite CTC above Rs 6L/year — PF is near-universal at this level; confirm this isn't an oversight.",
-        })
-    if structure.hra > 0 and rent_paid <= 0:
-        flags.append({
-            "rule_id": "R3", "severity": "Low",
-            "rationale": "HRA is structured into the salary but no rent payment was provided — the HRA exemption requires actual rent with documentation.",
-        })
-    if ctc and structure.lta > 0.10 * ctc:
-        flags.append({
-            "rule_id": "R4", "severity": "Low",
-            "rationale": "LTA exceeds 10% of CTC, above typical company policy ceilings, and may not be realizable given actual travel requirements.",
-        })
-    if (structure.employer_pf + structure.employer_nps) > 750_000:
-        flags.append({
-            "rule_id": "R5", "severity": "High",
-            "rationale": "Aggregate employer PF + NPS exceeds Rs 7.5L/year — the excess is a taxable perquisite under Section 17(2)(vii), which this tool's tax engine does not currently model.",
-        })
-    if structure.special_allowance == 0:
-        flags.append({
-            "rule_id": "R6", "severity": "Low",
-            "rationale": "Special allowance is zero, leaving no flexible cash component — check this wasn't an input error.",
-        })
-    return flags
+    Iterates active_rules() rather than a hand-written if-chain (Phase 2.2).
+    Flag order is the rule declaration order, which is what the if-chain
+    produced implicitly and what the characterization baseline pins.
+
+    CANDIDATE RULES CANNOT REACH HERE. active_rules() filters them once, at the
+    source, rather than each call site remembering to — a gate that has to be
+    remembered is a gate that eventually is not.
+    """
+    return [
+        {"rule_id": rule.id, "severity": rule.severity, "rationale": rule.rationale}
+        for rule in compliance_rules.active_rules()
+        if rule.predicate(structure, rent_paid)
+    ]
 
 
 # ---------------------------------------------------------------------------
 # Radar/ring metrics: Compliance % and AI Coverage %
 # ---------------------------------------------------------------------------
 
-TOTAL_COMPLIANCE_RULES = 6  # R1-R6, defined above
+# There is deliberately NO module-level rule count here any more.
+#
+# It was TOTAL_COMPLIANCE_RULES = 6 (hand-declared), then briefly
+# TOTAL_COMPLIANCE_RULES = compliance_rules.total_active() — derived, but
+# derived ONCE, at import. That is the same staleness class one layer down: a
+# snapshot that can disagree with the rule set it came from. Every consumer now
+# calls compliance_rules.total_active() at the moment it needs the number, so
+# there is no cached copy that can be wrong.
 
 
 def compliance_pct(flags: list) -> float:
-    """(total rules - flags triggered) / total rules, as a percentage."""
+    """
+    (active rules - flags triggered) / active rules, as a percentage.
+
+    THE DENOMINATOR MOVES AS THE RULE SET GROWS, and that is the truthful
+    computation — freezing it at 6 would leave a metric that silently stops
+    meaning what its name says while still returning a plausible number, which
+    is the failure this project keeps finding (COMPLIANCE_BREADTH_DESIGN.md
+    §3.4).
+
+    But a live denominator is honest locally and deceptive in aggregate: two
+    equal-looking percentages from different points in time are not the same
+    claim, and nothing in a bare number says so. compliance_ratio() below
+    exists for that reason, and every consumer reports the ratio alongside the
+    percentage rather than the percentage alone.
+    """
     triggered = len(flags)
-    return round((TOTAL_COMPLIANCE_RULES - triggered) / TOTAL_COMPLIANCE_RULES * 100, 1)
+    total = compliance_rules.total_active()
+    return round((total - triggered) / total * 100, 1)
+
+
+def compliance_ratio(flags: list) -> dict:
+    """
+    What the percentage was computed FROM, so a reader can reconstruct why two
+    equal-looking scores from different dates are not the same claim instead of
+    having to already know the rule set changed.
+
+    `rules_total` counts only rules that can fire. A candidate awaiting review
+    must never inflate the denominator and make a structure look more compliant
+    than it was checked for.
+    """
+    return {"rules_triggered": len(flags),
+            "rules_total": compliance_rules.total_active()}
 
 
 def ai_coverage_pct(extraction_ran: bool, extraction_ai_backed: bool,

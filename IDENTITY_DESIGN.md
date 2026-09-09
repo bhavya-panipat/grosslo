@@ -389,7 +389,10 @@ only has this file.
    - **Shared-code retirement:** the code works exactly once, creates exactly
      one owner, and every subsequent attempt fails — including after the owner
      is deleted.
-   - **OUTSTANDING — compile and exercise the frontend attribution UI.** Step
+   - **OUTSTANDING — compile and exercise the frontend attribution UI.**
+     Tracked in README's "Known unverified surfaces" table, which is the
+     single list for every file in this state; this entry is a pointer, not a
+     second copy. Step
      5 added `DecidedBy` to `finance-flow.tsx` and two fields to
      `api-types.ts`, and **neither has ever been compiled or run**: there is no
      `node` binary in the environment this phase was built in, so `tsc` and the
