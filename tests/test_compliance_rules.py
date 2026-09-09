@@ -191,9 +191,10 @@ class TestTheCandidateGate(unittest.TestCase):
             rationale="probe rationale", why="probe why",
             predicate=lambda s, rent_paid: True,
             status=status,
+            claim_type=compliance_rules.STATUTORY,
             source_url="https://example.invalid/probe",
             provision="Probe provision",
-            verified_on="2026-09-09",
+            citation_checked_on="2026-09-09",
             reviewed_by="Test Reviewer" if status == ACTIVE else "",
             reviewed_on="2026-09-09" if status == ACTIVE else "",
         )
@@ -253,12 +254,13 @@ class TestTheProtocolIsEnforcedNotJustDocumented(unittest.TestCase):
         unreviewed = compliance_rules.Rule(
             id="R98", severity="Low", check="c", rationale="r", why="w",
             predicate=lambda s, rp: False, status=ACTIVE,
+            claim_type=compliance_rules.STATUTORY,
             source_url="https://example.invalid/x", provision="P",
-            verified_on="2026-09-09")   # no reviewed_by / reviewed_on
+            citation_checked_on="2026-09-09")   # citation checked, nobody reviewed
         with patch.object(compliance_rules, "RULES",
                           compliance_rules.RULES + (unreviewed,)):
             problems = compliance_rules.protocol_violations()
-        self.assertTrue(any("R98" in p and "reviewed_by" in p for p in problems), problems)
+        self.assertTrue(any("R98" in p and "reviewed" in p for p in problems), problems)
 
     def test_a_rule_without_a_citation_is_a_violation_even_as_a_candidate(self):
         # Citation is required to SHIP, not merely to activate: a candidate
@@ -267,7 +269,8 @@ class TestTheProtocolIsEnforcedNotJustDocumented(unittest.TestCase):
         from unittest.mock import patch
         uncited = compliance_rules.Rule(
             id="R97", severity="Low", check="c", rationale="r", why="w",
-            predicate=lambda s, rp: False, status=CANDIDATE)
+            predicate=lambda s, rp: False, status=CANDIDATE,
+            claim_type=compliance_rules.STATUTORY)
         with patch.object(compliance_rules, "RULES",
                           compliance_rules.RULES + (uncited,)):
             problems = compliance_rules.protocol_violations()
@@ -281,5 +284,68 @@ class TestTheProtocolIsEnforcedNotJustDocumented(unittest.TestCase):
         for rule in compliance_rules.RULES:
             if rule.id not in compliance_rules.PRE_PROTOCOL_RULE_IDS:
                 with self.subTest(rule=rule.id):
-                    self.assertTrue(rule.source_url.strip(),
-                                    "a post-protocol rule shipped with no citation")
+                    if rule.claim_type == compliance_rules.STATUTORY:
+                        self.assertTrue(rule.source_url.strip(),
+                                        "a statutory rule shipped with no citation")
+                    else:
+                        self.assertTrue(rule.basis.strip(),
+                                        "a convention rule shipped with no stated basis")
+
+
+class TestTheTwoClaimsAreSeparate(unittest.TestCase):
+    """
+    "The cited provision exists and says this" and "this predicate correctly
+    implements it" are different claims. Only the first is checkable by
+    fetching a document; the second needs someone who can interpret regulatory
+    intent. Conflating them would let citation-checking masquerade as review,
+    which is the one substitution the protocol exists to prevent.
+    """
+
+    def test_a_checked_citation_is_not_a_reviewed_implementation(self):
+        cited_only = compliance_rules.Rule(
+            id="R96", severity="High", check="c", rationale="r", why="w",
+            predicate=lambda s, rp: True, status=CANDIDATE,
+            claim_type=compliance_rules.STATUTORY,
+            source_url="https://example.invalid/x", provision="P",
+            citation_checked_on="2026-09-09")
+        self.assertTrue(cited_only.citation_is_checked)
+        self.assertFalse(cited_only.implementation_is_reviewed,
+                         "a fetched source must never count as human review")
+
+    def test_a_convention_rule_needs_a_basis_not_a_citation(self):
+        # Demanding a statute from a convention rule pressures whoever writes it
+        # into attaching a provision that does not say what the rule claims —
+        # evidence that looks stronger than it is.
+        from unittest.mock import patch
+        no_basis = compliance_rules.Rule(
+            id="R95", severity="Low", check="c", rationale="r", why="w",
+            predicate=lambda s, rp: False, status=CANDIDATE,
+            claim_type=compliance_rules.CONVENTION)
+        with patch.object(compliance_rules, "RULES", compliance_rules.RULES + (no_basis,)):
+            problems = compliance_rules.protocol_violations()
+        self.assertTrue(any("R95" in p and "basis" in p for p in problems), problems)
+        self.assertFalse(any("R95" in p and "source_url" in p for p in problems),
+                         "a convention rule was asked for a statute")
+
+    def test_a_convention_rule_citing_a_provision_is_flagged(self):
+        # Either it is statutory and mislabelled, or it is citing a section that
+        # does not require what it claims. Both are worth surfacing.
+        from unittest.mock import patch
+        mislabelled = compliance_rules.Rule(
+            id="R94", severity="Low", check="c", rationale="r", why="w",
+            predicate=lambda s, rp: False, status=CANDIDATE,
+            claim_type=compliance_rules.CONVENTION,
+            basis="industry practice", provision="Section 999")
+        with patch.object(compliance_rules, "RULES", compliance_rules.RULES + (mislabelled,)):
+            problems = compliance_rules.protocol_violations()
+        self.assertTrue(any("R94" in p for p in problems), problems)
+
+    def test_the_existing_six_are_classified_by_what_their_own_text_claims(self):
+        # R1 says "violating the Code on Wages 2025 requirement"; R2 says
+        # "unusual ... confirm this isn't an oversight". Only two of six assert
+        # that the law requires something.
+        by_id = {r.id: r.claim_type for r in compliance_rules.RULES}
+        self.assertEqual(by_id["R1"], compliance_rules.STATUTORY)
+        self.assertEqual(by_id["R5"], compliance_rules.STATUTORY)
+        for rid in ("R2", "R3", "R4", "R6"):
+            self.assertEqual(by_id[rid], compliance_rules.CONVENTION)
