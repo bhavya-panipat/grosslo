@@ -107,6 +107,52 @@ SUPERSEDED = "superseded"
 INSTRUMENT_UNKNOWN = "unknown"
 
 
+class NoActiveRulesError(RuntimeError):
+    """
+    Raised when a compliance SCORE is asked for while no rule can fire.
+
+    This became possible in Phase 2.2 and was impossible before it. The
+    denominator used to be the constant TOTAL_COMPLIANCE_RULES = 6, so it could
+    never be zero; deriving it from live rule data is what introduced the case.
+
+    IT IS NOT AN ERROR CONDITION IN THE RULE SET. An empty active set is a
+    legitimate state — a reviewer moving every rule to candidate pending
+    re-review produces exactly this, and that is a real workflow the candidate
+    protocol was built to support, not a corruption.
+
+    What is not legitimate is answering "what percentage of rules did this
+    structure pass" when the answer is undefined. The two plausible-looking
+    numbers are both worse than raising:
+
+      100.0 — claims full compliance when NOTHING was checked. That is the
+              "plausible number with nothing forcing a re-check" failure this
+              project keeps finding, relocated from a stale citation to a
+              degenerate metric.
+      0.0   — equally arbitrary, in the other direction, and reads as total
+              non-compliance.
+
+    So this names the business event rather than the arithmetic, following the
+    precedent set by SchemaMissingError: the message states what happened and
+    what to do, so an operator who hits it in production does not have to
+    reverse-engineer a generic exception. compliance_ratio() deliberately does
+    NOT raise — reporting 0 of 0 is truthful and complete.
+    """
+
+
+def _no_active_rules_error() -> NoActiveRulesError:
+    total = len(RULES)
+    candidates = ", ".join(r.id for r in RULES if not r.is_active) or "none"
+    return NoActiveRulesError(
+        f"no active rules to evaluate compliance against — all {total} rule(s) "
+        f"in the rule set are currently candidate/under review ({candidates}), "
+        f"so no compliance percentage can be computed. This is a legitimate "
+        f"state of the rule set, not an arithmetic bug: it is what a reviewer "
+        f"pulling every rule for re-review looks like. To resolve, activate at "
+        f"least one rule in compliance_rules.py (status=ACTIVE with reviewed_by "
+        f"and reviewed_on), or handle this state in the caller. "
+        f"compliance_ratio() still answers, reporting 0 of 0.")
+
+
 @dataclass(frozen=True)
 class Rule:
     """

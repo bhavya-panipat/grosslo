@@ -861,3 +861,87 @@ class TestTheCAReviewPacketIsGeneratedAndTrue(unittest.TestCase):
                 outcomes = {flags for _l, _s, _r, flags in gen.EXAMPLES.get(rule.id, [])}
                 self.assertEqual(outcomes, {True, False},
                                  "a candidate is shown in only one state")
+
+
+class TestTheEmptyActiveSetIsAnHonestFailure(unittest.TestCase):
+    """
+    Found by the whole-diff read at the close of Phase 2.2, not by any test.
+
+    The compliance denominator used to be the constant TOTAL_COMPLIANCE_RULES
+    = 6, so it could never be zero. Deriving it from live rule data introduced
+    the case. An empty active set is a LEGITIMATE state of the rule set — a
+    reviewer moving every rule to candidate pending re-review produces exactly
+    it — so the failure has to name that, not read as a crash.
+    """
+
+    def _all_candidates(self):
+        from dataclasses import replace
+        return tuple(replace(r, status=CANDIDATE) for r in compliance_rules.RULES)
+
+    def test_asking_for_a_percentage_with_no_active_rules_raises_by_name(self):
+        from unittest.mock import patch
+        with patch.object(compliance_rules, "RULES", self._all_candidates()):
+            self.assertEqual(compliance_rules.total_active(), 0)
+            with self.assertRaises(compliance_rules.NoActiveRulesError):
+                ai_layer.compliance_pct([])
+
+    def test_it_is_not_a_bare_zero_division(self):
+        # The specific regression: a ZeroDivisionError surfaces as an
+        # unexplained 500 and tells an operator nothing about why.
+        from unittest.mock import patch
+        with patch.object(compliance_rules, "RULES", self._all_candidates()):
+            try:
+                ai_layer.compliance_pct([])
+            except compliance_rules.NoActiveRulesError:
+                pass
+            except ZeroDivisionError:
+                self.fail("compliance_pct still raises a bare ZeroDivisionError")
+
+    def test_the_message_states_the_business_event_and_the_fix(self):
+        # Same standard as SchemaMissingError: the message must say what
+        # happened and what to do, so nobody reverse-engineers it.
+        from unittest.mock import patch
+        with patch.object(compliance_rules, "RULES", self._all_candidates()):
+            with self.assertRaises(compliance_rules.NoActiveRulesError) as caught:
+                ai_layer.compliance_pct([])
+        message = str(caught.exception)
+        self.assertIn("candidate/under review", message)
+        self.assertIn("legitimate state", message,
+                      "the message does not say this is a real state, not a bug")
+        self.assertIn("activate at least one rule", message.lower(),
+                      "the message does not say how to resolve it")
+        for rule in compliance_rules.RULES:
+            with self.subTest(rule=rule.id):
+                self.assertIn(rule.id, message,
+                              "the message does not name which rules are held")
+
+    def test_never_returns_a_plausible_looking_number_instead(self):
+        # The failure this project keeps finding, relocated to a degenerate
+        # metric: 100.0 would claim full compliance when NOTHING was checked.
+        from unittest.mock import patch
+        with patch.object(compliance_rules, "RULES", self._all_candidates()):
+            for flags in ([], [{"rule_id": "R1"}]):
+                with self.subTest(flags=len(flags)):
+                    with self.assertRaises(compliance_rules.NoActiveRulesError):
+                        ai_layer.compliance_pct(flags)
+
+    def test_compliance_ratio_still_answers_truthfully(self):
+        # Deliberately does NOT raise: reporting 0 of 0 is complete and honest,
+        # and a caller that wants to render the state rather than fail needs it.
+        from unittest.mock import patch
+        with patch.object(compliance_rules, "RULES", self._all_candidates()):
+            self.assertEqual(ai_layer.compliance_ratio([]),
+                             {"rules_triggered": 0, "rules_total": 0})
+
+    def test_routing_still_classifies_rather_than_failing(self):
+        # classify_row reports how many rules ran. Zero is accurate, and
+        # routing a row must not break because the rule set is under review.
+        from unittest.mock import patch
+        import orchestration
+        with patch.object(compliance_rules, "RULES", self._all_candidates()):
+            result = orchestration.classify_row({"flags": [], "severity": None}, None)
+            self.assertEqual(result["checked"]["compliance_rules_evaluated"], 0)
+
+    def test_the_normal_case_is_untouched(self):
+        # The guard must not change anything while rules are active.
+        self.assertEqual(ai_layer.compliance_pct([]), 100.0)

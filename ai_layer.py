@@ -382,6 +382,12 @@ def compliance_pct(flags: list) -> float:
     """
     triggered = len(flags)
     total = compliance_rules.total_active()
+    if total == 0:
+        # Impossible before Phase 2.2, when the denominator was a constant 6.
+        # Deriving it from live rule data introduced this case. Raising a named
+        # error beats returning 100.0 (claims full compliance when nothing was
+        # checked) or 0.0 (equally arbitrary) — see NoActiveRulesError.
+        raise compliance_rules._no_active_rules_error()
     return round((total - triggered) / total * 100, 1)
 
 

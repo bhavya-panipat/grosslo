@@ -172,6 +172,33 @@ reader reconstruct why, instead of having to already know.
 Only ACTIVE reviewed rules count toward the denominator. A candidate that cannot
 fire must not make the score look better by inflating the total.
 
+**RESOLVED at the close of the phase — what happens when the denominator is
+zero.** Found by the whole-diff read, not by any test. The denominator used to
+be the constant `TOTAL_COMPLIANCE_RULES = 6`, so it could never be zero; making
+it live rule data introduced the case. It is not reachable from user input — it
+needs every rule moved to `candidate` — but that is a real workflow this phase
+built, not a hypothetical: a reviewer pulling the whole set for re-review
+produces exactly it.
+
+**Rejected: return `100.0`.** It claims full compliance when *nothing was
+checked*. That is this project's signature failure — a plausible-looking number
+with nothing forcing a re-check — relocated from a stale citation to a
+degenerate metric. **Rejected: return `0.0`**, arbitrary in the other direction
+and reading as total non-compliance.
+
+**Chosen: raise `NoActiveRulesError`, naming the business event rather than the
+arithmetic.** A bare `ZeroDivisionError` surfaces as an unexplained 500 and
+tells an operator nothing about why. The message states that every rule is
+currently candidate/under review, names which ones, says this is a legitimate
+state rather than a bug, and says how to resolve it — the standard
+`SchemaMissingError` set, where the message carries both the fault and the fix.
+
+`compliance_ratio()` deliberately does **not** raise: reporting 0 of 0 is
+truthful and complete, and a caller that wants to render the state rather than
+fail needs it. `classify_row()` likewise keeps routing, reporting zero rules
+evaluated, because a row must not become unroutable because the rule set is
+under review.
+
 **Every consumer changes in the same pass** — a shape change that leaves one
 display showing an ambiguous bare number recreates the problem being solved:
 
