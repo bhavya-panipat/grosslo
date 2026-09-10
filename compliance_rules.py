@@ -15,6 +15,13 @@ fields on one object (see the note above RULES). The real risk was never that
 one had drifted; it was that a rule's justification could change in one file and
 not the other with nothing noticing.
 
+WHERE THE EVIDENCE MODEL LIVES. The claim types, the three-valued citation
+state, the instrument tracking and the shared checker are in provenance.py, not
+here — compliance rules are not the only things in this codebase that make legal
+claims (LEGAL_CLAIM_INVENTORY_DESIGN.md §4.3). They are re-exported below, so
+this module's callers are unaffected, but a reader looking for the definitions
+should look there.
+
 Now: the predicate, the text, the severity and the provenance are one object.
 compliance_rules.md is GENERATED from this (scripts/generate_compliance_rules_md.py),
 and the rule count is derived rather than declared.
@@ -78,7 +85,6 @@ from provenance import (  # noqa: F401  (re-exported for compatibility)
 
 ACTIVE = "active"
 CANDIDATE = "candidate"
-
 
 
 class NoActiveRulesError(RuntimeError):
@@ -145,7 +151,8 @@ class Rule(ProvenanceMixin):
                                      # A DIFFERENT REGISTER, not a copy: see below.
     predicate: Callable              # (structure, rent_paid) -> bool
     status: str                      # ACTIVE | CANDIDATE
-    claim_type: str = CONVENTION     # STATUTORY | CONVENTION — see above
+    claim_type: str = CONVENTION     # STATUTORY | CONVENTION — defined,
+                                     # with the reasoning, in provenance.py
 
     # ---- Evidence for a STATUTORY claim -----------------------------------
     # These assert exactly ONE thing: that the cited provision exists and says
