@@ -2,7 +2,7 @@
 
 # Legal review queue
 
-**10 items** across 6 live compliance rules and 4 legal claims.
+**12 items** across 6 live compliance rules and 6 legal claims.
 
 ## Read this first
 
@@ -54,6 +54,13 @@ A statutory claim nobody can check, because there is nothing to check against. U
 
 Someone tried and could not. Distinct from never having tried, and worse: it means the claim is uncheckable from here rather than merely unchecked.
 
+### OP1 — Statutory floor on basic salary as a share of CTC: 50%. Every structure this tool recommends is searched at or above it.
+
+- **Where:** `optimizer.BASIC_PCT_MIN`
+- **Instrument:** Code on Wages, 2019 (Act 29 of 2019) (in_force)
+- **Provision:** Code on Wages, 2019 (Act 29 of 2019), s. 2(y) -- definition of "wages"; proviso on excluded allowances exceeding one-half of all remuneration. In force 21 Nov 2025.
+- **Citation state:** unresolved: optimizer.py records 'Verified against multiple independent sources on 2026-09-01' and names NONE of them. Under the standing rule (INVENTORY_EXPANSION_DESIGN.md §5.1) that is evidence a check occurred, not a trail an independent party can redo, so it does not qualify as verified. The provision and source_url above are taken from R1's record of the same proposition in compliance_rules.py -- optimizer.py itself names no provision -- and R1's citation is ALSO unresolved, so nothing here has been confirmed against a primary source. NOT backdated: no source was hunted down today and credited to the 2026-09-01 check.
+
 ### R1 — Basic salary < 50% of CTC
 
 - **Where:** `compliance_rules.py`
@@ -71,6 +78,13 @@ Someone tried and could not. Distinct from never having tried, and worse: it mea
 ## 4. No human has signed off
 
 The one assertion no automated check can produce. Everything else in this queue can be narrowed by fetching a document; this cannot.
+
+### OP2 — Ceiling on basic salary as a share of CTC: 60%. Bounds the search space; not a legal limit.
+
+- **Where:** `optimizer.BASIC_PCT_MAX`
+- **Instrument:** _none recorded_ (unknown)
+- **Provision:** _none recorded_
+- **Citation state:** _never attempted_
 
 ### R2 — CTC > Rs 6L/year but employer PF = 0
 

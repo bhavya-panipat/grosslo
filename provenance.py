@@ -44,6 +44,26 @@ CONVENTION = "convention"
 #   ""                      -> never attempted
 #   "unresolved: <reason>"  -> attempted, no stable primary source reached
 #   "2026-09-09"            -> fetched and read on that date
+#
+# WHAT A DATE HERE REQUIRES, and it is a standing rule rather than a judgement
+# made per claim (INVENTORY_EXPANSION_DESIGN.md §5.1):
+#
+#   A verified citation must be sufficient for an INDEPENDENT PARTY TO REDO THE
+#   CHECK. Evidence that a past check occurred is not the same thing.
+#
+# A named instrument someone can look up qualifies; a named, locatable
+# government document qualifies. "Verified against multiple independent
+# sources", with no source named, does not — it records that someone checked
+# and gives nobody a way to check again. A date alone never qualifies: this
+# field answers WHEN, and the trail lives in instrument/provision/source_url.
+#
+# COROLLARY, and it is the easy mistake: do NOT retroactively supply a trail
+# the original check did not have. Going out today to find a better source and
+# crediting it to a check made earlier on different evidence produces a claim
+# that reads as verified on a basis nobody actually used — the fabricated
+# citation failure in a subtler costume. Finding better evidence today is
+# worthwhile; it is a NEW check, with today's date and today's source, never a
+# backdated upgrade.
 UNRESOLVED = "unresolved: "
 
 # Whether the cited INSTRUMENT is still the governing law. Separate from

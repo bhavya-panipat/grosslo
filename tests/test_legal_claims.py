@@ -185,7 +185,14 @@ class TestTheFirstBatchIsTheFourTaxEngineFigures(unittest.TestCase):
         return next(c for c in legal_claims.CLAIMS if c.id == cid)
 
     def test_the_batch_is_exactly_the_four_named_figures(self):
-        self.assertEqual([(c.id, c.symbol) for c in legal_claims.CLAIMS],
+        # NARROWED at Stage A: this compared the WHOLE inventory, which also
+        # froze its length — a property the first batch never claimed. Third
+        # time this exact shape has appeared (the R1-R6 migration test and the
+        # empty-inventory tests were the first two): a test written while a
+        # collection held one batch silently becomes a test about the whole
+        # collection. Its real claim is that the first four came through
+        # unaltered and in order, which is still asserted exactly.
+        self.assertEqual([(c.id, c.symbol) for c in legal_claims.CLAIMS][:4],
                          [("TE1", "NEW_REGIME_SLABS"),
                           ("TE2", "OLD_REGIME_SLABS"),
                           ("TE3", "STANDARD_DEDUCTION"),
@@ -229,7 +236,12 @@ class TestTheFirstBatchIsTheFourTaxEngineFigures(unittest.TestCase):
         # records that mapping in two places. The others carry none, because
         # none is recorded anywhere — and an invented one would read as
         # evidence, which is worse than a visible gap.
-        with_provision = [c.id for c in legal_claims.CLAIMS if c.provision.strip()]
+        # Scoped to this batch, for the reason above: OP1 legitimately carries
+        # a provision, taken from R1's record of the same proposition and
+        # recorded as such. Widening this to the whole inventory would make it
+        # assert something it was never about.
+        with_provision = [c.id for c in legal_claims.CLAIMS
+                          if c.id.startswith("TE") and c.provision.strip()]
         self.assertEqual(with_provision, ["TE4"])
 
     def test_a_missing_citation_message_does_not_claim_a_provision_exists(self):
@@ -332,3 +344,74 @@ class TestTheLegalReviewQueue(unittest.TestCase):
         queue = self._queue()
         self.assertIn("_never attempted_", queue)
         self.assertIn("unresolved:", queue)
+
+
+class TestStageAOptimizerClaims(unittest.TestCase):
+    """
+    INVENTORY_EXPANSION_DESIGN.md §4 Stage A. Two claims, no new mechanism,
+    first because OP1 is the claim this whole phase was named after.
+    """
+
+    def _claim(self, cid):
+        return next(c for c in legal_claims.CLAIMS if c.id == cid)
+
+    def test_stage_a_added_exactly_two_claims_after_the_first_batch(self):
+        self.assertEqual([c.id for c in legal_claims.CLAIMS],
+                         ["TE1", "TE2", "TE3", "TE4", "OP1", "OP2"])
+
+    def test_both_values_match_the_live_constants(self):
+        import optimizer
+        self.assertEqual(self._claim("OP1").asserted_value, optimizer.BASIC_PCT_MIN)
+        self.assertEqual(self._claim("OP2").asserted_value, optimizer.BASIC_PCT_MAX)
+        self.assertEqual(legal_claims.drift_findings(), [])
+
+    def test_the_floor_is_statutory_and_the_ceiling_is_not(self):
+        # optimizer.py's own docstring makes exactly this distinction — "one of
+        # these is statute, not assumption". Recording it is the point of
+        # inventorying the pair together rather than only the floor.
+        self.assertEqual(self._claim("OP1").claim_type, provenance.STATUTORY)
+        self.assertEqual(self._claim("OP2").claim_type, provenance.CONVENTION)
+
+    def test_the_floor_is_not_verified_despite_the_file_saying_verified(self):
+        # optimizer.py says "Verified against multiple independent sources on
+        # 2026-09-01" and names none of them. Under §5.1 that is evidence a
+        # check happened, not a trail anyone can redo.
+        op1 = self._claim("OP1")
+        self.assertFalse(op1.citation_is_checked)
+        self.assertTrue(op1.citation_attempt_unresolved)
+        self.assertIn("names NONE of them", op1.citation_checked_on)
+
+    def test_no_citation_trail_was_backdated_onto_an_older_check(self):
+        # The easy mistake §5.1 names: find a better source today, credit it to
+        # a check made earlier on different evidence, and the claim reads as
+        # verified on a basis nobody used.
+        op1 = self._claim("OP1")
+        self.assertIn("NOT backdated", op1.citation_checked_on)
+        self.assertFalse(op1.citation_is_checked,
+                         "a 2026-09-01 check was upgraded to verified")
+
+    def test_the_ceiling_records_its_derivation_unlike_R2_and_R4(self):
+        # R2's Rs 6L and R4's 10% are recorded as UNKNOWN because nobody wrote
+        # down where they came from. BASIC_PCT_MAX is the counter-example: its
+        # derivation is stated in the file that defines it, so the inventory
+        # can record a real answer rather than an honest blank.
+        basis = self._claim("OP2").basis
+        self.assertIn("10-point", basis)
+        self.assertNotIn("unknown", basis.lower())
+
+    def test_no_claim_is_verified_on_a_date_with_no_trail(self):
+        # Mechanical half of §5.1: a date answers WHEN; the trail lives in
+        # instrument/provision/source_url. A statutory claim carrying a check
+        # date but neither a provision nor a source is verified on nothing.
+        #
+        # Asserted here as a property of the inventory. Promoting it to a
+        # protocol check in provenance.py would also cover the rule set, and is
+        # a candidate for Stage B — held back because Stage A adds no mechanism.
+        for claim in legal_claims.CLAIMS:
+            if claim.claim_type != provenance.STATUTORY:
+                continue
+            with self.subTest(claim=claim.id):
+                if claim.citation_is_checked:
+                    self.assertTrue(
+                        claim.provision.strip() and claim.source_url.strip(),
+                        "claim is marked checked but records no re-findable trail")

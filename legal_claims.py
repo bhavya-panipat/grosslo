@@ -34,7 +34,7 @@ import importlib
 from dataclasses import dataclass
 
 from provenance import (
-    IN_FORCE, INSTRUMENT_UNKNOWN, STATUTORY, ProvenanceMixin,
+    CONVENTION, IN_FORCE, INSTRUMENT_UNKNOWN, STATUTORY, ProvenanceMixin,
     provenance_violations,
 )
 
@@ -239,6 +239,80 @@ CLAIMS: tuple = (
                             "unreachable from this environment -- see "
                             "docs/PRIMARY_SOURCE_LOOKUP_TASK.md. Recorded as "
                             "attempted-and-unresolved rather than verified.",
+    ),
+
+    # -----------------------------------------------------------------------
+    # STAGE A — optimizer.py (INVENTORY_EXPANSION_DESIGN.md §4). Two claims,
+    # no new mechanism, and FIRST because OP1 is the claim this entire phase
+    # was named after: the Code on Wages floor that sat wrong in this codebase
+    # until a human happened to go looking.
+    #
+    # A FINDING THAT INVERTS WHAT §10.1 ASSUMED. Reading the three files in this
+    # batch showed optimizer.py has the WEAKEST recorded provenance of the
+    # three, not the strongest -- payroll_breakdown.py's PT tables record a
+    # primary-source check against a named government PDF, while this file
+    # records only "multiple independent sources", which are secondary. So OP1
+    # leads on RISK, not on neglect: worst-evidenced AND the one with a history
+    # of having actually been wrong.
+    # -----------------------------------------------------------------------
+    Claim(
+        id="OP1", module="optimizer", symbol="BASIC_PCT_MIN",
+        describes="Statutory floor on basic salary as a share of CTC: 50%. Every "
+                  "structure this tool recommends is searched at or above it.",
+        asserted_value=0.50,
+        claim_type=STATUTORY,
+        instrument="Code on Wages, 2019 (Act 29 of 2019)",
+        instrument_status=IN_FORCE,
+        # SAME NAMING DISCREPANCY R1 CARRIES, and recorded the same way rather
+        # than silently corrected: optimizer.py's own text says "Code on Wages
+        # 2025". The Act is the Code on Wages, 2019 (Act 29 of 2019);
+        # 21 Nov 2025 is its commencement, not its year. Changing the comment is
+        # a separate edit from describing it, and this file describes.
+        provision="Code on Wages, 2019 (Act 29 of 2019), s. 2(y) -- definition of "
+                  "\"wages\"; proviso on excluded allowances exceeding one-half of "
+                  "all remuneration. In force 21 Nov 2025.",
+        source_url="https://www.indiacode.nic.in/handle/123456789/15793",
+        threshold_origin="STATUTORY -- the 50% is set by the Code on Wages, not "
+                         "chosen here. optimizer.py's own docstring is explicit "
+                         "that this floor is statute and the CEILING beside it is "
+                         "not, which is why both are inventoried together.",
+        citation_checked_on="unresolved: optimizer.py records 'Verified against "
+                            "multiple independent sources on 2026-09-01' and names "
+                            "NONE of them. Under the standing rule "
+                            "(INVENTORY_EXPANSION_DESIGN.md §5.1) that is evidence a "
+                            "check occurred, not a trail an independent party can "
+                            "redo, so it does not qualify as verified. The provision "
+                            "and source_url above are taken from R1's record of the "
+                            "same proposition in compliance_rules.py -- optimizer.py "
+                            "itself names no provision -- and R1's citation is ALSO "
+                            "unresolved, so nothing here has been confirmed against a "
+                            "primary source. NOT backdated: no source was hunted down "
+                            "today and credited to the 2026-09-01 check.",
+    ),
+    Claim(
+        id="OP2", module="optimizer", symbol="BASIC_PCT_MAX",
+        describes="Ceiling on basic salary as a share of CTC: 60%. Bounds the "
+                  "search space; not a legal limit.",
+        asserted_value=0.60,
+        claim_type=CONVENTION,
+        basis="NOT LAW, and inventoried precisely to say so out loud. optimizer.py's "
+              "docstring states the derivation in full: the ceiling was raised to "
+              "60% to preserve the same 10-point search width the original 40-50% "
+              "band had, repositioned above the new statutory floor, so the space "
+              "does not collapse to a single point at exactly 0.50. It does real "
+              "work -- an unconstrained tax-minimising search pushes basic upward "
+              "indefinitely, because employer PF is not taxable to the employee and "
+              "the Section 124 NPS deduction scales with basic, so more basic "
+              "shelters more CTC. Unlike R2's Rs 6L and R4's 10%, this threshold's "
+              "derivation IS recorded, in the file that defines it.",
+        threshold_origin="NOT STATUTORY -- an engineering judgement, and the one "
+                         "place in this batch where the codebase already said so "
+                         "itself. HOW THIS IS KNOWN: optimizer.py's docstring "
+                         "distinguishes the floor ('one of these is statute, not "
+                         "assumption') from the ceiling and gives the ceiling's "
+                         "reasoning explicitly. A reviewer may move it; moving it "
+                         "changes this tool's search space, never its compliance "
+                         "with anything external.",
     ),
 )
 
