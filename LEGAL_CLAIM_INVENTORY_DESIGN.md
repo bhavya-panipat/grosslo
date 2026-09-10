@@ -234,6 +234,21 @@ explicitly *not* evidence — it is a prompt to run the browser lookup. That mus
 be visible in the finding itself, or the project quietly lowers the bar it
 raised in 2.2.
 
+**WHAT WAS ACTUALLY BUILT IS NARROWER THAN THIS, AND THE FETCH HALF WAS LEFT
+OUT ON PURPOSE.** `scripts/generate_legal_review_queue.py` produces one
+prioritized queue over both carriers and consults no source at all. The
+reasoning, which is the paragraph above followed to its conclusion: primary
+sources return 403, and a secondary source is not verification here — so an
+automated fetch's best possible output is a finding that says *"go run the
+browser lookup"*, which the queue already says with no network, no flakiness,
+and no risk of a fetched snippet being mistaken for proof. A content-hash watch
+on the primary URLs would report 403 in perpetuity.
+
+Recorded as a narrowing rather than delivered as if it were the whole thing.
+The fetch half remains available to build the moment primary sources become
+reachable, at which point it would produce something a human could not get
+faster themselves.
+
 ### 4.7 Type A and Type B findings
 
 - **Type B — "an obligation exists that no rule covers."** This *is* a candidate
@@ -336,3 +351,29 @@ reasoning behind §4 and §7 stays legible.
 Any change to a tax value; any scheduled job; any automated write of a
 verification state; any claim marked verified without a human; the remaining ~21
 claims outside §5's batch; and a CA's approval.
+
+## 9. Verification discipline — a standing requirement, not a one-off recovery
+
+**Every verification in this project runs with `python3 -B`, and clears
+`~/Library/Caches/com.apple.python` if anything looks inconsistent.**
+
+macOS CommandLineTools Python does not write `__pycache__` here; it writes to
+that cache directory. On 2026-09-10, after `tax_engine.py` was restored from a
+backup, `git status`, `grep`, `shasum` and Python's own `open()` all read the
+correct value while `import tax_engine` returned the sabotaged one — same path,
+same process.
+
+**Why this is a standing rule and not a footnote:** a sabotage-proof validated
+against stale bytecode is indistinguishable from a clean pass. That instance was
+caught only because the sabotage named the *wrong constant* — a slab-table
+change was reported against `STANDARD_DEDUCTION`. Had the sabotage touched the
+same constant, a false "proven" would have been reported and believed.
+
+The root cause was never established — mtime invalidation should have handled a
+`cp` restore and did not — so none is invented here. The rule stands regardless
+of the cause, because the cost of following it is nil and the cost of not
+following it is a verification claim that is silently false.
+
+**Corollary, from the same session:** never use `git checkout --` to undo a
+sabotage on a file that has uncommitted work in it. Restore from a backup copy.
+Tracked is not committed.

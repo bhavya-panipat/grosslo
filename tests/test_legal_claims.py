@@ -244,3 +244,91 @@ class TestTheFirstBatchIsTheFourTaxEngineFigures(unittest.TestCase):
         for claim in legal_claims.CLAIMS:
             with self.subTest(claim=claim.id):
                 self.assertTrue(claim.threshold_origin.strip())
+
+
+class TestTheLegalReviewQueue(unittest.TestCase):
+    """
+    Phase 2.4 step 5 (design §4.6). One prioritized queue over BOTH provenance
+    carriers — the payoff of step 1's extraction. Before it, a rule's staleness
+    and a constant's staleness were different kinds of thing in different
+    places and could not be ranked against each other.
+    """
+
+    def _run(self, *args):
+        import subprocess
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        return subprocess.run(
+            [sys.executable, "-B",
+             os.path.join(root, "scripts", "generate_legal_review_queue.py"), *args],
+            capture_output=True, text=True, cwd=root)
+
+    def _queue(self):
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(root, "docs", "LEGAL_REVIEW_QUEUE.md")) as f:
+            return f.read()
+
+    def test_the_committed_queue_matches_the_generator(self):
+        result = self._run("--check")
+        self.assertEqual(result.returncode, 0,
+                         f"queue is stale.\n{result.stdout}{result.stderr}")
+
+    def test_it_covers_both_carriers_in_one_list(self):
+        queue = self._queue()
+        self.assertIn("### R5", queue, "no compliance rule reached the queue")
+        self.assertIn("### TE1", queue, "no legal claim reached the queue")
+        self.assertIn("compliance rules and", queue)
+
+    def test_the_worst_item_is_first_not_the_easiest(self):
+        # Ranked by how badly a reader could be misled, never by effort. R5
+        # cites a repealed Act — it reads as verified while locating nothing,
+        # which is worse than a visibly-missing citation.
+        queue = self._queue()
+        first = queue.index("### R5")
+        for other in ("### TE1", "### TE2", "### TE3", "### R1", "### TE4"):
+            with self.subTest(item=other):
+                self.assertLess(first, queue.index(other),
+                                "a lesser item outranked the superseded-law item")
+
+    def test_every_live_rule_and_every_claim_is_accounted_for(self):
+        queue = self._queue()
+        for claim in legal_claims.CLAIMS:
+            with self.subTest(item=claim.id):
+                self.assertIn(f"### {claim.id}", queue,
+                              "a live legal claim is missing from the queue")
+        for rule in compliance_rules.RULES:
+            if rule.is_live and not rule.implementation_is_reviewed:
+                with self.subTest(item=rule.id):
+                    self.assertIn(f"### {rule.id}", queue)
+
+    def test_an_inert_candidate_rule_never_appears(self):
+        # A candidate cannot fire, so it cannot mislead anyone, so it does not
+        # belong in a queue about what might be wrong in production. R7 and R8
+        # are the live check that the is_live filter is doing work.
+        queue = self._queue()
+        for rule in compliance_rules.RULES:
+            if not rule.is_live:
+                with self.subTest(item=rule.id):
+                    self.assertNotIn(f"### {rule.id}", queue,
+                                     "an inert candidate leaked into the queue")
+
+    def test_the_queue_says_plainly_that_it_is_not_evidence(self):
+        # §4.6's hard requirement. A list of legal-sounding findings that does
+        # not say what it is would be read as research.
+        self.assertIn("Nothing in this file is evidence", self._queue())
+
+    def test_the_queue_states_the_never_decide_boundary(self):
+        queue = self._queue()
+        self.assertIn("may never decide", queue)
+        self.assertIn("marking something verified is a human act", queue)
+
+    def test_the_queue_says_why_it_does_not_fetch(self):
+        # Narrower than §4.6 first described, and recorded rather than quietly
+        # delivered as if it were the whole thing.
+        queue = self._queue()
+        self.assertIn("does not fetch anything, on purpose", queue)
+        self.assertIn("403", queue)
+
+    def test_it_distinguishes_never_attempted_from_attempted_and_unresolved(self):
+        queue = self._queue()
+        self.assertIn("_never attempted_", queue)
+        self.assertIn("unresolved:", queue)
