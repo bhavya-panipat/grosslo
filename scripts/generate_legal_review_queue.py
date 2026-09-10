@@ -1,0 +1,225 @@
+"""
+Generates docs/LEGAL_REVIEW_QUEUE.md — everything in this codebase that asserts
+law and cannot currently be shown to be right (LEGAL_CLAIM_INVENTORY_DESIGN.md
+§4.6, Phase 2.4 step 5).
+
+    python3 -B scripts/generate_legal_review_queue.py [--check]
+
+WHAT THIS IS. One prioritized queue over BOTH provenance carriers — the
+compliance rule set and the legal claim inventory. That single queue is the
+payoff of step 1's extraction: before it, a rule's staleness and a constant's
+staleness were different kinds of thing living in different places, and nothing
+could rank them against each other.
+
+WHAT THIS IS NOT, and the boundary is not negotiable (design §3):
+
+  This tool may NOTICE and FLAG. It may never DECIDE.
+
+It does not deactivate a rule, reactivate one, edit a citation, mark anything
+verified, or judge that a value is correct. Every line it emits is a task for a
+person. Marking something verified is a human act, in the same class as
+reviewed_by, and no automated path writes it.
+
+WHY IT DOES NOT FETCH ANYTHING, deliberately and against the design's own first
+sketch. §4.6 described a monitor that checks reachable secondary sources. That
+half is not built, because it would add nothing: primary sources return 403 from
+this environment (recorded in R5's own citation_checked_on, confirmed by two
+people independently), and a secondary source is explicitly NOT verification
+under COMPLIANCE_BREADTH_DESIGN.md §3.1 step 2. So an automated fetch would
+produce, at best, a finding that says "go run the browser lookup" — which this
+queue already says, with no network, no flakiness, and no risk of a fetched
+snippet being mistaken for evidence. A content-hash watch on the primary URLs
+would report 403 in perpetuity.
+
+That is narrower than the design promised. It is recorded here rather than
+quietly delivered as if it were the whole thing.
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+import compliance_rules
+import legal_claims
+import provenance
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DOC = os.path.join(ROOT, "docs", "LEGAL_REVIEW_QUEUE.md")
+
+# Priority tiers. Ordered by how badly a reader could be misled, NOT by how
+# hard each is to fix — the queue exists to say what matters most, and sorting
+# by effort would quietly bury the worst item under the easiest ones.
+CITES_DEAD_LAW = (
+    1, "Cites law that has been superseded",
+    "Worst of the four. The citation may match its source text perfectly and "
+    "still point at a repealed Act, so it reads as verified while locating "
+    "nothing. Strictly worse than an unresolved citation, which is at least "
+    "visibly a gap.")
+NO_CITATION_AT_ALL = (
+    2, "Asserts law with no citation recorded anywhere",
+    "A statutory claim nobody can check, because there is nothing to check "
+    "against. Unverifiable by anyone, not merely unverified.")
+ATTEMPTED_UNRESOLVED = (
+    3, "Citation attempted, no primary source reached",
+    "Someone tried and could not. Distinct from never having tried, and worse: "
+    "it means the claim is uncheckable from here rather than merely unchecked.")
+UNREVIEWED = (
+    4, "No human has signed off",
+    "The one assertion no automated check can produce. Everything else in this "
+    "queue can be narrowed by fetching a document; this cannot.")
+
+
+def _tier(item):
+    if item.is_live and item.cites_superseded_law:
+        return CITES_DEAD_LAW
+    if item.claim_type == provenance.STATUTORY and not item.provision.strip():
+        return NO_CITATION_AT_ALL
+    if item.citation_attempt_unresolved:
+        return ATTEMPTED_UNRESOLVED
+    if not item.implementation_is_reviewed:
+        return UNREVIEWED
+    return None
+
+
+def _where(item):
+    """Where the thing lives, for someone who has to go and look at it."""
+    if hasattr(item, "where"):
+        return f"`{item.where}`"
+    return "`compliance_rules.py`"
+
+
+def _describes(item):
+    return getattr(item, "describes", None) or getattr(item, "check", "")
+
+
+def collect() -> list:
+    """
+    Everything with provenance, from both carriers, tiered.
+
+    Only LIVE items. An inert candidate rule cannot mislead anyone, so it does
+    not belong in a queue about what might be wrong in production — while every
+    Claim is live by construction (design §4.4), which is why the inventory
+    dominates this list.
+    """
+    rows = []
+    for item in tuple(compliance_rules.RULES) + tuple(legal_claims.CLAIMS):
+        if not item.is_live:
+            continue
+        tier = _tier(item)
+        if tier is not None:
+            rows.append((tier, item))
+    rows.sort(key=lambda row: (row[0][0], row[1].id))
+    return rows
+
+
+def render_document() -> str:
+    rows = collect()
+    live_rules = [r for r in compliance_rules.RULES if r.is_live]
+    out = [
+        "<!-- GENERATED by scripts/generate_legal_review_queue.py — do not edit. -->",
+        "",
+        "# Legal review queue",
+        "",
+        f"**{len(rows)} items** across {len(live_rules)} live compliance rules and "
+        f"{len(legal_claims.CLAIMS)} legal claims.",
+        "",
+        "## Read this first",
+        "",
+        "**Nothing in this file is evidence.** It is a list of things this "
+        "codebase asserts about the law that cannot currently be shown to be "
+        "right. It was produced by reading the codebase's own records, not by "
+        "consulting any legal source, and it resolves nothing.",
+        "",
+        "The tool that generates it may notice and flag. It may never decide. "
+        "It does not deactivate a rule, edit a citation, mark anything "
+        "verified, or judge that a value is correct — every line below is a "
+        "task for a person, and marking something verified is a human act.",
+        "",
+        "**It does not fetch anything, on purpose.** Primary legal sources "
+        "return HTTP 403 from the environment this was built in, confirmed "
+        "independently by two people. A secondary source is not verification "
+        "under this project's own standard, so an automated fetch would at "
+        "best tell you to go and run the browser lookup — which this file "
+        "already says, without the risk of a fetched snippet being mistaken "
+        "for proof. See `docs/PRIMARY_SOURCE_LOOKUP_TASK.md`.",
+        "",
+        "---",
+        "",
+    ]
+
+    current_tier = None
+    for tier, item in rows:
+        if tier is not current_tier:
+            current_tier = tier
+            rank, title, why = tier
+            out += [f"## {rank}. {title}", "", why, ""]
+        out += [
+            f"### {item.id} — {_describes(item)}",
+            "",
+            f"- **Where:** {_where(item)}",
+            f"- **Instrument:** {item.instrument or '_none recorded_'} "
+            f"({item.instrument_status})",
+            f"- **Provision:** {item.provision or '_none recorded_'}",
+        ]
+        state = item.citation_checked_on.strip()
+        if not state:
+            shown = "_never attempted_"
+        elif item.citation_attempt_unresolved:
+            shown = state
+        else:
+            shown = f"checked {state}"
+        out += [f"- **Citation state:** {shown}", ""]
+
+    out += [
+        "---",
+        "",
+        "## What would take an item off this list",
+        "",
+        "Reaching a primary source and reading it removes tiers 1-3. It does "
+        "**not** remove tier 4: confirming that a provision exists and says "
+        "what is quoted is a different act from judging that a value or a "
+        "threshold correctly implements it. Only a qualified person clears "
+        "that, by recording `reviewed_by` and `reviewed_on`.",
+        "",
+        "For a legal claim, a reviewer is asserting **the value matches the "
+        "cited source**. For a compliance rule, that **the predicate correctly "
+        "implements the claim**. Different assertions; do not treat one as the "
+        "other.",
+        "",
+    ]
+    return "\n".join(out).rstrip() + "\n"
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--check", action="store_true")
+    args = ap.parse_args()
+
+    updated = render_document()
+    existing = ""
+    if os.path.exists(DOC):
+        with open(DOC) as f:
+            existing = f.read()
+
+    if args.check:
+        if updated != existing:
+            print("docs/LEGAL_REVIEW_QUEUE.md is OUT OF SYNC.\n"
+                  "Run: python3 -B scripts/generate_legal_review_queue.py",
+                  file=sys.stderr)
+            return 1
+        print(f"legal review queue is in sync ({len(collect())} items)")
+        return 0
+
+    os.makedirs(os.path.dirname(DOC), exist_ok=True)
+    with open(DOC, "w") as f:
+        f.write(updated)
+    print(f"wrote {DOC}: {len(collect())} items")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

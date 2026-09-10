@@ -15,6 +15,13 @@ fields on one object (see the note above RULES). The real risk was never that
 one had drifted; it was that a rule's justification could change in one file and
 not the other with nothing noticing.
 
+WHERE THE EVIDENCE MODEL LIVES. The claim types, the three-valued citation
+state, the instrument tracking and the shared checker are in provenance.py, not
+here — compliance rules are not the only things in this codebase that make legal
+claims (LEGAL_CLAIM_INVENTORY_DESIGN.md §4.3). They are re-exported below, so
+this module's callers are unaffected, but a reader looking for the definitions
+should look there.
+
 Now: the predicate, the text, the severity and the provenance are one object.
 compliance_rules.md is GENERATED from this (scripts/generate_compliance_rules_md.py),
 and the rule count is derived rather than declared.
@@ -67,44 +74,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
+# The evidence model now lives in provenance.py: compliance rules are not the
+# only things in this codebase that make legal claims (design §4.3). Re-exported
+# here so every existing caller, test and import path is unchanged — the move is
+# structural and changes no behaviour.
+from provenance import (  # noqa: F401  (re-exported for compatibility)
+    STATUTORY, CONVENTION, UNRESOLVED, IN_FORCE, SUPERSEDED, INSTRUMENT_UNKNOWN,
+    ProvenanceMixin, provenance_violations,
+)
+
 ACTIVE = "active"
 CANDIDATE = "candidate"
-
-# What KIND of claim a rule makes. This is not decoration: it determines what
-# evidence the rule needs, and demanding the wrong kind is actively harmful.
-#
-# STATUTORY — "the law requires this". Needs a provision and a source that can
-#   be fetched and read. R1 (Code on Wages 2025) and R5 (Section 17(2)(vii))
-#   are the only two of the original six that make this claim.
-# CONVENTION — "this is unusual, or outside typical policy, and worth
-#   confirming". Needs a stated basis, NOT a statute. R2, R3, R4 and R6 are
-#   these. Demanding a citation from a convention rule does not make it more
-#   rigorous; it pressures whoever writes it into attaching a provision that
-#   does not actually say what the rule claims, which is worse than no citation
-#   because it looks like evidence.
-STATUTORY = "statutory"
-CONVENTION = "convention"
-
-# citation_checked_on has THREE distinguishable states, not two. "Nobody has
-# tried" and "someone tried and could not get to a primary source" are
-# different facts, and the second is worse: it means the claim is uncheckable
-# from here, not merely unchecked. Collapsing them into an empty string would
-# lose exactly the information a reviewer needs.
-#
-#   ""                      -> never attempted
-#   "unresolved: <reason>"  -> attempted, no stable primary source reached
-#   "2026-09-09"            -> fetched and read on that date
-UNRESOLVED = "unresolved: "
-
-# Whether the cited INSTRUMENT is still the governing law. Separate from
-# whether the cited TEXT says what the rule claims, because those can diverge
-# in the worst possible direction: a citation can match its source perfectly
-# and still point at a repealed Act. That combination reads as verified while
-# citing dead law — strictly worse than an unresolved citation, which at least
-# surfaces as a visible gap.
-IN_FORCE = "in_force"
-SUPERSEDED = "superseded"
-INSTRUMENT_UNKNOWN = "unknown"
 
 
 class NoActiveRulesError(RuntimeError):
@@ -154,7 +134,7 @@ def _no_active_rules_error() -> NoActiveRulesError:
 
 
 @dataclass(frozen=True)
-class Rule:
+class Rule(ProvenanceMixin):
     """
     One compliance rule. Frozen because a rule's identity, text and status
     should never be mutated in place by application code — activating a
@@ -171,7 +151,8 @@ class Rule:
                                      # A DIFFERENT REGISTER, not a copy: see below.
     predicate: Callable              # (structure, rent_paid) -> bool
     status: str                      # ACTIVE | CANDIDATE
-    claim_type: str = CONVENTION     # STATUTORY | CONVENTION — see above
+    claim_type: str = CONVENTION     # STATUTORY | CONVENTION — defined,
+                                     # with the reasoning, in provenance.py
 
     # ---- Evidence for a STATUTORY claim -----------------------------------
     # These assert exactly ONE thing: that the cited provision exists and says
@@ -228,44 +209,15 @@ class Rule:
     def is_active(self) -> bool:
         return self.status == ACTIVE
 
-    @property
-    def citation_is_checked(self) -> bool:
-        """
-        The provision was fetched and read. NOT the same as reviewed: this says
-        the source exists and says what is quoted, and says nothing about
-        whether the predicate implements it correctly.
-        """
-        value = self.citation_checked_on.strip()
-        if not value or value.startswith(UNRESOLVED):
-            return False
-        # A matched text in a repealed Act is not a verified citation. Requiring
-        # the instrument to be in force is what stops a rule going green while
-        # pointing at law that no longer governs.
-        return self.instrument_status == IN_FORCE
+    # For a rule, a reviewer asserts the PREDICATE is a correct implementation
+    # — not that a number matches a source. See ProvenanceMixin.REVIEW_MEANS.
+    REVIEW_MEANS = "reviewed the implementation"
 
     @property
-    def cites_superseded_law(self) -> bool:
-        """
-        The cited instrument has been repealed or replaced. The rule may still
-        describe a real obligation — the successor Act usually carries the rule
-        forward somewhere — but this citation no longer locates it.
-        """
-        return self.instrument_status == SUPERSEDED
-
-    @property
-    def citation_attempt_unresolved(self) -> bool:
-        """
-        Someone tried to reach a primary source and could not. Distinct from
-        never having tried, and distinct from having succeeded — a rule in this
-        state is making a statutory claim nobody has been able to confirm.
-        """
-        return self.citation_checked_on.strip().startswith(UNRESOLVED)
-
-    @property
-    def implementation_is_reviewed(self) -> bool:
-        """A qualified human judged the predicate a correct implementation."""
-        return bool(self.reviewed_by.strip() and self.reviewed_on.strip())
-
+    def is_live(self) -> bool:
+        # A rule CAN be inert. See ProvenanceMixin.is_live for why this is the
+        # one place Rule and Claim genuinely differ.
+        return self.is_active
 
 # ---------------------------------------------------------------------------
 # R1-R6. `rationale` is copied BYTE-FOR-BYTE from ai_layer._check_rules(), so
@@ -436,96 +388,15 @@ RULES: tuple = (
 PRE_PROTOCOL_RULE_IDS = frozenset({"R1", "R2", "R3", "R4", "R5", "R6"})
 
 
+
 def protocol_violations() -> list:
     """
-    Ways the rule set violates the candidate-rule protocol, as readable strings.
-    Empty means compliant.
-
-    Requirements differ BY CLAIM TYPE, because a convention rule has no statute
-    to cite and demanding one would produce a fabricated citation — evidence
-    that looks stronger than it is.
-
-    Note what is NOT checked here, deliberately: nothing in this function can
-    tell whether a predicate correctly implements the claim its rule makes.
-    That is what reviewed_by exists to record, and it is the one assertion no
-    automated check can produce.
+    The compliance rule set's own violations. A thin wrapper so every existing
+    caller and test is unchanged, and so "which collection, with which
+    grandfathering" stays an explicit fact about the rule set rather than
+    something the generic checker assumes.
     """
-    problems = []
-    for rule in RULES:
-        pre = rule.id in PRE_PROTOCOL_RULE_IDS
-
-        if rule.claim_type not in (STATUTORY, CONVENTION):
-            problems.append(f"{rule.id} has unknown claim_type {rule.claim_type!r}")
-
-        if rule.is_active and not pre and not rule.implementation_is_reviewed:
-            # Activation requires the HUMAN claim, not the citation claim. A
-            # rule with a perfect citation and no reviewer has had its source
-            # confirmed and its implementation confirmed by nobody.
-            problems.append(
-                f"{rule.id} is active but no one has reviewed the implementation "
-                f"(reviewed_by/reviewed_on)")
-
-        # CHECK 1 + 2 apply to every statutory rule, grandfathered or not.
-        # R1 and R5 are exempt from having a BACKDATED reviewer, not from being
-        # citable: a rule asserting that the law requires something, with no
-        # provision recorded and no attempt logged, is unverifiable by anyone.
-        if rule.claim_type == STATUTORY:
-            for field in ("source_url", "provision"):
-                if not getattr(rule, field).strip():
-                    problems.append(f"{rule.id} claims statute but carries no {field}")
-            # CHECK 2: a citation nobody has even attempted to reach. The
-            # unresolved marker satisfies this — "tried and could not" is a
-            # recorded outcome; silence is not.
-            if not rule.citation_checked_on.strip():
-                problems.append(
-                    f"{rule.id} cites a provision but records no citation_checked_on "
-                    f"(neither a check date nor an unresolved attempt)")
-            # CHECK 5: which instrument, and does it still govern.
-            if not rule.instrument.strip():
-                problems.append(
-                    f"{rule.id} cites a provision without naming the instrument it "
-                    f"belongs to — a section number is meaningless without an Act")
-            if rule.instrument_status not in (IN_FORCE, SUPERSEDED, INSTRUMENT_UNKNOWN):
-                problems.append(
-                    f"{rule.id} has unknown instrument_status {rule.instrument_status!r}")
-            if rule.is_active and rule.cites_superseded_law:
-                problems.append(
-                    f"{rule.id} is ACTIVE and cites a superseded instrument "
-                    f"({rule.instrument}) — the obligation may survive in the "
-                    f"successor Act, but this citation no longer locates it")
-
-        # CHECK 3 applies to every convention rule, grandfathered or not: an
-        # unstated basis is exactly as unreviewable as an unstated citation.
-        if rule.claim_type == CONVENTION:
-            if not rule.basis.strip():
-                problems.append(f"{rule.id} is a convention rule with no stated basis")
-
-        # CHECK 6: the threshold-origin question, asked of EVERY claim type.
-        # Deliberately not restricted to convention rules even though that is
-        # where the gap was found: a statutory rule can also carry a number the
-        # provision does not actually specify, and the same question catches it.
-        #
-        # PRESENCE ONLY. This cannot tell a true answer from a confident wrong
-        # one. It exists so that no candidate advances with the question
-        # unanswered — process enforcement, with the code holding the door.
-        if not pre and not rule.threshold_origin.strip():
-            problems.append(
-                f"{rule.id} does not say where its threshold number came from "
-                f"(threshold_origin): every candidate must state in writing "
-                f"whether the number is derived from a statute, and how that is "
-                f"known, before it can advance")
-
-        if not pre:
-            if rule.claim_type == CONVENTION:
-                if rule.provision.strip() or rule.source_url.strip():
-                    # A convention rule carrying a provision is either
-                    # mislabelled or is citing a statute that does not actually
-                    # require what it claims.
-                    problems.append(
-                        f"{rule.id} is a convention rule but cites a provision — "
-                        f"either it is statutory and mislabelled, or the citation "
-                        f"does not say what the rule claims")
-    return problems
+    return provenance_violations(RULES, PRE_PROTOCOL_RULE_IDS)
 
 
 def active_rules() -> tuple:
