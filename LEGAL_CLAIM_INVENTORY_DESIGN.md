@@ -391,11 +391,26 @@ committing to twenty-five). It is not done. Still uninventoried:
 
 | Where | Claims | Note |
 |---|---|---|
-| `optimizer.py` | `BASIC_PCT_MIN` | **The bug this entire phase is named after.** It is still the one legal claim in this codebase with no structured provenance and a history of having been wrong. It should lead the next batch. |
+| `optimizer.py` | `BASIC_PCT_MIN` | **LEADS THE NEXT BATCH — the specific priority, not first among equals.** See below. |
 | `payroll_breakdown.py` | `PT_MONTHLY_TABLE` | Five separate **state** statutes, each independently amendable — the largest single block of uninventoried law here, and the most frequently amended. |
 | `penalty_exposure.py` | `EPF_7Q_MONTHLY_RATE`, `EPF_14B_MONTHLY_RATE`, ss. 398(3), and the reasoned exclusion of s. 448 | The 14B rate depends on a 2024 Ministry notification, which is a different kind of instrument from an Act and may need `instrument` to say so. |
 | `tax_engine.py` | `CESS_RATE`, `EMPLOYER_PF_RATE`, `PF_WAGE_CEILING_BASIC`, `REBATE_87A_THRESHOLD`, `REBATE_87A_MAX` | Same file as the first batch, deferred only to keep that batch small. |
 | `ai_layer.py`, `execution_trace.py`, `orchestration.py` | Sections 11 + Sch. II, 392, 124, 17(2)(vii) | Citations shown to users, not values. May need a claim kind that asserts a *citation* rather than a *number*. |
+
+**`optimizer.py:BASIC_PCT_MIN` leads that list, explicitly and by priority
+rather than by position.** No other claim in this codebase has both of these
+properties at once:
+
+1. **It is the most load-bearing threshold in the optimizer.** It constrains
+   every structure the tool recommends — not one check among several, but a
+   floor the entire search is conducted inside.
+2. **It has a proven history of actually having been wrong**, caught only
+   because a human happened to look. Every other uninventoried claim is
+   *unverified*; this one is unverified **and** has already failed once.
+
+It is also the claim this phase was named after and did not cover. Starting the
+next batch anywhere else would repeat the original error — building the
+apparatus and pointing it away from the thing that motivated it.
 
 **That last column is a real open question, not a formality:** every claim in
 the first batch asserts a NUMBER, and `asserted_value` plus the drift check
