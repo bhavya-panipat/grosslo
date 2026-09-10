@@ -202,6 +202,10 @@ class Rule(ProvenanceMixin):
     def is_active(self) -> bool:
         return self.status == ACTIVE
 
+    # For a rule, a reviewer asserts the PREDICATE is a correct implementation
+    # — not that a number matches a source. See ProvenanceMixin.REVIEW_MEANS.
+    REVIEW_MEANS = "reviewed the implementation"
+
     @property
     def is_live(self) -> bool:
         # A rule CAN be inert. See ProvenanceMixin.is_live for why this is the

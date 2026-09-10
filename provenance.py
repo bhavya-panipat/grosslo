@@ -83,6 +83,13 @@ class ProvenanceMixin:
     same reason — the alternative that cannot drift also cannot be checked.
     """
 
+    # What a recorded reviewer is ASSERTING. Overridden per carrier because the
+    # act genuinely differs: for a compliance rule it is "this predicate
+    # correctly implements the claim"; for a legal claim it is "this value
+    # matches the cited source". Both are human judgements no check can make,
+    # but a message that names the wrong one sends a reviewer to the wrong task.
+    REVIEW_MEANS = "reviewed the implementation"
+
     @property
     def is_live(self) -> bool:
         """
@@ -171,7 +178,7 @@ def provenance_violations(items, pre_protocol_ids=frozenset()) -> list:
             # rule with a perfect citation and no reviewer has had its source
             # confirmed and its implementation confirmed by nobody.
             problems.append(
-                f"{rule.id} is active but no one has reviewed the implementation "
+                f"{rule.id} is live but no one has {rule.REVIEW_MEANS} "
                 f"(reviewed_by/reviewed_on)")
 
         # CHECK 1 + 2 apply to every statutory rule, grandfathered or not.
@@ -199,7 +206,7 @@ def provenance_violations(items, pre_protocol_ids=frozenset()) -> list:
                     f"{rule.id} has unknown instrument_status {rule.instrument_status!r}")
             if rule.is_live and rule.cites_superseded_law:
                 problems.append(
-                    f"{rule.id} is ACTIVE and cites a superseded instrument "
+                    f"{rule.id} is LIVE and cites a superseded instrument "
                     f"({rule.instrument}) — the obligation may survive in the "
                     f"successor Act, but this citation no longer locates it")
 
