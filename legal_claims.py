@@ -34,7 +34,8 @@ import importlib
 from dataclasses import dataclass
 
 from provenance import (
-    INSTRUMENT_UNKNOWN, STATUTORY, ProvenanceMixin, provenance_violations,
+    IN_FORCE, INSTRUMENT_UNKNOWN, STATUTORY, ProvenanceMixin,
+    provenance_violations,
 )
 
 
@@ -137,7 +138,109 @@ class Claim(ProvenanceMixin):
 # every claim answers for itself from the first one.
 # ---------------------------------------------------------------------------
 
-CLAIMS: tuple = ()
+CLAIMS: tuple = (
+    # -----------------------------------------------------------------------
+    # FIRST BATCH — tax_engine.py's core figures only (design §5). Four claims,
+    # chosen because every tax number this tool produces depends on them.
+    #
+    # DELIBERATELY DEFERRED AND NAMED, so the boundary is explicit rather than
+    # an oversight: CESS_RATE, EMPLOYER_PF_RATE, PF_WAGE_CEILING_BASIC,
+    # REBATE_87A_THRESHOLD and REBATE_87A_MAX are equally statutory and sit in
+    # the same file; payroll_breakdown.py's five state PT tables,
+    # penalty_exposure.py's EPF and TDS sections, optimizer.py's Code on Wages
+    # floor and ai_layer.py's section citations follow once the shape is proven.
+    #
+    # ALL FOUR LAND UNVERIFIED, AND THAT IS THE BATCH WORKING. The purpose is to
+    # make truth-status visible, and the visible truth is that four of the most
+    # load-bearing numbers in this system rest on nothing recorded.
+    #
+    # WHAT THE REPOSITORY ACTUALLY RECORDS, and the distinction that decided
+    # every citation_checked_on below: tax_engine.py's docstring describes a
+    # citation sweep on 2026-09-02 that re-verified SECTION NUMBERS (87A->156,
+    # 80CCD(2)->124, 201(1A)->398(3), 271C->448). It did not verify the VALUES.
+    # A sweep confirming that a section was renumbered says nothing about
+    # whether the figures in these tables match what that section now says.
+    #
+    # `instrument` records which Act the CODE is claiming to implement — the
+    # Income-tax Act, 2025, per COMPLIANCE_BREADTH_DESIGN.md §3.5's scope
+    # decision. Whether these values actually match that Act is precisely what
+    # is unverified, and that lives in citation_checked_on, not here.
+    # -----------------------------------------------------------------------
+    Claim(
+        id="TE1", module="tax_engine", symbol="NEW_REGIME_SLABS",
+        describes="New-regime income tax slab boundaries and rates: nil to Rs 4L, "
+                  "then 5/10/15/20/25% bands, 30% above Rs 24L.",
+        asserted_value=[(400_000, 0.00), (800_000, 0.05), (1_200_000, 0.10),
+                        (1_600_000, 0.15), (2_000_000, 0.20), (2_400_000, 0.25),
+                        (float("inf"), 0.30)],
+        claim_type=STATUTORY,
+        instrument="Income-tax Act, 2025 (Act 30 of 2025)",
+        instrument_status=IN_FORCE,
+        threshold_origin="STATUTORY, and that is the whole point of the claim: "
+                         "these are not thresholds this tool chose but figures "
+                         "the Act sets. Nothing here is an engineering "
+                         "judgement, so there is no judgement to justify -- "
+                         "only a citation to produce, which is what is missing.",
+        # NOT "unresolved": nobody has attempted to verify these VALUES against a
+        # source at all. That is a different and less bad state than "tried and
+        # could not reach one", and collapsing the two would lose exactly what a
+        # reviewer needs. The 2026-09-02 sweep covered section numbers only.
+        citation_checked_on="",
+    ),
+    Claim(
+        id="TE2", module="tax_engine", symbol="OLD_REGIME_SLABS",
+        describes="Old-regime income tax slab boundaries and rates: nil to Rs 2.5L, "
+                  "5% to Rs 5L, 20% to Rs 10L, 30% above.",
+        asserted_value=[(250_000, 0.00), (500_000, 0.05), (1_000_000, 0.20),
+                        (float("inf"), 0.30)],
+        claim_type=STATUTORY,
+        instrument="Income-tax Act, 2025 (Act 30 of 2025)",
+        instrument_status=IN_FORCE,
+        threshold_origin="STATUTORY -- set by the Act, not chosen here. See TE1.",
+        citation_checked_on="",
+    ),
+    Claim(
+        id="TE3", module="tax_engine", symbol="STANDARD_DEDUCTION",
+        describes="Flat standard deduction from salary income: Rs 75,000 under the "
+                  "new regime, Rs 50,000 under the old.",
+        asserted_value={"new": 75_000, "old": 50_000},
+        claim_type=STATUTORY,
+        instrument="Income-tax Act, 2025 (Act 30 of 2025)",
+        instrument_status=IN_FORCE,
+        threshold_origin="STATUTORY -- set by the Act, not chosen here. See TE1.",
+        citation_checked_on="",
+    ),
+    Claim(
+        id="TE4", module="tax_engine", symbol="NPS_80CCD2_CAP_PCT",
+        describes="Employer NPS contribution deductible as a percentage of basic: "
+                  "14% under the new regime, 10% under the old.",
+        asserted_value={"new": 0.14, "old": 0.10},
+        claim_type=STATUTORY,
+        # The ONE claim in this batch with a provision recorded anywhere in the
+        # repository, and it is recorded here because the repo records it -- not
+        # because it is confirmed. README's "Regulatory currency" section and
+        # tax_engine.py's own docstring both name this mapping.
+        provision="Section 124, read with Schedule XV (formerly s. 80CCD(2) of "
+                  "the Income-tax Act, 1961) -- employer contribution to the "
+                  "National Pension System deductible from salary income.",
+        source_url="https://www.incometaxindia.gov.in/pages/acts/income-tax-act.aspx",
+        instrument="Income-tax Act, 2025 (Act 30 of 2025)",
+        instrument_status=IN_FORCE,
+        threshold_origin="STATUTORY -- the 10%/14% split is set by the Act. See TE1.",
+        citation_checked_on="unresolved: attempted 2026-09-10 and NOT resolved to a "
+                            "primary source. What the repository records is a "
+                            "2026-09-01 README pass and a 2026-09-02 sweep in "
+                            "tax_engine.py's docstring, both against SECONDARY "
+                            "sources, which this project's own standard refuses to "
+                            "treat as verification (COMPLIANCE_BREADTH_DESIGN.md "
+                            "§3.1 step 2). Those record the SECTION renumbering "
+                            "80CCD(2) -> 124; the README additionally states the "
+                            "10%/14% split is unchanged. Primary sources remain "
+                            "unreachable from this environment -- see "
+                            "docs/PRIMARY_SOURCE_LOOKUP_TASK.md. Recorded as "
+                            "attempted-and-unresolved rather than verified.",
+    ),
+)
 
 
 def evidence_findings() -> list:

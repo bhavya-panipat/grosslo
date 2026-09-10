@@ -29,16 +29,24 @@ def _probe(**kw):
     return Claim(**base)
 
 
-class TestTheInventoryStartsEmptyOnPurpose(unittest.TestCase):
+class TestTheMechanismWorksIndependentlyOfTheInventory(unittest.TestCase):
+    """
+    REPLACES two step-2 tests that asserted CLAIMS == () and that both reports
+    came back empty. They pinned the step ordering — the mechanism exists before
+    anything depends on it — and step 3 is that arrival, so the assertions had
+    to go. Same shape as 2.2's test_there_are_no_candidates_yet.
 
-    def test_there_are_no_claims_yet(self):
-        # Pins the step ordering: the mechanism exists before any claim depends
-        # on it. Step 3 is where the four tax_engine claims arrive.
-        self.assertEqual(legal_claims.CLAIMS, ())
+    What they protected has not gone: the reports must still behave correctly
+    over an empty collection, which is now asserted by patching one in rather
+    than by relying on the real inventory being empty. That is the stronger
+    version — it keeps holding once the inventory has 25 entries.
+    """
 
     def test_both_reports_run_clean_over_an_empty_inventory(self):
-        self.assertEqual(legal_claims.evidence_findings(), [])
-        self.assertEqual(legal_claims.drift_findings(), [])
+        from unittest.mock import patch
+        with patch.object(legal_claims, "CLAIMS", ()):
+            self.assertEqual(legal_claims.evidence_findings(), [])
+            self.assertEqual(legal_claims.drift_findings(), [])
 
 
 class TestAClaimHasNoInertState(unittest.TestCase):
@@ -165,3 +173,74 @@ class TestTheSharedModelIsNotDuplicatedInLogic(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTheFirstBatchIsTheFourTaxEngineFigures(unittest.TestCase):
+    """
+    Design §5. Deliberately small — prove the shape on four before committing
+    to ~25, the same discipline as 2.2's first candidate batch.
+    """
+
+    def _claim(self, cid):
+        return next(c for c in legal_claims.CLAIMS if c.id == cid)
+
+    def test_the_batch_is_exactly_the_four_named_figures(self):
+        self.assertEqual([(c.id, c.symbol) for c in legal_claims.CLAIMS],
+                         [("TE1", "NEW_REGIME_SLABS"),
+                          ("TE2", "OLD_REGIME_SLABS"),
+                          ("TE3", "STANDARD_DEDUCTION"),
+                          ("TE4", "NPS_80CCD2_CAP_PCT")])
+
+    def test_every_recorded_value_matches_the_live_constant(self):
+        # The claims must describe the code as it actually is on the day they
+        # are written, or the drift check starts life already failing and gets
+        # silenced instead of trusted.
+        self.assertEqual(legal_claims.drift_findings(), [])
+
+    def test_all_four_are_unverified_and_that_is_the_batch_working(self):
+        # Recorded as the expected outcome, not defensively. The visible truth
+        # is that four of the most load-bearing numbers in this system rest on
+        # nothing recorded, and making that visible IS the deliverable.
+        for claim in legal_claims.CLAIMS:
+            with self.subTest(claim=claim.id):
+                self.assertFalse(claim.citation_is_checked)
+                self.assertFalse(claim.implementation_is_reviewed)
+                self.assertTrue(claim.is_live, "an unverified claim is a LIVE risk")
+
+    def test_the_evidence_report_names_every_claim(self):
+        findings = legal_claims.evidence_findings()
+        for claim in legal_claims.CLAIMS:
+            with self.subTest(claim=claim.id):
+                self.assertTrue(any(claim.id in f for f in findings),
+                                "a claim with no verification went unreported")
+
+    def test_the_two_citation_states_are_kept_apart(self):
+        # "Nobody tried" and "tried and could not" are different facts, and the
+        # second is worse. TE1-TE3's values were never attempted; TE4's were,
+        # against secondary sources this project will not treat as verification.
+        for cid in ("TE1", "TE2", "TE3"):
+            with self.subTest(claim=cid):
+                self.assertEqual(self._claim(cid).citation_checked_on, "")
+                self.assertFalse(self._claim(cid).citation_attempt_unresolved)
+        self.assertTrue(self._claim("TE4").citation_attempt_unresolved)
+
+    def test_no_successor_provision_was_invented(self):
+        # Only TE4 carries a provision, and only because the repository already
+        # records that mapping in two places. The others carry none, because
+        # none is recorded anywhere — and an invented one would read as
+        # evidence, which is worse than a visible gap.
+        with_provision = [c.id for c in legal_claims.CLAIMS if c.provision.strip()]
+        self.assertEqual(with_provision, ["TE4"])
+
+    def test_a_missing_citation_message_does_not_claim_a_provision_exists(self):
+        # Found by running the report: the message read "cites a provision but
+        # records no citation_checked_on" for claims citing no provision at all.
+        # Written for rules, false for claims.
+        findings = legal_claims.evidence_findings()
+        self.assertFalse(any("cites a provision but" in f for f in findings),
+                         "the report tells a reader a provision exists when none does")
+
+    def test_every_claim_answers_the_threshold_origin_question(self):
+        for claim in legal_claims.CLAIMS:
+            with self.subTest(claim=claim.id):
+                self.assertTrue(claim.threshold_origin.strip())

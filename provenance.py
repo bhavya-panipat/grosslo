@@ -194,7 +194,13 @@ def provenance_violations(items, pre_protocol_ids=frozenset()) -> list:
             # recorded outcome; silence is not.
             if not rule.citation_checked_on.strip():
                 problems.append(
-                    f"{rule.id} cites a provision but records no citation_checked_on "
+                    # Deliberately does NOT say "cites a provision but ...".
+                    # That wording was written when only rules carried
+                    # provenance and every statutory rule had a provision
+                    # recorded. A legal claim can make a statutory claim with
+                    # NO provision at all, and telling its reader it cites one
+                    # is simply false.
+                    f"{rule.id} records no citation_checked_on "
                     f"(neither a check date nor an unresolved attempt)")
             # CHECK 5: which instrument, and does it still govern.
             if not rule.instrument.strip():
