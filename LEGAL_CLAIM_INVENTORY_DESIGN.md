@@ -377,3 +377,57 @@ following it is a verification claim that is silently false.
 **Corollary, from the same session:** never use `git checkout --` to undo a
 sabotage on a file that has uncommitted work in it. Restore from a backup copy.
 Tracked is not committed.
+
+## 10. Tracked remaining work — with dates, not notes
+
+§7's five steps are done and the mechanism is proven. **The phase is not
+finished, and the difference is recorded here so it cannot quietly become
+someone else's problem between phases.**
+
+### 10.1 Coverage: 4 of ~25 claims. The motivating bug is still outside.
+
+Shipping at this size is deliberate (§5 — prove the shape on four before
+committing to twenty-five). It is not done. Still uninventoried:
+
+| Where | Claims | Note |
+|---|---|---|
+| `optimizer.py` | `BASIC_PCT_MIN` | **The bug this entire phase is named after.** It is still the one legal claim in this codebase with no structured provenance and a history of having been wrong. It should lead the next batch. |
+| `payroll_breakdown.py` | `PT_MONTHLY_TABLE` | Five separate **state** statutes, each independently amendable — the largest single block of uninventoried law here, and the most frequently amended. |
+| `penalty_exposure.py` | `EPF_7Q_MONTHLY_RATE`, `EPF_14B_MONTHLY_RATE`, ss. 398(3), and the reasoned exclusion of s. 448 | The 14B rate depends on a 2024 Ministry notification, which is a different kind of instrument from an Act and may need `instrument` to say so. |
+| `tax_engine.py` | `CESS_RATE`, `EMPLOYER_PF_RATE`, `PF_WAGE_CEILING_BASIC`, `REBATE_87A_THRESHOLD`, `REBATE_87A_MAX` | Same file as the first batch, deferred only to keep that batch small. |
+| `ai_layer.py`, `execution_trace.py`, `orchestration.py` | Sections 11 + Sch. II, 392, 124, 17(2)(vii) | Citations shown to users, not values. May need a claim kind that asserts a *citation* rather than a *number*. |
+
+**That last column is a real open question, not a formality:** every claim in
+the first batch asserts a NUMBER, and `asserted_value` plus the drift check
+assume that. A claim asserting only a section number has no value to compare, so
+§4.5's mechanism does not apply to it. The next batch has to decide whether
+those are claims at all, or something else.
+
+### 10.2 The second `17(2)(vii)`, for the next batch
+
+`tax_engine.py`'s module docstring states that s. 17(2)(vii) was *"checked and
+confirmed retained at its original number in the new Act"*. R5 records the same
+claim as **unresolved**, with the conflict named and explicitly not resolved.
+
+So the codebase asserts the same contested thing twice, in two registers: settled
+fact in one file, open question in another. Correctly untouched in this phase —
+it is outside the agreed batch and changing it is not backfill. **On the list for
+the next inventory batch**, and the browser lookup (§8.1 of
+`COMPLIANCE_BREADTH_DESIGN.md`) resolves both at once.
+
+### 10.3 Check the 2026-12-09 build-block on 2026-11-09
+
+On 2026-12-09 an unverified claim becomes build-blocking (§6). **Today that date
+has four claims pointed at it and no verified path to clearing any of them** —
+primary sources are unreachable and the browser lookup has not been run.
+
+**A forcing function with nothing moving toward satisfying it is precisely the
+failure mode forcing functions exist to prevent.** It stops being a deadline and
+becomes an obstacle to be silenced on the day, which is worse than not having
+set one.
+
+**So: check this date's status on 2026-11-09, thirty days out — early enough to
+act rather than to react.** What to check: whether any of TE1–TE4 has a real
+verified citation. If none does, the decision is whether to move the date, narrow
+what blocks, or escalate the lookup — but it must be a decision made with a
+month's notice, not a build failure discovered on the morning of 2026-12-09.
