@@ -398,19 +398,33 @@ committing to twenty-five). It is not done. Still uninventoried:
 | `ai_layer.py`, `execution_trace.py`, `orchestration.py` | Sections 11 + Sch. II, 392, 124, 17(2)(vii) | Citations shown to users, not values. May need a claim kind that asserts a *citation* rather than a *number*. |
 
 **`optimizer.py:BASIC_PCT_MIN` leads that list, explicitly and by priority
-rather than by position.** No other claim in this codebase has both of these
-properties at once:
+rather than by position.** Two things are known to be true of it:
 
 1. **It is the most load-bearing threshold in the optimizer.** It constrains
    every structure the tool recommends — not one check among several, but a
    floor the entire search is conducted inside.
-2. **It has a proven history of actually having been wrong**, caught only
-   because a human happened to look. Every other uninventoried claim is
-   *unverified*; this one is unverified **and** has already failed once.
+2. **It has a documented history of actually having been wrong**, caught only
+   because a human happened to look.
 
 It is also the claim this phase was named after and did not cover. Starting the
 next batch anywhere else would repeat the original error — building the
 apparatus and pointing it away from the thing that motivated it.
+
+**Stated as "known to be true of it", NOT as "no other claim has both", and the
+distinction is not pedantry.** Only 4 of ~25 claims have been inventoried. A
+comparison against the other 21 would be a confident assertion about territory
+nobody has examined — and this project has already been bitten by exactly that:
+R5's superseded citation was not visible until someone looked closely, and
+`tax_engine.py`'s docstring still asserts the disputed 17(2)(vii) mapping as
+settled fact. Something in `payroll_breakdown.py`'s five state PT tables or
+`penalty_exposure.py`'s sections may well turn out to have its own history of
+being wrong once the research happens.
+
+What is claimed here is enough to justify leading the batch, and no more:
+BASIC_PCT_MIN is confirmed to have both properties **given what is currently
+known**. If the next batch surfaces a claim with a worse record, the ordering
+should change — which is a reason to inventory the rest, not a reason to hedge
+on starting here.
 
 **That last column is a real open question, not a formality:** every claim in
 the first batch asserts a NUMBER, and `asserted_value` plus the drift check

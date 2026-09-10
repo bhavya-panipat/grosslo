@@ -51,14 +51,22 @@ Every remaining step needs a person, not more code.
 Not first among equals in a list: **the specific priority, ahead of everything
 else in `LEGAL_CLAIM_INVENTORY_DESIGN.md` §10.1.**
 
-Two things are true of it at once, and no other claim in this codebase has both:
+Two things are known to be true of it:
 
 1. It is the most load-bearing threshold in the optimizer — it constrains every
    structure the tool recommends.
-2. It has a **proven history of actually having been wrong**, caught only
+2. It has a **documented history of actually having been wrong**, caught only
    because a human happened to look.
 
 It is also the claim Phase 2.4 was named after and did not cover.
+
+**Deliberately not stated as "no other claim has both."** Only 4 of ~25 claims
+have been inventoried, so that would be a confident assertion about the 21
+nobody has examined — and R5's superseded citation is the standing proof that
+this kind of problem is invisible until someone looks. Something in the state PT
+tables or the EPF/TDS sections may have its own history of being wrong. What is
+claimed is only what is known now, which is enough to justify leading the batch.
+If the next batch surfaces something worse, the ordering changes.
 
 After it: `payroll_breakdown.py`'s five state PT tables (largest and most
 frequently amended block), `penalty_exposure.py`'s EPF/TDS sections,
