@@ -323,10 +323,34 @@ output.
 ## 5. What 2.2 hands to 2.3 and 2.4
 
 2.3's adversarial verification argues over a rule set that is now data, so it can
-name which rule it disagrees about. 2.4's citation-verification skill has a
-`source_url` and `citation_checked_on` per rule to re-check on a schedule — the standing
-legal-change monitor becomes "re-verify these provisions", not "re-read the
-codebase".
+name which rule it disagrees about.
+
+**CORRECTED — what this section promised 2.4 did not survive the access wall,
+and saying so is the point.** It read: *"2.4's citation-verification skill has a
+`source_url` and `citation_checked_on` per rule to re-check on a schedule — the
+standing legal-change monitor becomes 're-verify these provisions', not 're-read
+the codebase'."* That was written before any fetch had been attempted. Measured
+at the close of the phase:
+
+```
+statutory rules:            ['R1', 'R5']
+with a VERIFIED citation:   []
+reviewed by a human:        []
+```
+
+Both statutory rules sit in `unresolved:`; `citation_is_checked` is `False`
+across the entire rule set. **"Re-verify these provisions" has an empty input
+set**, so the handoff as described did not arrive.
+
+What 2.4 actually inherits is narrower and more useful to state accurately: a
+*shape* for recording provenance — three-valued citation state, instrument
+tracked separately from text, claim-typed evidence requirements — which
+generalizes beyond compliance rules to the ~25 legal claims scattered across
+`tax_engine.py`, `payroll_breakdown.py`, `penalty_exposure.py` and
+`optimizer.py`. See `LEGAL_CLAIM_INVENTORY_DESIGN.md`, which is 2.4 rescoped
+around that fact. This correction follows the same principle §3.3.1 and §4
+applied to this document already: **it should say what is true, not what was
+promised before the wall was found.**
 
 2.2 explicitly does NOT ship: any active rule beyond R1–R6, any LLM involvement
 in rule matching, or a CA's approval.
