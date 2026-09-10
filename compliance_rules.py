@@ -153,8 +153,89 @@ def _no_active_rules_error() -> NoActiveRulesError:
         f"compliance_ratio() still answers, reporting 0 of 0.")
 
 
+class ProvenanceMixin:
+    """
+    The evidence model, extracted so it can describe things that are NOT
+    compliance rules (LEGAL_CLAIM_INVENTORY_DESIGN.md §4.3).
+
+    WHAT WAS ALREADY GENERIC, MEASURED BEFORE MOVING ANYTHING: every property
+    below reads ONLY provenance fields — never predicate, severity, check,
+    rationale or why. So did 8 of the 10 checks in protocol_violations(). The
+    evidence model was general; only its container was not.
+
+    WHY A PROPERTIES MIXIN AND NOT A SHARED DATACLASS BASE. This project runs
+    on Python 3.9, where dataclass field inheritance cannot put required fields
+    on a subclass of a base with defaults, and `kw_only` does not exist:
+
+        @dataclass
+        class B: x: str = ""
+        @dataclass
+        class D(B): y: str
+        -> TypeError: non-default argument 'y' follows default argument
+
+    So the provenance FIELDS are declared on each carrier and the LOGIC lives
+    here once. That leaves two field lists that could drift, which is a real
+    cost and is not hand-waved: a test asserts the two sets agree. Same
+    deliberate-second-copy-plus-a-test shape as §4.5's value check, for the
+    same reason — the alternative that cannot drift also cannot be checked.
+    """
+
+    @property
+    def is_live(self) -> bool:
+        """
+        Whether this claim is in force in the running system.
+
+        Defaults to True, and that default carries the phase's central finding
+        (design §4.4): A RULE CAN BE INERT, A CONSTANT CANNOT. A compliance
+        rule is optional — an unreviewed one ships as a candidate and costs
+        nothing while it waits. A load-bearing constant like STANDARD_DEDUCTION
+        is read on every tax computation and has no inert state to park it in.
+        So for anything that is not a Rule, this is unconditionally True: being
+        unverified is a live risk, not a safe holding pen. Rule overrides it.
+        """
+        return True
+
+    @property
+    def citation_is_checked(self) -> bool:
+        """
+        The provision was fetched and read. NOT the same as reviewed: this says
+        the source exists and says what is quoted, and says nothing about
+        whether the predicate implements it correctly.
+        """
+        value = self.citation_checked_on.strip()
+        if not value or value.startswith(UNRESOLVED):
+            return False
+        # A matched text in a repealed Act is not a verified citation. Requiring
+        # the instrument to be in force is what stops a rule going green while
+        # pointing at law that no longer governs.
+        return self.instrument_status == IN_FORCE
+
+    @property
+    def cites_superseded_law(self) -> bool:
+        """
+        The cited instrument has been repealed or replaced. The rule may still
+        describe a real obligation — the successor Act usually carries the rule
+        forward somewhere — but this citation no longer locates it.
+        """
+        return self.instrument_status == SUPERSEDED
+
+    @property
+    def citation_attempt_unresolved(self) -> bool:
+        """
+        Someone tried to reach a primary source and could not. Distinct from
+        never having tried, and distinct from having succeeded — a rule in this
+        state is making a statutory claim nobody has been able to confirm.
+        """
+        return self.citation_checked_on.strip().startswith(UNRESOLVED)
+
+    @property
+    def implementation_is_reviewed(self) -> bool:
+        """A qualified human judged the predicate a correct implementation."""
+        return bool(self.reviewed_by.strip() and self.reviewed_on.strip())
+
+
 @dataclass(frozen=True)
-class Rule:
+class Rule(ProvenanceMixin):
     """
     One compliance rule. Frozen because a rule's identity, text and status
     should never be mutated in place by application code — activating a
@@ -229,43 +310,10 @@ class Rule:
         return self.status == ACTIVE
 
     @property
-    def citation_is_checked(self) -> bool:
-        """
-        The provision was fetched and read. NOT the same as reviewed: this says
-        the source exists and says what is quoted, and says nothing about
-        whether the predicate implements it correctly.
-        """
-        value = self.citation_checked_on.strip()
-        if not value or value.startswith(UNRESOLVED):
-            return False
-        # A matched text in a repealed Act is not a verified citation. Requiring
-        # the instrument to be in force is what stops a rule going green while
-        # pointing at law that no longer governs.
-        return self.instrument_status == IN_FORCE
-
-    @property
-    def cites_superseded_law(self) -> bool:
-        """
-        The cited instrument has been repealed or replaced. The rule may still
-        describe a real obligation — the successor Act usually carries the rule
-        forward somewhere — but this citation no longer locates it.
-        """
-        return self.instrument_status == SUPERSEDED
-
-    @property
-    def citation_attempt_unresolved(self) -> bool:
-        """
-        Someone tried to reach a primary source and could not. Distinct from
-        never having tried, and distinct from having succeeded — a rule in this
-        state is making a statutory claim nobody has been able to confirm.
-        """
-        return self.citation_checked_on.strip().startswith(UNRESOLVED)
-
-    @property
-    def implementation_is_reviewed(self) -> bool:
-        """A qualified human judged the predicate a correct implementation."""
-        return bool(self.reviewed_by.strip() and self.reviewed_on.strip())
-
+    def is_live(self) -> bool:
+        # A rule CAN be inert. See ProvenanceMixin.is_live for why this is the
+        # one place Rule and Claim genuinely differ.
+        return self.is_active
 
 # ---------------------------------------------------------------------------
 # R1-R6. `rationale` is copied BYTE-FOR-BYTE from ai_layer._check_rules(), so
@@ -436,10 +484,17 @@ RULES: tuple = (
 PRE_PROTOCOL_RULE_IDS = frozenset({"R1", "R2", "R3", "R4", "R5", "R6"})
 
 
-def protocol_violations() -> list:
+def provenance_violations(items, pre_protocol_ids=frozenset()) -> list:
     """
-    Ways the rule set violates the candidate-rule protocol, as readable strings.
-    Empty means compliant.
+    Ways a COLLECTION of provenance-carrying things violates the protocol, as
+    readable strings. Empty means compliant.
+
+    Takes its collection rather than reading module-level RULES, which was one
+    of exactly three things coupling this check to compliance rules
+    (LEGAL_CLAIM_INVENTORY_DESIGN.md §4.3). The other two were `is_active`,
+    now generalized to `is_live` on ProvenanceMixin, and PRE_PROTOCOL_RULE_IDS,
+    now a parameter. Nothing below reads a predicate, a severity or any
+    user-facing text, so it applies unchanged to a legal-claim inventory.
 
     Requirements differ BY CLAIM TYPE, because a convention rule has no statute
     to cite and demanding one would produce a fabricated citation — evidence
@@ -451,13 +506,13 @@ def protocol_violations() -> list:
     automated check can produce.
     """
     problems = []
-    for rule in RULES:
-        pre = rule.id in PRE_PROTOCOL_RULE_IDS
+    for rule in items:
+        pre = rule.id in pre_protocol_ids
 
         if rule.claim_type not in (STATUTORY, CONVENTION):
             problems.append(f"{rule.id} has unknown claim_type {rule.claim_type!r}")
 
-        if rule.is_active and not pre and not rule.implementation_is_reviewed:
+        if rule.is_live and not pre and not rule.implementation_is_reviewed:
             # Activation requires the HUMAN claim, not the citation claim. A
             # rule with a perfect citation and no reviewer has had its source
             # confirmed and its implementation confirmed by nobody.
@@ -488,7 +543,7 @@ def protocol_violations() -> list:
             if rule.instrument_status not in (IN_FORCE, SUPERSEDED, INSTRUMENT_UNKNOWN):
                 problems.append(
                     f"{rule.id} has unknown instrument_status {rule.instrument_status!r}")
-            if rule.is_active and rule.cites_superseded_law:
+            if rule.is_live and rule.cites_superseded_law:
                 problems.append(
                     f"{rule.id} is ACTIVE and cites a superseded instrument "
                     f"({rule.instrument}) — the obligation may survive in the "
@@ -526,6 +581,16 @@ def protocol_violations() -> list:
                         f"either it is statutory and mislabelled, or the citation "
                         f"does not say what the rule claims")
     return problems
+
+
+def protocol_violations() -> list:
+    """
+    The compliance rule set's own violations. A thin wrapper so every existing
+    caller and test is unchanged, and so "which collection, with which
+    grandfathering" stays an explicit fact about the rule set rather than
+    something the generic checker assumes.
+    """
+    return provenance_violations(RULES, PRE_PROTOCOL_RULE_IDS)
 
 
 def active_rules() -> tuple:

@@ -945,3 +945,108 @@ class TestTheEmptyActiveSetIsAnHonestFailure(unittest.TestCase):
     def test_the_normal_case_is_untouched(self):
         # The guard must not change anything while rules are active.
         self.assertEqual(ai_layer.compliance_pct([]), 100.0)
+
+
+class TestTheEvidenceModelIsNotCoupledToRules(unittest.TestCase):
+    """
+    Phase 2.4 step 1 (LEGAL_CLAIM_INVENTORY_DESIGN.md §4.3). A pure refactor:
+    the evidence model was already generic — every property read only
+    provenance fields — but its container was not. Three things coupled it to
+    compliance rules, and these assert all three are gone.
+
+    Without this, "generic" would mean "generic by inspection", and the first
+    thing to depend on it would discover otherwise.
+    """
+
+    class _Carrier(compliance_rules.ProvenanceMixin):
+        """A provenance carrier that is emphatically not a compliance rule."""
+        def __init__(self, cid, **kw):
+            self.id = cid
+            self.claim_type = kw.pop("claim_type", compliance_rules.CONVENTION)
+            for field in ("source_url", "provision", "citation_checked_on",
+                          "instrument", "basis", "threshold_origin",
+                          "reviewed_by", "reviewed_on"):
+                setattr(self, field, kw.pop(field, ""))
+            self.instrument_status = kw.pop("instrument_status",
+                                            compliance_rules.INSTRUMENT_UNKNOWN)
+            assert not kw, f"unexpected {kw}"
+
+    def test_coupling_1_the_checker_runs_over_a_collection_that_is_not_RULES(self):
+        # It used to read module-level RULES directly and could not be pointed
+        # anywhere else. A fully-evidenced carrier passes.
+        problems = compliance_rules.provenance_violations(
+            [self._Carrier("C1", basis="stated", threshold_origin="not statutory",
+                           reviewed_by="A Person", reviewed_on="2026-09-10")])
+        self.assertEqual(problems, [])
+
+    def test_an_unverified_live_carrier_flags_and_that_is_the_point(self):
+        # Written after the first version of this test asserted [] and failed.
+        # The mechanism is STRICTER than assumed, and correctly so: is_live
+        # defaults True for a non-Rule (§4.4), so a claim with no recorded
+        # verifier is reported the moment it exists. That is not noise — it is
+        # the inventory's core signal, and it is why all four tax_engine claims
+        # will report on day one.
+        problems = compliance_rules.provenance_violations(
+            [self._Carrier("C1", basis="stated", threshold_origin="not statutory")])
+        self.assertTrue(any("C1" in p and "reviewed" in p for p in problems), problems)
+
+    def test_coupling_2_is_live_replaces_is_active_and_defaults_true(self):
+        # §4.4's finding, encoded: a rule can be inert, a constant cannot.
+        # Anything that is not a Rule is unconditionally live, so "unverified"
+        # is a live risk rather than a safe holding pen.
+        self.assertTrue(self._Carrier("C2").is_live)
+
+    def test_coupling_3_grandfathering_is_a_parameter_not_a_module_constant(self):
+        # PRE_PROTOCOL_RULE_IDS used to be a module constant this check reached
+        # for; it is now passed in. Asserted on the check grandfathering
+        # actually governs — the reviewer requirement.
+        unreviewed = self._Carrier("C3", basis="b", threshold_origin="t")
+        self.assertTrue(
+            any("C3" in p and "reviewed" in p
+                for p in compliance_rules.provenance_violations([unreviewed])))
+        self.assertEqual(
+            compliance_rules.provenance_violations(
+                [unreviewed], pre_protocol_ids=frozenset({"C3"})),
+            [],
+            "grandfathering the id did not exempt the reviewer requirement")
+
+    def test_grandfathering_never_exempts_a_citation_requirement(self):
+        # Also written after a failing first draft, and worth pinning: `pre`
+        # exempts the BACKDATED-reviewer requirement, never the requirement to
+        # be citable. A statutory claim with no provision recorded is
+        # unverifiable by anyone, grandfathered or not — so the inventory
+        # cannot quietly grandfather its way out of citing sources.
+        uncited = self._Carrier("C9", claim_type=compliance_rules.STATUTORY)
+        problems = compliance_rules.provenance_violations(
+            [uncited], pre_protocol_ids=frozenset({"C9"}))
+        self.assertTrue(any("C9" in p and "source_url" in p for p in problems), problems)
+        self.assertTrue(any("C9" in p and "provision" in p for p in problems), problems)
+
+    def test_a_non_rule_carrier_still_gets_the_superseded_instrument_check(self):
+        # The check R5 surfaces through — the one that must generalize, since
+        # a legal claim inventory is mostly Type A findings.
+        stale = self._Carrier(
+            "C4", claim_type=compliance_rules.STATUTORY,
+            source_url="https://example.invalid/x", provision="P",
+            citation_checked_on="2026-09-09", instrument="Some Act, 1961",
+            instrument_status=compliance_rules.SUPERSEDED,
+            threshold_origin="not statutory")
+        problems = compliance_rules.provenance_violations([stale])
+        self.assertTrue(any("C4" in p and "superseded" in p for p in problems), problems)
+
+    def test_the_properties_moved_off_Rule_but_Rule_still_exposes_them(self):
+        for name in ("citation_is_checked", "cites_superseded_law",
+                     "citation_attempt_unresolved", "implementation_is_reviewed"):
+            with self.subTest(prop=name):
+                self.assertTrue(hasattr(compliance_rules.ProvenanceMixin, name),
+                                "property did not move to the mixin")
+                self.assertTrue(hasattr(compliance_rules.RULES[0], name),
+                                "Rule lost a property it still needs")
+
+    def test_R5_still_surfaces_exactly_as_before_the_refactor(self):
+        # The refactor's own claim: no behaviour change. R5 is the live Type A
+        # finding this mechanism exists to carry.
+        problems = compliance_rules.protocol_violations()
+        self.assertEqual(len(problems), 1)
+        self.assertIn("R5", problems[0])
+        self.assertIn("superseded", problems[0])
