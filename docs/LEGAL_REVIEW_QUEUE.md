@@ -2,7 +2,7 @@
 
 # Legal review queue
 
-**12 items** across 6 live compliance rules and 6 legal claims.
+**16 items** across 6 live compliance rules and 10 legal claims.
 
 ## Read this first
 
@@ -60,6 +60,34 @@ Someone tried and could not. Distinct from never having tried, and worse: it mea
 - **Instrument:** Code on Wages, 2019 (Act 29 of 2019) (in_force)
 - **Provision:** Code on Wages, 2019 (Act 29 of 2019), s. 2(y) -- definition of "wages"; proviso on excluded allowances exceeding one-half of all remuneration. In force 21 Nov 2025.
 - **Citation state:** unresolved: optimizer.py records 'Verified against multiple independent sources on 2026-09-01' and names NONE of them. Under the standing rule (INVENTORY_EXPANSION_DESIGN.md §5.1) that is evidence a check occurred, not a trail an independent party can redo, so it does not qualify as verified. The provision and source_url above are taken from R1's record of the same proposition in compliance_rules.py -- optimizer.py itself names no provision -- and R1's citation is ALSO unresolved, so nothing here has been confirmed against a primary source. NOT backdated: no source was hunted down today and credited to the 2026-09-01 check.
+
+### PE1 — Interest on delayed employer PF remittance: 1% per month (12% p.a. simple). Mandatory, non-waivable, no discretion.
+
+- **Where:** `penalty_exposure.EPF_7Q_MONTHLY_RATE`
+- **Instrument:** Employees' Provident Funds and Miscellaneous Provisions Act, 1952 (in_force)
+- **Provision:** s. 7Q -- simple interest on amounts due but not remitted.
+- **Citation state:** unresolved: penalty_exposure.py records that every rate was "independently verified against current sources" and names NONE of them. Note the wording against payroll_breakdown.py's, which says "re-verified live ... against a PRIMARY source" and names the document -- this file claims only "current sources", which does not assert a primary source and gives no trail to follow. Under the standing rule (INVENTORY_EXPANSION_DESIGN.md 5.1) that is evidence a check occurred, not something an independent party can redo. The instrument and provision below are recorded as the file itself states them. NOT backdated: nothing was looked up today and credited to the earlier check.
+
+### PE2 — Damages on delayed employer PF remittance: a flat 1% of arrears per month, replacing the pre-2024 tiered 5-25% structure.
+
+- **Where:** `penalty_exposure.EPF_14B_MONTHLY_RATE`
+- **Instrument:** Ministry of Labour notification effective 15 June 2024, amending Para 32A of the Employees' Provident Funds Scheme, 1952 (in_force)
+- **Provision:** Para 32A (as amended 15 June 2024) -- damages at 1% of arrears per month, operating within the s. 14B ceiling.
+- **Citation state:** unresolved: penalty_exposure.py records that every rate was "independently verified against current sources" and names NONE of them. Note the wording against payroll_breakdown.py's, which says "re-verified live ... against a PRIMARY source" and names the document -- this file claims only "current sources", which does not assert a primary source and gives no trail to follow. Under the standing rule (INVENTORY_EXPANSION_DESIGN.md 5.1) that is evidence a check occurred, not something an independent party can redo. The instrument and provision below are recorded as the file itself states them. NOT backdated: nothing was looked up today and credited to the earlier check.
+
+### PE3 — Ceiling on s. 14B damages: capped at 100% of the arrears amount.
+
+- **Where:** `penalty_exposure.EPF_14B_CAP_FRACTION`
+- **Instrument:** Employees' Provident Funds and Miscellaneous Provisions Act, 1952 (in_force)
+- **Provision:** s. 14B -- statutory ceiling on damages, within which Para 32A's 1%/month formula operates.
+- **Citation state:** unresolved: penalty_exposure.py records that every rate was "independently verified against current sources" and names NONE of them. Note the wording against payroll_breakdown.py's, which says "re-verified live ... against a PRIMARY source" and names the document -- this file claims only "current sources", which does not assert a primary source and gives no trail to follow. Under the standing rule (INVENTORY_EXPANSION_DESIGN.md 5.1) that is evidence a check occurred, not something an independent party can redo. The instrument and provision below are recorded as the file itself states them. NOT backdated: nothing was looked up today and credited to the earlier check.
+
+### PE4 — Interest on TDS deducted but not deposited: 1.5% per month. The deducted-but-not-deposited case, not the failure-to-deduct case (which is 1%/month and is not what this module models).
+
+- **Where:** `penalty_exposure.TDS_201_1A_MONTHLY_RATE`
+- **Instrument:** Income-tax Act, 2025 (Act 30 of 2025) (in_force)
+- **Provision:** s. 398(3) (formerly s. 201(1A) of the Income-tax Act, 1961) -- interest for failure to deposit tax already deducted.
+- **Citation state:** unresolved: penalty_exposure.py records that every rate was "independently verified against current sources" and names NONE of them. Note the wording against payroll_breakdown.py's, which says "re-verified live ... against a PRIMARY source" and names the document -- this file claims only "current sources", which does not assert a primary source and gives no trail to follow. Under the standing rule (INVENTORY_EXPANSION_DESIGN.md 5.1) that is evidence a check occurred, not something an independent party can redo. The instrument and provision below are recorded as the file itself states them. NOT backdated: nothing was looked up today and credited to the earlier check.
 
 ### R1 — Basic salary < 50% of CTC
 

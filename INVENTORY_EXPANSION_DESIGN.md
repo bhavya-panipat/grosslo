@@ -228,3 +228,32 @@ explicitly deferred until the citation loop is proven end-to-end on R5 and the
 HRA candidate); `tax_engine.py`'s five remaining figures; the `ai_layer.py` /
 `execution_trace.py` / `orchestration.py` section citations; and any claim marked
 `verified` without an explicit call on §5's first question.
+
+## 7. Standing note: batch tests that quietly become collection tests
+
+**A test written while a collection holds one batch silently becomes a test
+about the whole collection.** It reads correctly, passes, and stays wrong until
+the *next* batch arrives — at which point it fails for a reason that has nothing
+to do with the change being made.
+
+Four instances so far, in three files:
+
+1. `test_the_same_six_rules_exist_with_the_same_severities_in_order` — compared
+   the whole `RULES` tuple, freezing its length, when its claim was about R1–R6
+   surviving the migration.
+2. `test_there_are_no_candidates_yet` / `test_both_reports_run_clean_over_an_empty_inventory`
+   — pinned emptiness rather than the property emptiness was standing in for.
+3. `test_the_batch_is_exactly_the_four_named_figures` and
+   `test_no_successor_provision_was_invented` — asserted across the whole
+   inventory when they meant the first four claims.
+4. `test_stage_a_added_exactly_two_claims_after_the_first_batch` — the same
+   mistake again, **written one message after the pattern was named as a
+   three-instance recurrence and proposed for documentation**. Naming a pattern
+   and not writing it down is not the same as having written it down, and this
+   section exists because that gap produced a fourth instance immediately.
+
+**The rule: when adding the first batch to a collection, assert on the batch,
+not on the container.** Filter by the batch's own id prefix, or slice. If the
+container's shape genuinely matters — ordering, or that earlier batches did not
+move — assert that separately and say so, rather than getting it as a side
+effect of an equality check on the whole thing.

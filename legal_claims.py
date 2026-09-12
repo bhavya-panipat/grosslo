@@ -34,8 +34,9 @@ import importlib
 from dataclasses import dataclass
 
 from provenance import (
-    CONVENTION, IN_FORCE, INSTRUMENT_UNKNOWN, STATUTORY, ProvenanceMixin,
-    provenance_violations,
+    CONVENTION, IN_FORCE, INSTRUMENT_UNKNOWN, STATUTORY,
+    KIND_ACT, KIND_SUBORDINATE, KIND_JUDGMENT, KIND_CONSTITUTION,
+    ProvenanceMixin, provenance_violations,
 )
 
 
@@ -89,6 +90,10 @@ class Claim(ProvenanceMixin):
     citation_checked_on: str = ""
     instrument: str = ""
     instrument_status: str = INSTRUMENT_UNKNOWN
+    # What KIND of instrument — an Act, a notification, a judgment, a
+    # constitutional provision, or none at all. See provenance.py; it
+    # changes what re-checking the citation actually involves.
+    instrument_kind: str = KIND_ACT
     basis: str = ""
     threshold_origin: str = ""
     reviewed_by: str = ""
@@ -137,6 +142,12 @@ class Claim(ProvenanceMixin):
 # because R1-R6 predate the protocol; this inventory has no such history, so
 # every claim answers for itself from the first one.
 # ---------------------------------------------------------------------------
+
+# The citation state shared by every Stage B1 claim, written once because it is
+# one fact about one file rather than four separate findings.
+UNRESOLVED_PE = (
+    'unresolved: penalty_exposure.py records that every rate was "independently verified against current sources" and names NONE of them. Note the wording against payroll_breakdown.py\'s, which says "re-verified live ... against a PRIMARY source" and names the document -- this file claims only "current sources", which does not assert a primary source and gives no trail to follow. Under the standing rule (INVENTORY_EXPANSION_DESIGN.md 5.1) that is evidence a check occurred, not something an independent party can redo. The instrument and provision below are recorded as the file itself states them. NOT backdated: nothing was looked up today and credited to the earlier check.')
+
 
 CLAIMS: tuple = (
     # -----------------------------------------------------------------------
@@ -313,6 +324,100 @@ CLAIMS: tuple = (
                          "reasoning explicitly. A reviewer may move it; moving it "
                          "changes this tool's search space, never its compliance "
                          "with anything external.",
+    ),
+
+    # -----------------------------------------------------------------------
+    # STAGE B1 -- penalty_exposure.py's four rate claims
+    # (INVENTORY_EXPANSION_DESIGN.md 4). Adds exactly ONE mechanism,
+    # instrument_kind, because this is the first file whose citations are not
+    # all Acts. The s. 448 non-applicability claim is deliberately NOT here:
+    # it needs a value-less claim, which is a second mechanism, and the design
+    # says one per stage. It lands in B2.
+    #
+    # WHY ALL FOUR ARE UNRESOLVED, from the file's own words rather than a
+    # judgement about them: penalty_exposure.py says the rates were
+    # "independently verified against current sources". payroll_breakdown.py,
+    # by contrast, says "re-verified live ... against a PRIMARY source" and
+    # names the document. The difference is not stylistic -- one asserts a
+    # primary source and identifies it, the other asserts neither.
+    # -----------------------------------------------------------------------
+    Claim(
+        id="PE1", module="penalty_exposure", symbol="EPF_7Q_MONTHLY_RATE",
+        describes="Interest on delayed employer PF remittance: 1% per month "
+                  "(12% p.a. simple). Mandatory, non-waivable, no discretion.",
+        asserted_value=0.01,
+        claim_type=STATUTORY,
+        instrument="Employees' Provident Funds and Miscellaneous Provisions Act, 1952",
+        instrument_kind=KIND_ACT,
+        instrument_status=IN_FORCE,
+        provision="s. 7Q -- simple interest on amounts due but not remitted.",
+        source_url="https://www.epfindia.gov.in/site_en/index.php",
+        threshold_origin="STATUTORY -- the 12% p.a. is fixed by the Act and the "
+                         "file records it as carrying no discretion. Nothing here "
+                         "is an engineering judgement.",
+        citation_checked_on=UNRESOLVED_PE,
+    ),
+    Claim(
+        id="PE2", module="penalty_exposure", symbol="EPF_14B_MONTHLY_RATE",
+        describes="Damages on delayed employer PF remittance: a flat 1% of arrears "
+                  "per month, replacing the pre-2024 tiered 5-25% structure.",
+        asserted_value=0.01,
+        claim_type=STATUTORY,
+        # THE REASON instrument_kind EXISTS. This rate is not set by the Act --
+        # it is set by a notification made under it, and re-checking a dated
+        # Ministry notification is a different task from looking up a section.
+        instrument="Ministry of Labour notification effective 15 June 2024, "
+                   "amending Para 32A of the Employees' Provident Funds Scheme, 1952",
+        instrument_kind=KIND_SUBORDINATE,
+        instrument_status=IN_FORCE,
+        provision="Para 32A (as amended 15 June 2024) -- damages at 1% of arrears "
+                  "per month, operating within the s. 14B ceiling.",
+        source_url="https://www.epfindia.gov.in/site_en/index.php",
+        threshold_origin="STATUTORY, via subordinate legislation rather than the "
+                         "Act itself: the 1%/month figure is set by the 15 June 2024 "
+                         "notification. The file records the pre-2024 figure it "
+                         "replaced (a tiered 5-25%), which is why this one is known "
+                         "to have MOVED -- a rate that has changed once can change "
+                         "again, and a notification changes more easily than an Act.",
+        citation_checked_on=UNRESOLVED_PE,
+    ),
+    Claim(
+        id="PE3", module="penalty_exposure", symbol="EPF_14B_CAP_FRACTION",
+        describes="Ceiling on s. 14B damages: capped at 100% of the arrears amount.",
+        asserted_value=1.0,
+        claim_type=STATUTORY,
+        instrument="Employees' Provident Funds and Miscellaneous Provisions Act, 1952",
+        instrument_kind=KIND_ACT,
+        instrument_status=IN_FORCE,
+        provision="s. 14B -- statutory ceiling on damages, within which Para 32A's "
+                  "1%/month formula operates.",
+        source_url="https://www.epfindia.gov.in/site_en/index.php",
+        threshold_origin="STATUTORY -- the 100% ceiling is in s. 14B itself. Recorded "
+                         "as a claim even though the file notes it never binds in "
+                         "practice at 1%/month (it would take ~100 months), because "
+                         "a ceiling that is implemented but never exercised is "
+                         "exactly the kind of figure that can go stale unnoticed.",
+        citation_checked_on=UNRESOLVED_PE,
+    ),
+    Claim(
+        id="PE4", module="penalty_exposure", symbol="TDS_201_1A_MONTHLY_RATE",
+        describes="Interest on TDS deducted but not deposited: 1.5% per month. The "
+                  "deducted-but-not-deposited case, not the failure-to-deduct case "
+                  "(which is 1%/month and is not what this module models).",
+        asserted_value=0.015,
+        claim_type=STATUTORY,
+        instrument="Income-tax Act, 2025 (Act 30 of 2025)",
+        instrument_kind=KIND_ACT,
+        instrument_status=IN_FORCE,
+        provision="s. 398(3) (formerly s. 201(1A) of the Income-tax Act, 1961) -- "
+                  "interest for failure to deposit tax already deducted.",
+        source_url="https://www.incometaxindia.gov.in/pages/acts/income-tax-act.aspx",
+        threshold_origin="STATUTORY -- both rates are set by the provision. WHICH of "
+                         "the two applies is a scoping decision this module makes and "
+                         "documents: it models the deposit-delay case, so 1.5% "
+                         "applies rather than 1%. That selection is a judgement about "
+                         "the tool's scenario, not about the figure.",
+        citation_checked_on=UNRESOLVED_PE,
     ),
 )
 

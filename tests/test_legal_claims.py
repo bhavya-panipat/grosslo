@@ -356,8 +356,14 @@ class TestStageAOptimizerClaims(unittest.TestCase):
         return next(c for c in legal_claims.CLAIMS if c.id == cid)
 
     def test_stage_a_added_exactly_two_claims_after_the_first_batch(self):
-        self.assertEqual([c.id for c in legal_claims.CLAIMS],
-                         ["TE1", "TE2", "TE3", "TE4", "OP1", "OP2"])
+        # FOURTH instance of the recurring shape, and written one message after
+        # the pattern was named — see INVENTORY_EXPANSION_DESIGN.md §7. Scoped
+        # to this stage's own claims, which is what it was ever about.
+        self.assertEqual([c.id for c in legal_claims.CLAIMS if c.id.startswith("OP")],
+                         ["OP1", "OP2"])
+        self.assertEqual([c.id for c in legal_claims.CLAIMS][:6],
+                         ["TE1", "TE2", "TE3", "TE4", "OP1", "OP2"],
+                         "the first two batches moved or reordered")
 
     def test_both_values_match_the_live_constants(self):
         import optimizer
@@ -415,3 +421,117 @@ class TestStageAOptimizerClaims(unittest.TestCase):
                     self.assertTrue(
                         claim.provision.strip() and claim.source_url.strip(),
                         "claim is marked checked but records no re-findable trail")
+
+
+class TestStageB1PenaltyExposureClaims(unittest.TestCase):
+    """
+    INVENTORY_EXPANSION_DESIGN.md §4 Stage B1. Adds exactly one mechanism —
+    instrument_kind — because this is the first file whose citations are not all
+    Acts. The s. 448 non-applicability claim is held back for B2: it needs a
+    value-less claim, which is a second mechanism.
+    """
+
+    def _claim(self, cid):
+        return next(c for c in legal_claims.CLAIMS if c.id == cid)
+
+    def test_stage_b1_added_exactly_the_four_rate_claims(self):
+        self.assertEqual([c.id for c in legal_claims.CLAIMS if c.id.startswith("PE")],
+                         ["PE1", "PE2", "PE3", "PE4"])
+
+    def test_every_recorded_value_matches_the_live_constant(self):
+        import penalty_exposure as pe
+        self.assertEqual(self._claim("PE1").asserted_value, pe.EPF_7Q_MONTHLY_RATE)
+        self.assertEqual(self._claim("PE2").asserted_value, pe.EPF_14B_MONTHLY_RATE)
+        self.assertEqual(self._claim("PE3").asserted_value, pe.EPF_14B_CAP_FRACTION)
+        self.assertEqual(self._claim("PE4").asserted_value, pe.TDS_201_1A_MONTHLY_RATE)
+        self.assertEqual(legal_claims.drift_findings(), [])
+
+    def test_the_notification_is_marked_subordinate_not_an_act(self):
+        # The whole reason instrument_kind exists. EPF s. 14B's 1%/month is set
+        # by a dated Ministry notification, not by the Act — and re-checking a
+        # notification is a different task from looking up a section.
+        pe2 = self._claim("PE2")
+        self.assertEqual(pe2.instrument_kind, provenance.KIND_SUBORDINATE)
+        self.assertIn("notification", pe2.instrument.lower())
+
+    def test_the_act_based_rates_are_marked_as_acts(self):
+        for cid in ("PE1", "PE3", "PE4"):
+            with self.subTest(claim=cid):
+                self.assertEqual(self._claim(cid).instrument_kind, provenance.KIND_ACT)
+
+    def test_the_rate_known_to_have_moved_says_so(self):
+        # PE2 replaced a tiered 5-25% structure in 2024. A figure that has
+        # already changed once, and that lives in a notification rather than an
+        # Act, is the most likely in this batch to change again.
+        origin = self._claim("PE2").threshold_origin
+        self.assertIn("5-25%", origin)
+        self.assertIn("notification changes more easily", origin)
+
+    def test_all_four_are_unresolved_on_the_files_own_wording(self):
+        # Not a judgement about the file — a reading of it.
+        # penalty_exposure.py says "independently verified against current
+        # sources"; payroll_breakdown.py says "against a PRIMARY source" and
+        # names the document. Only the second is a trail.
+        for cid in ("PE1", "PE2", "PE3", "PE4"):
+            with self.subTest(claim=cid):
+                claim = self._claim(cid)
+                self.assertFalse(claim.citation_is_checked)
+                self.assertTrue(claim.citation_attempt_unresolved)
+                self.assertIn("does not assert a primary source",
+                              claim.citation_checked_on)
+                self.assertIn("NOT backdated", claim.citation_checked_on)
+
+    def test_the_448_exclusion_is_not_in_this_stage(self):
+        # Stage discipline, pinned: B1 adds one mechanism. A claim asserting a
+        # provision does NOT apply has no value to record, which is B2's work.
+        ids = [c.id for c in legal_claims.CLAIMS]
+        self.assertNotIn("PE5", ids)
+        for claim in legal_claims.CLAIMS:
+            with self.subTest(claim=claim.id):
+                self.assertIsNotNone(claim.asserted_value,
+                                     "a value-less claim arrived before B2")
+
+
+class TestInstrumentKind(unittest.TestCase):
+
+    def test_it_defaults_to_act_so_nothing_existing_changed(self):
+        for rule in compliance_rules.RULES:
+            with self.subTest(rule=rule.id):
+                self.assertEqual(rule.instrument_kind, provenance.KIND_ACT)
+
+    def test_an_unknown_kind_is_a_violation(self):
+        from unittest.mock import patch
+        bad = legal_claims.Claim(
+            id="K1", module="tax_engine", symbol="CESS_RATE", describes="d",
+            asserted_value=0.04, claim_type=provenance.STATUTORY,
+            instrument="Some Act, 1952", instrument_kind="statute-ish",
+            instrument_status=provenance.IN_FORCE, provision="P",
+            source_url="https://example.invalid/x", citation_checked_on="2026-09-12",
+            threshold_origin="t")
+        with patch.object(legal_claims, "CLAIMS", (bad,)):
+            problems = legal_claims.evidence_findings()
+        self.assertTrue(any("K1" in p and "instrument_kind" in p for p in problems),
+                        problems)
+
+    def test_the_checker_survives_a_carrier_that_predates_the_field(self):
+        # The mixin supplies a class-level fallback so adding a field to the
+        # shared evidence model cannot make the checker raise AttributeError on
+        # an older carrier. Found by a test stand-in doing exactly that.
+        # MUST be STATUTORY. The first version of this test used a CONVENTION
+        # carrier and passed even with the fallback deleted, because the
+        # instrument_kind check lives inside the statutory branch and was never
+        # reached — the test was green for the wrong reason, which a sabotage
+        # run caught and an assertion alone would not have.
+        class Old(provenance.ProvenanceMixin):
+            id = "OLD1"
+            claim_type = provenance.STATUTORY
+            basis = ""
+            threshold_origin = "t"
+            reviewed_by = "R"
+            reviewed_on = "2026-09-12"
+            source_url = "https://example.invalid/x"
+            provision = "P"
+            citation_checked_on = "2026-09-12"
+            instrument = "Some Act, 1952"
+            instrument_status = provenance.IN_FORCE
+        self.assertEqual(provenance.provenance_violations([Old()]), [])

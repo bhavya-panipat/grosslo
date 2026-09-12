@@ -80,6 +80,8 @@ from typing import Callable
 # structural and changes no behaviour.
 from provenance import (  # noqa: F401  (re-exported for compatibility)
     STATUTORY, CONVENTION, UNRESOLVED, IN_FORCE, SUPERSEDED, INSTRUMENT_UNKNOWN,
+    KIND_ACT, KIND_SUBORDINATE, KIND_JUDGMENT, KIND_CONSTITUTION,
+    KIND_NONE_EXISTS, INSTRUMENT_KINDS,
     ProvenanceMixin, provenance_violations,
 )
 
@@ -167,6 +169,10 @@ class Rule(ProvenanceMixin):
     # meaningful relative to an Act, and Acts get repealed.
     instrument: str = ""             # e.g. "Income-tax Act, 1961"
     instrument_status: str = INSTRUMENT_UNKNOWN
+    # What KIND of instrument — an Act, a notification, a judgment, a
+    # constitutional provision, or none at all. See provenance.py; it
+    # changes what re-checking the citation actually involves.
+    instrument_kind: str = KIND_ACT
 
     # ---- Evidence for a CONVENTION claim ----------------------------------
     # What makes this the typical or expected norm. Deliberately not a URL

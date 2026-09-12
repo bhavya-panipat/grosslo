@@ -76,6 +76,39 @@ IN_FORCE = "in_force"
 SUPERSEDED = "superseded"
 INSTRUMENT_UNKNOWN = "unknown"
 
+# WHAT KIND of instrument, which is separate from whether it still governs.
+# instrument/instrument_status were designed when every citation in this
+# codebase pointed at an Act. They do not (INVENTORY_EXPANSION_DESIGN.md §2.2):
+#
+#   KIND_ACT           primary legislation — "Income-tax Act, 2025"
+#   KIND_SUBORDINATE   rules, schemes, notifications made under an Act — e.g.
+#                      the Ministry of Labour notification of 15 June 2024 that
+#                      set EPF s. 14B damages at 1%/month
+#   KIND_JUDGMENT      a court decision — e.g. US Technologies v. CIT, which is
+#                      why s. 448 is deliberately not modelled
+#   KIND_CONSTITUTION  e.g. Article 276's Rs 2,500 annual ceiling on
+#                      professional tax
+#   KIND_NONE_EXISTS   there is genuinely no instrument, and that is a POSITIVE
+#                      checked finding rather than a gap — Delhi has never
+#                      enacted a professional tax Act at all
+#
+# This is descriptive: no check branches on it beyond validating the value. It
+# exists because WHAT IT TAKES TO RE-CHECK a citation differs by kind — an Act
+# is looked up, a notification is searched for by date and subject, a judgment
+# is read for what it actually held — and a reader who assumes "Act" when the
+# instrument is a notification will look in the wrong place.
+#
+# KIND_NONE_EXISTS also disambiguates an empty `instrument`, which otherwise
+# means three different things: nobody recorded one, nobody looked, or there is
+# none to record. Only the third is an answer.
+KIND_ACT = "act"
+KIND_SUBORDINATE = "subordinate"
+KIND_JUDGMENT = "judgment"
+KIND_CONSTITUTION = "constitution"
+KIND_NONE_EXISTS = "none_exists"
+INSTRUMENT_KINDS = (KIND_ACT, KIND_SUBORDINATE, KIND_JUDGMENT,
+                    KIND_CONSTITUTION, KIND_NONE_EXISTS)
+
 class ProvenanceMixin:
     """
     The evidence model, extracted so it can describe things that are NOT
@@ -109,6 +142,16 @@ class ProvenanceMixin:
     # matches the cited source". Both are human judgements no check can make,
     # but a message that names the wrong one sends a reviewer to the wrong task.
     REVIEW_MEANS = "reviewed the implementation"
+
+    # Class-level fallback for fields the SHARED CHECKER reads. Both dataclass
+    # carriers declare instrument_kind themselves and shadow this; it exists so
+    # that adding a field to the evidence model cannot make provenance_violations
+    # raise AttributeError on a carrier written before that field existed.
+    # Found by the test stand-in doing exactly that when instrument_kind landed.
+    #
+    # It cannot mask a real omission on the two real carriers: a separate test
+    # asserts their declared field sets agree.
+    instrument_kind = KIND_ACT
 
     @property
     def is_live(self) -> bool:
@@ -230,6 +273,10 @@ def provenance_violations(items, pre_protocol_ids=frozenset()) -> list:
             if rule.instrument_status not in (IN_FORCE, SUPERSEDED, INSTRUMENT_UNKNOWN):
                 problems.append(
                     f"{rule.id} has unknown instrument_status {rule.instrument_status!r}")
+            if rule.instrument_kind not in INSTRUMENT_KINDS:
+                problems.append(
+                    f"{rule.id} has unknown instrument_kind {rule.instrument_kind!r} "
+                    f"— expected one of {', '.join(INSTRUMENT_KINDS)}")
             if rule.is_live and rule.cites_superseded_law:
                 problems.append(
                     f"{rule.id} is LIVE and cites a superseded instrument "
