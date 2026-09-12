@@ -21,6 +21,29 @@ it, and exports a schema-accurate RazorpayX Composite Payout payload — for one
 candidate at a time or a whole CSV batch. Every step is logged as a real
 execution trace, not a black box: what ran, what it found, and why.
 
+## Who and where this is for — decided, not assumed
+
+**Salaried employees, taxed in India. Not contractors, and not a second
+country.** A decision rather than a description of what happens to exist; see
+`PRODUCT_SCOPE_DESIGN.md` for the evidence and the reasoning.
+
+- **Employees only.** Not a limitation waiting to be lifted. The product is
+  *take a CTC and split it to minimise tax* — and a contractor has no CTC to
+  split. HRA exemption, LTA and employer PF are not features a contractor is
+  missing; they are categories that do not exist for one. Even with every
+  supporting piece added, the optimiser would have nothing to act on. Serving
+  contractors would be a **different product** sharing this tax engine, not an
+  extension of this one.
+- **India only, meaning the employee's TAX JURISDICTION is India.** The
+  employer's domicile is irrelevant: an Indian employee of a foreign-domiciled
+  company is **in scope**.
+- **Why not both, right now — a sequencing argument, not a verdict on the
+  ideas.** A second jurisdiction would multiply an unverified corpus rather than
+  deepen a verified one. Today 15 of this codebase's 17 inventoried legal claims
+  are unverified and *none* has been signed off by a qualified professional (see
+  `docs/PROJECT_STATUS.md`). Widening the surface before that is settled makes
+  the existing problem larger, not the product better.
+
 **Isn't this what RazorpayX Payroll already does?** RazorpayX Payroll is a
 real, shipped product with CTC structuring, statutory filing, and direct
 disbursement already built. grosslo doesn't re-implement that — it's
