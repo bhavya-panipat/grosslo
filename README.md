@@ -5,7 +5,7 @@ Built for the Razorpay AI Buildathon 2026, AI Finance Controller track.
 **Stated precisely, up front:** grosslo is the decision and compliance layer
 a real autonomous payroll controller would need underneath it — not yet the
 acting system itself. It does now call RazorpayX's real API and does write
-state (a SQLite review queue, a signed session cookie) — stated exactly,
+state (a Postgres review queue, a signed session cookie) — stated exactly,
 not glossed over: exactly one route (`GET /api/razorpayx/balance`, see
 `razorpayx_client.py`) makes a live, read-only call with zero money
 movement, and state-writing is scoped to persisting a submission for
@@ -204,10 +204,10 @@ HttpOnly, expiring session cookie (`flask.session`), not a client-side
 and privacy posture" below for exactly which routes that session now
 gates. What's still deliberately absent: per-person credentials or
 accounts (both roles remain shared secrets), login rate-limiting/lockout,
-a production database (SQLite, a single gitignored file, explicitly not
-the "real database" the roadmap describes for a steady-state company
-roster), a second-approver escalation tier, or a notification system for
-pending reviews. These are reasonable ideas in isolation; none of them
+a steady-state company roster (persistence is Postgres as of Phase 1.1,
+but it stores submissions awaiting review, not an employee master), a
+second-approver escalation tier, or a notification system for pending
+reviews. These are reasonable ideas in isolation; none of them
 belong on top of an approval layer already honestly labeled as a demo
 simplification — making that layer *look* more sophisticated than it
 actually is would undermine the exact honesty this section is trying to
@@ -483,7 +483,7 @@ guess at what the new number would be.
 - **Security and privacy posture, stated plainly rather than left silent —
   this matters more than most limitations here, because this tool handles
   real compensation data.** Persistence is now limited to two things: the
-  local `review_queue.db` (SQLite) that lets an HR submission survive
+  Postgres review queue that lets an HR submission survive
   until Finance reviews it, and the local `audit_log.jsonl` decision
   trail — nothing else. **The trail isn't just a claim in this README —
   `GET /api/audit-log` (optionally `?limit=`) reads it back live**, so a
@@ -493,9 +493,10 @@ guess at what the new number would be.
   what this document says it does. Not in the pitch video, since it's a
   read-only inspection endpoint rather than a visual demo beat — the
   route itself, and this section, are the pointer for it. Specifically:
-  - **No encryption at rest.** Both files are plain SQLite/JSONL on disk.
+  - **No encryption at rest.** Neither the Postgres tables nor
+    `audit_log.jsonl` is encrypted; the JSONL is plain text on disk.
   - **No data-retention or deletion policy.** Data lives as long as the
-    demo session/database file does, with no expiry or purge mechanism.
+    demo session/database does, with no expiry or purge mechanism.
   - **`/hr` and `/finance` now have real server-side session
     authentication** — `auth.py` verifies the role code server-side and
     issues a signed, HttpOnly, 8-hour session cookie (`flask.session`);
@@ -568,13 +569,19 @@ guess at what the new number would be.
     HR supplies them — this is what lets an approved row generate a real
     RazorpayX payout payload later, rather than requiring the export
     modal's separate manual re-entry. It sits in the same unencrypted
-    SQLite file as everything else here — reading it now requires a real
+    Postgres tables as everything else here — reading it requires a real
     `hr`/`finance` session (see above), but the "no encryption at rest"
-    gap is still real and unaffected by that change: the file itself is
-    plain SQLite on disk, so anyone with filesystem access to the machine
-    (not just anyone with a browser) can still read it directly. Real
-    production use needs that closed too before real bank details go
-    anywhere near this schema. The audit log remains the one exception: it
+    gap is still real and unaffected by that change. **What the Phase 1.1
+    Postgres port DID change is the shape of that exposure, and the
+    difference is worth stating rather than swapping a noun:** under the
+    old single SQLite file, anyone with filesystem access to the machine
+    could read it directly. Under Postgres they additionally need database
+    credentials, and the `grosslo_app` role is subject to row-level
+    security, so reading another tenant's rows needs more than file access.
+    That is a narrower exposure, not a closed one — a superuser connection
+    or the postmaster's data directory still reads everything, and nothing
+    is encrypted. Real production use needs that closed before real bank
+    details go anywhere near this schema. The audit log remains the one exception: it
     excludes names/bank details/emails by construction (see its own
     section below), and that claim is unaffected by this change.
 

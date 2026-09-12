@@ -50,7 +50,7 @@ acting system itself. Two things have moved since that line was first true,
 stated exactly rather than left stale: one route (`GET
 /api/razorpayx/balance`) makes a real, live, read-only call to RazorpayX's
 account-balance API — test-mode only, refused otherwise, zero money moved —
-and routes do write state (a SQLite review queue, a signed session cookie
+and routes do write state (a Postgres review queue, a signed session cookie
 authenticating who can read it). Neither is a write-authority claim: no
 route moves money or dispatches a payout, and every RazorpayX
 payout/export interaction still stops at generating a correctly-shaped
@@ -245,17 +245,17 @@ unnamed choice reads as unconsidered even when it wasn't:
   governance workflow (maker-checker, per-row diffs, bulk actions) is a
   genuine multi-page application with real state, not a single results
   page.
-- **Persistence: SQLite, one gitignored file** — the right tool for a
-  demo-scale, single-tenant review queue that needs to survive a session,
-  and explicitly not represented as more than that (see "Known
-  limitations" in `README.md`). Production would need a real RDBMS
-  (Postgres is the obvious default), connection pooling, migrations, and
-  — the part SQLite genuinely cannot do — row-level multi-tenant
-  isolation once more than one company's data exists in the same system.
-  That gap is named, not glossed over, because a single-file database is
-  a legitimate demo choice and a disqualifying production one, and
-  conflating the two would be exactly the kind of overclaim this project
-  has tried not to make anywhere else.
+- **Persistence: Postgres.** This paragraph used to read "SQLite, one
+  gitignored file", defended as the right demo-scale choice, and named the
+  gap that made it a disqualifying production one: no row-level
+  multi-tenant isolation once more than one company's data shares a
+  system. **Roadmap Phase 1.1 closed exactly that gap** — the port to
+  Postgres, `FORCE ROW LEVEL SECURITY`, and transaction-scoped
+  `SET LOCAL app.tenant_id` (see `MULTI_TENANT_DESIGN.md`). Still absent,
+  and still named rather than glossed: connection pooling and a migration
+  framework. The original text is summarised rather than deleted because
+  the gap it identified is the one the next phase went and closed, which
+  is the useful part of having written it down.
 - **RazorpayX payload schema, verified rather than guessed:** the
   Composite Payout payload shape (`fund_account`/`bank_account`/`contact`
   nesting, amount in paise, the `X-Payout-Idempotency` header convention)
@@ -426,7 +426,7 @@ structure is written anywhere by that route.
 
 **`/api/submissions` is not stateless, and — since the redundancy fix — it
 persists bank details when HR supplies them, stated plainly rather than
-left implicit.** The review queue (`review_queue.db`, SQLite) always stored
+left implicit.** The review queue (Postgres since Phase 1.1) always stored
 employee name and CTC (needed for the dedupe check); it now also stores
 `band_min`/`band_max`/`bank_account_number`/`ifsc`/`email` when present,
 because that's what lets an approved row generate a real RazorpayX payout
@@ -586,7 +586,7 @@ untouched — see `README.md`'s "what broke" section for the full
 before/after.
 
 **The maker-checker review layer is three new, deliberately separate
-modules, not one bigger one.** `review_queue.py` (SQLite persistence and
+modules, not one bigger one.** `review_queue.py` (Postgres persistence and
 decision logic), `diff_view.py` (before/after presentation over data those
 other modules already computed), and `salary_revision_export.py` (XLSX
 generation) don't import each other's internals — each does exactly one

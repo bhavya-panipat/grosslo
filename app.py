@@ -205,7 +205,7 @@ def _write_log_line(path: str, payload: dict) -> None:
 # doesn't require identity, it just bounds how many submission attempts
 # one source gets in a window, raising the cost of testing many
 # fraudulent variations against a live queue. In-memory, per-process —
-# same demo-scale honesty as review_queue.py's own SQLite file: resets on
+# same demo-scale honesty as review_queue.py's own store: resets on
 # restart, doesn't survive multiple server processes behind a real load
 # balancer. That's a real, named limitation, not a claim of production
 # hardening.
