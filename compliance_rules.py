@@ -80,9 +80,13 @@ from typing import Callable
 # structural and changes no behaviour.
 from provenance import (  # noqa: F401  (re-exported for compatibility)
     STATUTORY, CONVENTION, UNRESOLVED, IN_FORCE, SUPERSEDED, INSTRUMENT_UNKNOWN,
-    KIND_ACT, KIND_SUBORDINATE, KIND_JUDGMENT, KIND_CONSTITUTION,
-    INSTRUMENT_KINDS,
     ProvenanceMixin, provenance_violations,
+    # KIND_ACT is imported because Rule USES it as a default, not to re-export
+    # it. The other instrument kinds are deliberately NOT re-exported: they were
+    # born in provenance.py and never existed here, so re-exporting them would
+    # be new surface area rather than compatibility — callers that want them
+    # should import from where they live.
+    KIND_ACT,
 )
 
 ACTIVE = "active"

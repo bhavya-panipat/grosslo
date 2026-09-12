@@ -9,7 +9,6 @@ depends on it cannot be shown to have been working beforehand.
 
 import os
 import sys
-import types
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -719,6 +718,12 @@ class TestStageC1ProfessionalTaxClaims(unittest.TestCase):
         self.assertIn("PT3", message)
         self.assertIn("telangana", message)
         self.assertIn("dropped from coverage", message)
+        # §8: assert on what must be ABSENT too. This message does not embed the
+        # table's value today, but the drift message did, and that is exactly
+        # how the karnataka substring check passed for the wrong reason.
+        for other_state in ("karnataka", "maharashtra", "tamil_nadu", "delhi"):
+            self.assertNotIn(other_state, message,
+                             "the error names states it is not about")
         # And it is still catchable as the broader failure it belongs to.
         self.assertTrue(issubclass(legal_claims.KeyPathMissingError,
                                    legal_claims.SymbolMissingError))

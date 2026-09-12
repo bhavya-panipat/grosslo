@@ -138,14 +138,44 @@ So an empty `instrument` now has three possible meanings: nobody recorded one,
 nobody looked, or **there is genuinely none to record**. The third is a positive,
 checked finding and must not read as the first.
 
-**Chosen: `instrument_kind = "none_exists"`**, with the reasoning in `basis`.
-This makes Delhi's zero what the code already calls it — a real, checked zero
-rather than an omitted case.
+**Planned: `instrument_kind = "none_exists"`. SUPERSEDED DURING
+IMPLEMENTATION, and the constant was deleted.**
 
-## 4. Batch scope and ordering — three stages, each adding exactly one mechanism
+Building it showed the tag does not work: **an absence cannot be cited**, and an
+`instrument: none_exists` is indistinguishable from nobody having looked — the
+very ambiguity it was invented to resolve, moved one field over.
+
+What shipped is stronger. Delhi cites **Article 276**, the provision that
+*permits* a State to levy a professional tax without requiring one. That is a
+real, citable instrument, and it is what makes Delhi's zero lawful rather than
+an oversight. The operative fact is still an absence — no Delhi PT Act — and
+that lives in `threshold_origin`, where prose belongs, rather than being
+compressed into an enum value that cannot carry it.
+
+`KIND_NONE_EXISTS` was deleted rather than left unused: zero users is this
+repository's "undeleted superseded code" pattern.
+
+## 4. Batch scope and ordering — one mechanism per stage
 
 Deliberately staged so no stage introduces two new things at once, and so a
 failure is attributable. Same discipline as the first batch's four figures.
+
+**PLANNED AS THREE STAGES; SHIPPED AS FIVE, and the correction was forced by
+this section's own rule.** Stage B as written below adds `instrument_kind` AND
+the value-less claim; Stage C adds key paths AND `known_divergence`. Both break
+the one-mechanism rule in the heading that governs them — a section stating a
+discipline and violating it two paragraphs later.
+
+Each was split before starting, into B1/B2 and C1/C2. The stage descriptions
+below are left as first written, with what actually shipped recorded here:
+
+| Shipped | Mechanism | Claims |
+|---|---|---|
+| A | none — uses the existing model | OP1, OP2 |
+| B1 | `instrument_kind` | PE1–PE4 |
+| B2 | the value-less claim (`NO_VALUE`, `NON_APPLICABILITY`) | PE5 |
+| C1 | key paths | PT1–PT6 |
+| C2 | `known_divergence` (+ the citation-state guard tracked from C1) | — |
 
 **Stage A — `optimizer.py`, 2 claims. Discharges the priority; needs no new
 mechanism.**
