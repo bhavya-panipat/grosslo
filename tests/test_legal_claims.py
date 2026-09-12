@@ -208,7 +208,13 @@ class TestTheFirstBatchIsTheFourTaxEngineFigures(unittest.TestCase):
         # Recorded as the expected outcome, not defensively. The visible truth
         # is that four of the most load-bearing numbers in this system rest on
         # nothing recorded, and making that visible IS the deliverable.
-        for claim in legal_claims.CLAIMS:
+        #
+        # FIFTH instance of §7's shape, and it failed for the best possible
+        # reason: it iterated the WHOLE inventory, and Stage C1 produced the
+        # first genuinely VERIFIED claims. A test asserting "everything here is
+        # unverified" was always going to break the moment something was
+        # verified — which is the outcome the project wants.
+        for claim in [c for c in legal_claims.CLAIMS if c.module == "tax_engine"]:
             with self.subTest(claim=claim.id):
                 self.assertFalse(claim.citation_is_checked)
                 self.assertFalse(claim.implementation_is_reviewed)
@@ -418,9 +424,19 @@ class TestStageAOptimizerClaims(unittest.TestCase):
                 continue
             with self.subTest(claim=claim.id):
                 if claim.citation_is_checked:
+                    # ALIGNED WITH §5.1, which my first version of this test was
+                    # stricter than: the rule says a NAMED INSTRUMENT a reader
+                    # can look up is itself the trail — "its specificity is the
+                    # trail" — not that a URL is required. PT1 cites an amending
+                    # Act by name, amendment and year and captures no URL, which
+                    # satisfies §5.1 and failed this test as first written.
+                    #
+                    # The separate question of whether provenance.py's 2.2-era
+                    # check should still demand source_url is NOT settled here;
+                    # see the flag raised with this stage.
                     self.assertTrue(
-                        claim.provision.strip() and claim.source_url.strip(),
-                        "claim is marked checked but records no re-findable trail")
+                        claim.instrument.strip() and claim.provision.strip(),
+                        "claim is marked checked but names no re-findable instrument")
 
 
 class TestStageB1PenaltyExposureClaims(unittest.TestCase):
@@ -635,3 +651,129 @@ class TestStageB2ValuelessClaims(unittest.TestCase):
         # A separate question from the citation, and the one that would make
         # this claim wrong rather than merely unverified.
         self.assertIn("overruled", self._pe5().citation_checked_on)
+
+
+class TestStageC1ProfessionalTaxClaims(unittest.TestCase):
+    """
+    INVENTORY_EXPANSION_DESIGN.md §2.1, Stage C1. One mechanism: key paths,
+    because PT_MONTHLY_TABLE is one Python name holding five separate STATE
+    statutes. known_divergence is C2.
+    """
+
+    def _claim(self, cid):
+        return next(c for c in legal_claims.CLAIMS if c.id == cid)
+
+    def test_five_states_share_one_symbol_through_key_paths(self):
+        pt = [c for c in legal_claims.CLAIMS if c.symbol == "PT_MONTHLY_TABLE"]
+        self.assertEqual([c.id for c in pt], ["PT1", "PT2", "PT3", "PT4", "PT5"])
+        self.assertEqual([c.key_path[0] for c in pt],
+                         ["karnataka", "maharashtra", "telangana", "tamil_nadu",
+                          "delhi"])
+
+    def test_each_state_reads_only_its_own_table(self):
+        import payroll_breakdown as pb
+        for cid, state in (("PT1", "karnataka"), ("PT2", "maharashtra"),
+                           ("PT3", "telangana"), ("PT4", "tamil_nadu"),
+                           ("PT5", "delhi")):
+            with self.subTest(claim=cid):
+                self.assertEqual(self._claim(cid).live_value(),
+                                 pb.PT_MONTHLY_TABLE[state])
+        self.assertEqual(legal_claims.drift_findings(), [])
+
+    def test_drift_in_one_state_names_that_state_alone(self):
+        # The whole reason key paths exist. One claim per symbol would report
+        # "PT_MONTHLY_TABLE changed" and leave a reader to work out which of
+        # five independently-amendable statutes moved.
+        from unittest.mock import patch
+        import payroll_breakdown as pb
+        table = dict(pb.PT_MONTHLY_TABLE)
+        table["karnataka"] = [(0, 29_999, 0), (30_000, None, 200)]
+        with patch.object(pb, "PT_MONTHLY_TABLE", table):
+            findings = legal_claims.drift_findings()
+        self.assertEqual(len(findings), 1)
+        self.assertIn("PT1", findings[0])
+        self.assertIn("karnataka", findings[0])
+        # MUST assert on the other STATE NAMES, not just the other claim ids.
+        # The first version of this test checked ids only and passed when the
+        # key path was deleted — because the message then contained the WHOLE
+        # dict, whose repr happens to include "karnataka". Sabotage caught it;
+        # the assertion could not have. Second time in this phase a test of
+        # mine was green for the wrong reason.
+        for other_state in ("maharashtra", "telangana", "tamil_nadu", "delhi"):
+            self.assertNotIn(other_state, findings[0],
+                             "the finding names states this claim is not about")
+        for other in ("PT2", "PT3", "PT4", "PT5"):
+            self.assertNotIn(other, findings[0])
+
+    def test_a_state_dropped_from_coverage_is_its_own_named_failure(self):
+        # Distinct from a stale number and from a missing symbol: the constant
+        # is still there and one entry inside it is gone, which is a scope
+        # change rather than a wrong figure.
+        from unittest.mock import patch
+        import payroll_breakdown as pb
+        table = {k: v for k, v in pb.PT_MONTHLY_TABLE.items() if k != "telangana"}
+        with patch.object(pb, "PT_MONTHLY_TABLE", table):
+            with self.assertRaises(legal_claims.KeyPathMissingError) as caught:
+                self._claim("PT3").live_value()
+        message = str(caught.exception)
+        self.assertIn("PT3", message)
+        self.assertIn("telangana", message)
+        self.assertIn("dropped from coverage", message)
+        # And it is still catchable as the broader failure it belongs to.
+        self.assertTrue(issubclass(legal_claims.KeyPathMissingError,
+                                   legal_claims.SymbolMissingError))
+
+    def test_where_shows_the_key_so_a_reader_knows_what_to_open(self):
+        self.assertEqual(self._claim("PT1").where,
+                         "payroll_breakdown.PT_MONTHLY_TABLE['karnataka']")
+
+    # ---- the first verified claims in this inventory ----------------------
+
+    def test_karnataka_and_tamil_nadu_are_the_first_verified_citations(self):
+        verified = [c.id for c in legal_claims.CLAIMS if c.citation_is_checked]
+        self.assertEqual(verified, ["PT1", "PT4"])
+
+    def test_they_are_verified_on_a_named_instrument_not_a_captured_url(self):
+        # §5.1: a named instrument a reader can look up IS the trail. PT1
+        # captures no URL and is verified; PT4 names the government's own PDF.
+        pt1 = self._claim("PT1")
+        self.assertTrue(pt1.citation_is_checked)
+        self.assertEqual(pt1.source_url, "")
+        self.assertIn("(Amendment) Act, 2025", pt1.instrument)
+        self.assertIn("tnswp.com", self._claim("PT4").instrument)
+
+    def test_the_three_unnamed_states_stay_unresolved(self):
+        # The file's blanket "every slab re-verified against a primary source"
+        # records that a check happened without naming what was read. Evidence
+        # of a check is not a trail.
+        for cid in ("PT2", "PT3", "PT5"):
+            with self.subTest(claim=cid):
+                claim = self._claim(cid)
+                self.assertFalse(claim.citation_is_checked)
+                self.assertTrue(claim.citation_attempt_unresolved)
+                self.assertIn("NOT backdated", claim.citation_checked_on)
+
+    def test_maharashtras_act_was_not_named_from_outside_the_repo(self):
+        # The file refers to "Maharashtra's Act" without naming it. Supplying
+        # the title today and recording it against a 2026-09-03 check is
+        # exactly the backdating §5.1 forbids.
+        self.assertEqual(self._claim("PT2").instrument, "")
+
+    def test_delhis_zero_cites_the_permissive_provision_not_an_absence(self):
+        # An absence cannot be cited. Article 276 is what makes the absence
+        # lawful rather than an oversight, so it is the nearest citable
+        # authority — and recording an empty instrument instead would be
+        # indistinguishable from nobody having looked.
+        pt5 = self._claim("PT5")
+        self.assertEqual(pt5.instrument_kind, provenance.KIND_CONSTITUTION)
+        self.assertIn("Article 276", pt5.instrument)
+        self.assertIn("PERMITS", pt5.provision)
+        self.assertIn("verifying a NEGATIVE", pt5.citation_checked_on)
+
+    def test_the_february_bump_separates_the_ceiling_from_the_arithmetic(self):
+        # Rs 2,500 is constitutional; Rs 300 is this tool's arithmetic to land
+        # on it. Recording them as one claim would attribute an implementation
+        # detail to the Constitution.
+        origin = self._claim("PT6").threshold_origin
+        self.assertIn("CONSTITUTIONAL", origin)
+        self.assertIn("is NOT", origin)

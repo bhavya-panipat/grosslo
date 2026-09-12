@@ -2,7 +2,7 @@
 
 # Legal review queue
 
-**17 items** across 6 live compliance rules and 11 legal claims.
+**23 items** across 6 live compliance rules and 17 legal claims.
 
 ## Read this first
 
@@ -28,6 +28,20 @@ Worst of the four. The citation may match its source text perfectly and still po
 ## 2. Asserts law with no citation recorded anywhere
 
 A statutory claim nobody can check, because there is nothing to check against. Unverifiable by anyone, not merely unverified.
+
+### PT2 — Maharashtra professional tax, general slab: nil to Rs 7,500, Rs 175/month to Rs 10,000, Rs 200/month above.
+
+- **Where:** `payroll_breakdown.PT_MONTHLY_TABLE['maharashtra']`
+- **Instrument:** _none recorded_ (unknown)
+- **Provision:** _none recorded_
+- **Citation state:** unresolved: payroll_breakdown.py records that "every slab" was "re-verified live on 2026-09-03 against a primary source", but names no source for this state. Under the standing rule (INVENTORY_EXPANSION_DESIGN.md 5.1) a re-findable trail AND a recorded check are both required; the check is recorded and the trail is not. NOT backdated: the Act was not looked up today and credited to the 2026-09-03 check.
+
+### PT3 — Telangana professional tax: nil to Rs 15,000, Rs 150/month to Rs 20,000, Rs 200/month above.
+
+- **Where:** `payroll_breakdown.PT_MONTHLY_TABLE['telangana']`
+- **Instrument:** _none recorded_ (unknown)
+- **Provision:** _none recorded_
+- **Citation state:** unresolved: payroll_breakdown.py records that "every slab" was "re-verified live on 2026-09-03 against a primary source", but names no source for this state. Under the standing rule (INVENTORY_EXPANSION_DESIGN.md 5.1) a re-findable trail AND a recorded check are both required; the check is recorded and the trail is not. NOT backdated: the Act was not looked up today and credited to the 2026-09-03 check.
 
 ### TE1 — New-regime income tax slab boundaries and rates: nil to Rs 4L, then 5/10/15/20/25% bands, 30% above Rs 24L.
 
@@ -96,6 +110,20 @@ Someone tried and could not. Distinct from never having tried, and worse: it mea
 - **Provision:** s. 448 (formerly s. 271C of the Income-tax Act, 1961) -- penalty for failure to DEDUCT tax. Held to turn on the words "fails to deduct", which do not reach failure to DEPOSIT tax already deducted; belated remittance after deduction is covered exclusively by s. 398(3) (formerly s. 201(1A)) interest.
 - **Citation state:** unresolved: the CITATION here is the most specific in penalty_exposure.py -- a full law-report citation, [2023] 149 taxmann.com 144 (SC), which an independent party can re-find. But the CHECK is recorded in the same "independently verified against current sources" language as PE1-PE4, which names no source and does not assert a primary one. Under the standing rule (INVENTORY_EXPANSION_DESIGN.md 5.1) a re-findable trail and a recorded check are BOTH required; this has the first and not the second. It is the closest claim in this file to clearing the bar and a reviewer could likely settle it quickly. NOT backdated. SEPARATELY UNCHECKED, and not a citation question at all: whether the judgment has since been overruled, distinguished, or legislatively displaced by the 2025 Act's re-enactment.
 
+### PT5 — Delhi professional tax: Rs 0 at every income level. A real, checked zero -- no PT Act has ever been enacted for the NCT of Delhi -- not an omitted case.
+
+- **Where:** `payroll_breakdown.PT_MONTHLY_TABLE['delhi']`
+- **Instrument:** Constitution of India, Article 276 (in_force)
+- **Provision:** Art. 276 PERMITS a State to levy a tax on professions, trades, callings and employments but does not require one. No such Act has been enacted for the NCT of Delhi, so nothing is levied.
+- **Citation state:** unresolved: verifying a NEGATIVE is a different and harder task than checking a slab, and payroll_breakdown.py names no source for it. Confirming that no Delhi PT Act exists means establishing the absence of an instrument across the whole corpus, which no single document shows. Article 276's permissive wording is citable and does not by itself establish that Delhi never legislated. NOT backdated.
+
+### PT6 — The one-off Rs 300 February professional tax month used by Karnataka and Maharashtra so that 11 months at the base rate plus one bumped month lands exactly on the Rs 2,500 annual cap.
+
+- **Where:** `payroll_breakdown._FEBRUARY_BUMP_AMOUNT`
+- **Instrument:** Constitution of India, Article 276 (in_force)
+- **Provision:** Art. 276(2) -- Rs 2,500 per person per year ceiling on the total professional tax a State may levy.
+- **Citation state:** unresolved: Article 276 is a citable instrument and the Rs 2,500 ceiling is attributed to it in the file, but no source is named and the file records no check of the constitutional provision itself -- only that the arithmetic lands on Rs 2,500. Two separate things are unverified here: the ceiling, and that a February bump is how these states in fact apply it. NOT backdated.
+
 ### R1 — Basic salary < 50% of CTC
 
 - **Where:** `compliance_rules.py`
@@ -120,6 +148,20 @@ The one assertion no automated check can produce. Everything else in this queue 
 - **Instrument:** _none recorded_ (unknown)
 - **Provision:** _none recorded_
 - **Citation state:** _never attempted_
+
+### PT1 — Karnataka professional tax: nil up to Rs 24,999/month gross, Rs 200/month above Rs 25,000.
+
+- **Where:** `payroll_breakdown.PT_MONTHLY_TABLE['karnataka']`
+- **Instrument:** Karnataka Tax on Professions, Trades, Callings and Employments (Amendment) Act, 2025 (in_force)
+- **Provision:** Amendment raising the exemption threshold from Rs 15,000 to Rs 25,000/month and the annual cap from Rs 2,400 to Rs 2,500, in force 1 April 2025.
+- **Citation state:** checked 2026-09-03
+
+### PT4 — Tamil Nadu / Greater Chennai Corporation professional tax, expressed as a monthly equivalent of a six-tier HALF-YEARLY assessment (Rs 0/100/235/510/760/1,095 divided by six).
+
+- **Where:** `payroll_breakdown.PT_MONTHLY_TABLE['tamil_nadu']`
+- **Instrument:** Greater Chennai Corporation professional tax schedule, published by the Government of Tamil Nadu on tnswp.com (in_force)
+- **Provision:** Six-tier half-yearly slab: Rs 0 / 100 / 235 / 510 / 760 / 1,095 across average-half-yearly-income bands.
+- **Citation state:** checked 2026-09-03
 
 ### R2 — CTC > Rs 6L/year but employer PF = 0
 

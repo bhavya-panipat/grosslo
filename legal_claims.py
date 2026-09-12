@@ -87,6 +87,20 @@ class SymbolMissingError(RuntimeError):
     """
 
 
+class KeyPathMissingError(SymbolMissingError):
+    """
+    The symbol exists but the key path into it does not.
+
+    A SUBCLASS, because it is the same kind of failure at a finer grain — a
+    claim describing something that is no longer there — so anything catching
+    SymbolMissingError still catches this. Separate because the remedy differs:
+    a missing symbol means the constant went away, while a missing key means
+    the constant is still there and one entry inside it went away. For the PT
+    table that is the difference between "professional tax was removed from
+    this tool" and "a state was dropped from its coverage".
+    """
+
+
 @dataclass(frozen=True)
 class Claim(ProvenanceMixin):
     """
@@ -119,6 +133,18 @@ class Claim(ProvenanceMixin):
     # NON_APPLICABILITY claim says a provision does not apply; there is no
     # number to compare, and §4.5's drift check cannot cover it.
     asserted_value: object
+
+    # Keys to walk into the symbol's value, for a constant that holds MANY
+    # independently-governed things (INVENTORY_EXPANSION_DESIGN.md §2.1).
+    # PT_MONTHLY_TABLE is one Python name holding five separate state statutes;
+    # Karnataka's Act changing has nothing to do with Telangana's, so one claim
+    # per symbol cannot work — drift would be unattributable and one
+    # citation_checked_on cannot describe five separately-verified tables.
+    #
+    # The alternative was splitting the constant into five module-level names.
+    # Rejected: that changes working tax-adjacent code to suit its description,
+    # which is the inversion this inventory exists not to perform.
+    key_path: tuple = ()
 
     claim_type: str = STATUTORY
 
@@ -166,7 +192,10 @@ class Claim(ProvenanceMixin):
         # A claim about an ABSENCE has no symbol to name — it is about the
         # module as a whole, and saying "penalty_exposure." would read as a
         # truncation rather than as deliberate.
-        return f"{self.module}.{self.symbol}" if self.symbol else self.module
+        if not self.symbol:
+            return self.module
+        path = "".join(f"[{k!r}]" for k in self.key_path)
+        return f"{self.module}.{self.symbol}{path}"
 
     def live_value(self):
         """The value as the running code actually holds it, read fresh."""
@@ -178,13 +207,25 @@ class Claim(ProvenanceMixin):
                 f"by comparing a number.")
         module = importlib.import_module(self.module)
         try:
-            return getattr(module, self.symbol)
+            value = getattr(module, self.symbol)
         except AttributeError:
             raise SymbolMissingError(
                 f"{self.id} describes {self.where}, which no longer exists. "
                 f"The claim is describing code that has been deleted or "
                 f"renamed. Update the claim to point at the current symbol, or "
                 f"remove it if the number it described is gone.") from None
+        for key in self.key_path:
+            try:
+                value = value[key]
+            except (KeyError, IndexError, TypeError):
+                raise KeyPathMissingError(
+                    f"{self.id} describes {self.where}, but {key!r} is not in "
+                    f"{self.module}.{self.symbol}. The constant is still there "
+                    f"and the entry this claim describes is gone — for the PT "
+                    f"table that means a state was dropped from coverage, "
+                    f"which is a scope change a reviewer should see, not a "
+                    f"stale number.") from None
+        return value
 
     @property
     def value_has_drifted(self) -> bool:
@@ -219,6 +260,9 @@ class Claim(ProvenanceMixin):
 
 # The citation state shared by every Stage B1 claim, written once because it is
 # one fact about one file rather than four separate findings.
+UNRESOLVED_PT = (
+    'unresolved: payroll_breakdown.py records that "every slab" was "re-verified live on 2026-09-03 against a primary source", but names no source for this state. Under the standing rule (INVENTORY_EXPANSION_DESIGN.md 5.1) a re-findable trail AND a recorded check are both required; the check is recorded and the trail is not. NOT backdated: the Act was not looked up today and credited to the 2026-09-03 check.')
+
 UNRESOLVED_PE = (
     'unresolved: penalty_exposure.py records that every rate was "independently verified against current sources" and names NONE of them. Note the wording against payroll_breakdown.py\'s, which says "re-verified live ... against a PRIMARY source" and names the document -- this file claims only "current sources", which does not assert a primary source and gives no trail to follow. Under the standing rule (INVENTORY_EXPANSION_DESIGN.md 5.1) that is evidence a check occurred, not something an independent party can redo. The instrument and provision below are recorded as the file itself states them. NOT backdated: nothing was looked up today and credited to the earlier check.')
 
@@ -549,6 +593,183 @@ CLAIMS: tuple = (
                             "UNCHECKED, and not a citation question at all: whether "
                             "the judgment has since been overruled, distinguished, or "
                             "legislatively displaced by the 2025 Act's re-enactment.",
+    ),
+
+    # -----------------------------------------------------------------------
+    # STAGE C1 -- payroll_breakdown.py's professional tax
+    # (INVENTORY_EXPANSION_DESIGN.md 2.1). Adds exactly ONE mechanism: key
+    # paths, because PT_MONTHLY_TABLE is one Python name holding five separate
+    # STATE statutes. known_divergence is C2.
+    #
+    # THE FIRST VERIFIED CLAIMS IN THIS INVENTORY LAND HERE, and they arrive
+    # from a direction nobody planned for: the previous design named the browser
+    # lookup as the thing that would prove `verified` means something. Instead
+    # this file already recorded a primary-source check and NAMED the documents
+    # for two of the five states. Karnataka cites an amending Act by name and
+    # year; Tamil Nadu names the government's own PDF and explicitly rejects an
+    # aggregator's paraphrase that did not match. Those are trails an
+    # independent party can follow, which is what 5.1 requires.
+    #
+    # The other three are unresolved for one reason: the file's blanket "every
+    # slab re-verified against a primary source" records that a check happened
+    # without naming what was read. Evidence of a check is not a trail.
+    # -----------------------------------------------------------------------
+    Claim(
+        id="PT1", module="payroll_breakdown", symbol="PT_MONTHLY_TABLE",
+        key_path=("karnataka",),
+        describes="Karnataka professional tax: nil up to Rs 24,999/month gross, "
+                  "Rs 200/month above Rs 25,000.",
+        asserted_value=[(0, 24_999, 0), (25_000, None, 200)],
+        claim_type=STATUTORY,
+        instrument="Karnataka Tax on Professions, Trades, Callings and Employments "
+                   "(Amendment) Act, 2025",
+        instrument_kind=KIND_ACT,
+        instrument_status=IN_FORCE,
+        provision="Amendment raising the exemption threshold from Rs 15,000 to "
+                  "Rs 25,000/month and the annual cap from Rs 2,400 to Rs 2,500, "
+                  "in force 1 April 2025.",
+        # VERIFIED. The instrument is named by Act, amendment and year, which is
+        # a trail an independent party can follow, and payroll_breakdown.py
+        # records a live primary-source check on this date. No URL was captured
+        # and none is invented here -- 5.1 makes the named instrument the trail,
+        # not a link.
+        citation_checked_on="2026-09-03",
+        threshold_origin="STATUTORY -- both figures are set by the amending Act. "
+                         "This is also the clearest evidence in the codebase that "
+                         "checking beats recalling: the file records that a first "
+                         "draft proposed Rs 15,000, which the 2025 amendment had "
+                         "already replaced, so a hardcoded threshold would have been "
+                         "wrong from day one rather than eventually.",
+    ),
+    Claim(
+        id="PT2", module="payroll_breakdown", symbol="PT_MONTHLY_TABLE",
+        key_path=("maharashtra",),
+        describes="Maharashtra professional tax, general slab: nil to Rs 7,500, "
+                  "Rs 175/month to Rs 10,000, Rs 200/month above.",
+        asserted_value=[(0, 7_500, 0), (7_501, 10_000, 175), (10_001, None, 200)],
+        claim_type=STATUTORY,
+        # The file refers to "Maharashtra's Act" without naming it. It is NOT
+        # named here either: supplying the title from elsewhere today and
+        # recording it against a 2026-09-03 check is precisely the backdating
+        # 5.1 forbids.
+        instrument="",
+        instrument_kind=KIND_ACT,
+        instrument_status=INSTRUMENT_UNKNOWN,
+        provision="",
+        threshold_origin="STATUTORY -- set by Maharashtra's professional tax Act, "
+                         "which payroll_breakdown.py refers to without naming. "
+                         "SEPARATELY, AND FOR C2: the file records that the Act "
+                         "differentiates by gender (women exempt to Rs 25,000/month "
+                         "against Rs 7,500 for this general slab) and that the tool "
+                         "does not model it, because nothing in the intake collects "
+                         "gender. This table is the general slab -- a deliberate, "
+                         "conservative, higher-PT approximation.",
+        citation_checked_on=UNRESOLVED_PT,
+    ),
+    Claim(
+        id="PT3", module="payroll_breakdown", symbol="PT_MONTHLY_TABLE",
+        key_path=("telangana",),
+        describes="Telangana professional tax: nil to Rs 15,000, Rs 150/month to "
+                  "Rs 20,000, Rs 200/month above.",
+        asserted_value=[(0, 15_000, 0), (15_001, 20_000, 150), (20_001, None, 200)],
+        claim_type=STATUTORY,
+        instrument="",
+        instrument_kind=KIND_ACT,
+        instrument_status=INSTRUMENT_UNKNOWN,
+        provision="",
+        threshold_origin="STATUTORY -- set by Telangana's professional tax Act, "
+                         "which payroll_breakdown.py does not name. The file records "
+                         "that Telangana matched the figures a first draft proposed "
+                         "exactly, and was confirmed rather than assumed correct just "
+                         "because two other states had not matched.",
+        citation_checked_on=UNRESOLVED_PT,
+    ),
+    Claim(
+        id="PT4", module="payroll_breakdown", symbol="PT_MONTHLY_TABLE",
+        key_path=("tamil_nadu",),
+        describes="Tamil Nadu / Greater Chennai Corporation professional tax, "
+                  "expressed as a monthly equivalent of a six-tier HALF-YEARLY "
+                  "assessment (Rs 0/100/235/510/760/1,095 divided by six).",
+        asserted_value=[(0, 3_500, 0), (3_500.01, 5_000, 16.67),
+                        (5_000.01, 7_500, 39.17), (7_500.01, 10_000, 85.0),
+                        (10_000.01, 12_500, 126.67), (12_500.01, None, 182.5)],
+        claim_type=STATUTORY,
+        instrument="Greater Chennai Corporation professional tax schedule, published "
+                   "by the Government of Tamil Nadu on tnswp.com",
+        instrument_kind=KIND_SUBORDINATE,
+        instrument_status=IN_FORCE,
+        provision="Six-tier half-yearly slab: Rs 0 / 100 / 235 / 510 / 760 / 1,095 "
+                  "across average-half-yearly-income bands.",
+        source_url="https://www.tnswp.com/",
+        # VERIFIED, and the strongest-evidenced claim in this codebase. The file
+        # records that this was read against the GOVERNMENT'S OWN PDF and that an
+        # aggregator's paraphrase of the same table was checked and DID NOT
+        # MATCH -- a named document plus a recorded reason for distrusting the
+        # secondary copy.
+        citation_checked_on="2026-09-03",
+        threshold_origin="STATUTORY -- the six half-yearly figures are set by the "
+                         "published schedule. The DIVISION BY SIX is not: it is this "
+                         "tool's own conversion so one monthly lookup works for every "
+                         "state, and the file flags it as an approximation at the call "
+                         "site. That conversion is a deliberate divergence from how "
+                         "the assessment actually works and is C2's subject.",
+    ),
+    Claim(
+        id="PT5", module="payroll_breakdown", symbol="PT_MONTHLY_TABLE",
+        key_path=("delhi",),
+        describes="Delhi professional tax: Rs 0 at every income level. A real, "
+                  "checked zero -- no PT Act has ever been enacted for the NCT of "
+                  "Delhi -- not an omitted case.",
+        asserted_value=[(0, None, 0)],
+        claim_type=STATUTORY,
+        instrument="Constitution of India, Article 276",
+        instrument_kind=KIND_CONSTITUTION,
+        instrument_status=IN_FORCE,
+        provision="Art. 276 PERMITS a State to levy a tax on professions, trades, "
+                  "callings and employments but does not require one. No such Act "
+                  "has been enacted for the NCT of Delhi, so nothing is levied.",
+        threshold_origin="STATUTORY in the sense that matters: the figure is zero "
+                         "because no statute imposes anything. THE OPERATIVE FACT IS "
+                         "AN ABSENCE -- no Delhi PT Act -- and an absence cannot be "
+                         "cited, so Article 276 is recorded as the nearest citable "
+                         "authority, being what makes the absence lawful rather than "
+                         "an oversight. Recorded this way rather than as an empty "
+                         "instrument, because an empty instrument would be "
+                         "indistinguishable from nobody having looked.",
+        citation_checked_on="unresolved: verifying a NEGATIVE is a different and "
+                            "harder task than checking a slab, and payroll_breakdown.py "
+                            "names no source for it. Confirming that no Delhi PT Act "
+                            "exists means establishing the absence of an instrument "
+                            "across the whole corpus, which no single document shows. "
+                            "Article 276's permissive wording is citable and does not "
+                            "by itself establish that Delhi never legislated. NOT "
+                            "backdated.",
+    ),
+    Claim(
+        id="PT6", module="payroll_breakdown", symbol="_FEBRUARY_BUMP_AMOUNT",
+        describes="The one-off Rs 300 February professional tax month used by "
+                  "Karnataka and Maharashtra so that 11 months at the base rate "
+                  "plus one bumped month lands exactly on the Rs 2,500 annual cap.",
+        asserted_value=300.0,
+        claim_type=STATUTORY,
+        instrument="Constitution of India, Article 276",
+        instrument_kind=KIND_CONSTITUTION,
+        instrument_status=IN_FORCE,
+        provision="Art. 276(2) -- Rs 2,500 per person per year ceiling on the total "
+                  "professional tax a State may levy.",
+        threshold_origin="THE Rs 2,500 CEILING IS CONSTITUTIONAL. The Rs 300 figure "
+                         "is NOT: it is arithmetic this tool performs to land on that "
+                         "ceiling (11 x Rs 200 + Rs 300 = Rs 2,500), and whether the "
+                         "states actually collect it as a February bump rather than "
+                         "some other schedule is a mechanism the file asserts and "
+                         "this claim does not confirm.",
+        citation_checked_on="unresolved: Article 276 is a citable instrument and the "
+                            "Rs 2,500 ceiling is attributed to it in the file, but no "
+                            "source is named and the file records no check of the "
+                            "constitutional provision itself -- only that the "
+                            "arithmetic lands on Rs 2,500. Two separate things are "
+                            "unverified here: the ceiling, and that a February bump "
+                            "is how these states in fact apply it. NOT backdated.",
     ),
 )
 
