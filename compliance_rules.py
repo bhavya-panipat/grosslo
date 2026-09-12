@@ -81,6 +81,12 @@ from typing import Callable
 from provenance import (  # noqa: F401  (re-exported for compatibility)
     STATUTORY, CONVENTION, UNRESOLVED, IN_FORCE, SUPERSEDED, INSTRUMENT_UNKNOWN,
     ProvenanceMixin, provenance_violations,
+    # KIND_ACT is imported because Rule USES it as a default, not to re-export
+    # it. The other instrument kinds are deliberately NOT re-exported: they were
+    # born in provenance.py and never existed here, so re-exporting them would
+    # be new surface area rather than compatibility — callers that want them
+    # should import from where they live.
+    KIND_ACT,
 )
 
 ACTIVE = "active"
@@ -167,12 +173,21 @@ class Rule(ProvenanceMixin):
     # meaningful relative to an Act, and Acts get repealed.
     instrument: str = ""             # e.g. "Income-tax Act, 1961"
     instrument_status: str = INSTRUMENT_UNKNOWN
+    # What KIND of instrument — an Act, a notification, a judgment, a
+    # constitutional provision, or none at all. See provenance.py; it
+    # changes what re-checking the citation actually involves.
+    instrument_kind: str = KIND_ACT
 
     # ---- Evidence for a CONVENTION claim ----------------------------------
     # What makes this the typical or expected norm. Deliberately not a URL
     # field: the honest answer is often "industry practice" or "this tool's own
     # scope decision", and dressing that up as a citation would misrepresent it.
     basis: str = ""
+
+    # Where the implementation DELIBERATELY differs from the instrument,
+    # and why. Empty means it is intended to match exactly. See
+    # provenance.py — a divergence does not block verification.
+    known_divergence: str = ""
 
     # ---- Where the NUMBER came from, asked of every rule -------------------
     # Answers one question in writing, before drafting proceeds: "is this

@@ -2,7 +2,7 @@
 
 # Legal review queue
 
-**10 items** across 6 live compliance rules and 4 legal claims.
+**23 items** across 6 live compliance rules and 17 legal claims.
 
 ## Read this first
 
@@ -29,6 +29,20 @@ Worst of the four. The citation may match its source text perfectly and still po
 
 A statutory claim nobody can check, because there is nothing to check against. Unverifiable by anyone, not merely unverified.
 
+### PT2 — Maharashtra professional tax, general slab: nil to Rs 7,500, Rs 175/month to Rs 10,000, Rs 200/month above.
+
+- **Where:** `payroll_breakdown.PT_MONTHLY_TABLE['maharashtra']`
+- **Instrument:** _none recorded_ (unknown)
+- **Provision:** _none recorded_
+- **Citation state:** unresolved: payroll_breakdown.py records that "every slab" was "re-verified live on 2026-09-03 against a primary source", but names no source for this state. Under the standing rule (INVENTORY_EXPANSION_DESIGN.md 5.1) a re-findable trail AND a recorded check are both required; the check is recorded and the trail is not. NOT backdated: the Act was not looked up today and credited to the 2026-09-03 check.
+
+### PT3 — Telangana professional tax: nil to Rs 15,000, Rs 150/month to Rs 20,000, Rs 200/month above.
+
+- **Where:** `payroll_breakdown.PT_MONTHLY_TABLE['telangana']`
+- **Instrument:** _none recorded_ (unknown)
+- **Provision:** _none recorded_
+- **Citation state:** unresolved: payroll_breakdown.py records that "every slab" was "re-verified live on 2026-09-03 against a primary source", but names no source for this state. Under the standing rule (INVENTORY_EXPANSION_DESIGN.md 5.1) a re-findable trail AND a recorded check are both required; the check is recorded and the trail is not. NOT backdated: the Act was not looked up today and credited to the 2026-09-03 check.
+
 ### TE1 — New-regime income tax slab boundaries and rates: nil to Rs 4L, then 5/10/15/20/25% bands, 30% above Rs 24L.
 
 - **Where:** `tax_engine.NEW_REGIME_SLABS`
@@ -54,6 +68,62 @@ A statutory claim nobody can check, because there is nothing to check against. U
 
 Someone tried and could not. Distinct from never having tried, and worse: it means the claim is uncheckable from here rather than merely unchecked.
 
+### OP1 — Statutory floor on basic salary as a share of CTC: 50%. Every structure this tool recommends is searched at or above it.
+
+- **Where:** `optimizer.BASIC_PCT_MIN`
+- **Instrument:** Code on Wages, 2019 (Act 29 of 2019) (in_force)
+- **Provision:** Code on Wages, 2019 (Act 29 of 2019), s. 2(y) -- definition of "wages"; proviso on excluded allowances exceeding one-half of all remuneration. In force 21 Nov 2025.
+- **Citation state:** unresolved: optimizer.py records 'Verified against multiple independent sources on 2026-09-01' and names NONE of them. Under the standing rule (INVENTORY_EXPANSION_DESIGN.md §5.1) that is evidence a check occurred, not a trail an independent party can redo, so it does not qualify as verified. The provision and source_url above are taken from R1's record of the same proposition in compliance_rules.py -- optimizer.py itself names no provision -- and R1's citation is ALSO unresolved, so nothing here has been confirmed against a primary source. NOT backdated: no source was hunted down today and credited to the 2026-09-01 check.
+
+### PE1 — Interest on delayed employer PF remittance: 1% per month (12% p.a. simple). Mandatory, non-waivable, no discretion.
+
+- **Where:** `penalty_exposure.EPF_7Q_MONTHLY_RATE`
+- **Instrument:** Employees' Provident Funds and Miscellaneous Provisions Act, 1952 (in_force)
+- **Provision:** s. 7Q -- simple interest on amounts due but not remitted.
+- **Citation state:** unresolved: penalty_exposure.py records that every rate was "independently verified against current sources" and names NONE of them. Note the wording against payroll_breakdown.py's, which says "re-verified live ... against a PRIMARY source" and names the document -- this file claims only "current sources", which does not assert a primary source and gives no trail to follow. Under the standing rule (INVENTORY_EXPANSION_DESIGN.md 5.1) that is evidence a check occurred, not something an independent party can redo. The instrument and provision below are recorded as the file itself states them. NOT backdated: nothing was looked up today and credited to the earlier check.
+
+### PE2 — Damages on delayed employer PF remittance: a flat 1% of arrears per month, replacing the pre-2024 tiered 5-25% structure.
+
+- **Where:** `penalty_exposure.EPF_14B_MONTHLY_RATE`
+- **Instrument:** Ministry of Labour notification effective 15 June 2024, amending Para 32A of the Employees' Provident Funds Scheme, 1952 (in_force)
+- **Provision:** Para 32A (as amended 15 June 2024) -- damages at 1% of arrears per month, operating within the s. 14B ceiling.
+- **Citation state:** unresolved: penalty_exposure.py records that every rate was "independently verified against current sources" and names NONE of them. Note the wording against payroll_breakdown.py's, which says "re-verified live ... against a PRIMARY source" and names the document -- this file claims only "current sources", which does not assert a primary source and gives no trail to follow. Under the standing rule (INVENTORY_EXPANSION_DESIGN.md 5.1) that is evidence a check occurred, not something an independent party can redo. The instrument and provision below are recorded as the file itself states them. NOT backdated: nothing was looked up today and credited to the earlier check.
+
+### PE3 — Ceiling on s. 14B damages: capped at 100% of the arrears amount.
+
+- **Where:** `penalty_exposure.EPF_14B_CAP_FRACTION`
+- **Instrument:** Employees' Provident Funds and Miscellaneous Provisions Act, 1952 (in_force)
+- **Provision:** s. 14B -- statutory ceiling on damages, within which Para 32A's 1%/month formula operates.
+- **Citation state:** unresolved: penalty_exposure.py records that every rate was "independently verified against current sources" and names NONE of them. Note the wording against payroll_breakdown.py's, which says "re-verified live ... against a PRIMARY source" and names the document -- this file claims only "current sources", which does not assert a primary source and gives no trail to follow. Under the standing rule (INVENTORY_EXPANSION_DESIGN.md 5.1) that is evidence a check occurred, not something an independent party can redo. The instrument and provision below are recorded as the file itself states them. NOT backdated: nothing was looked up today and credited to the earlier check.
+
+### PE4 — Interest on TDS deducted but not deposited: 1.5% per month. The deducted-but-not-deposited case, not the failure-to-deduct case (which is 1%/month and is not what this module models).
+
+- **Where:** `penalty_exposure.TDS_201_1A_MONTHLY_RATE`
+- **Instrument:** Income-tax Act, 2025 (Act 30 of 2025) (in_force)
+- **Provision:** s. 398(3) (formerly s. 201(1A) of the Income-tax Act, 1961) -- interest for failure to deposit tax already deducted.
+- **Citation state:** unresolved: penalty_exposure.py records that every rate was "independently verified against current sources" and names NONE of them. Note the wording against payroll_breakdown.py's, which says "re-verified live ... against a PRIMARY source" and names the document -- this file claims only "current sources", which does not assert a primary source and gives no trail to follow. Under the standing rule (INVENTORY_EXPANSION_DESIGN.md 5.1) that is evidence a check occurred, not something an independent party can redo. The instrument and provision below are recorded as the file itself states them. NOT backdated: nothing was looked up today and credited to the earlier check.
+
+### PE5 — Section 448 (formerly s. 271C) penalty is deliberately NOT modelled anywhere in this module. Not an omission -- a provision checked and excluded as legally inapplicable.
+
+- **Where:** `penalty_exposure`
+- **Instrument:** US Technologies International (P.) Ltd. v. CIT, [2023] 149 taxmann.com 144 (SC), 10 April 2023 (in_force)
+- **Provision:** s. 448 (formerly s. 271C of the Income-tax Act, 1961) -- penalty for failure to DEDUCT tax. Held to turn on the words "fails to deduct", which do not reach failure to DEPOSIT tax already deducted; belated remittance after deduction is covered exclusively by s. 398(3) (formerly s. 201(1A)) interest.
+- **Citation state:** unresolved: the CITATION here is the most specific in penalty_exposure.py -- a full law-report citation, [2023] 149 taxmann.com 144 (SC), which an independent party can re-find. But the CHECK is recorded in the same "independently verified against current sources" language as PE1-PE4, which names no source and does not assert a primary one. Under the standing rule (INVENTORY_EXPANSION_DESIGN.md 5.1) a re-findable trail and a recorded check are BOTH required; this has the first and not the second. It is the closest claim in this file to clearing the bar and a reviewer could likely settle it quickly. NOT backdated. SEPARATELY UNCHECKED, and not a citation question at all: whether the judgment has since been overruled, distinguished, or legislatively displaced by the 2025 Act's re-enactment.
+
+### PT5 — Delhi professional tax: Rs 0 at every income level. A real, checked zero -- no PT Act has ever been enacted for the NCT of Delhi -- not an omitted case.
+
+- **Where:** `payroll_breakdown.PT_MONTHLY_TABLE['delhi']`
+- **Instrument:** Constitution of India, Article 276 (in_force)
+- **Provision:** Art. 276 PERMITS a State to levy a tax on professions, trades, callings and employments but does not require one. No such Act has been enacted for the NCT of Delhi, so nothing is levied.
+- **Citation state:** unresolved: verifying a NEGATIVE is a different and harder task than checking a slab, and payroll_breakdown.py names no source for it. Confirming that no Delhi PT Act exists means establishing the absence of an instrument across the whole corpus, which no single document shows. Article 276's permissive wording is citable and does not by itself establish that Delhi never legislated. NOT backdated.
+
+### PT6 — The one-off Rs 300 February professional tax month used by Karnataka and Maharashtra so that 11 months at the base rate plus one bumped month lands exactly on the Rs 2,500 annual cap.
+
+- **Where:** `payroll_breakdown._FEBRUARY_BUMP_AMOUNT`
+- **Instrument:** Constitution of India, Article 276 (in_force)
+- **Provision:** Art. 276(2) -- Rs 2,500 per person per year ceiling on the total professional tax a State may levy.
+- **Citation state:** unresolved: Article 276 is a citable instrument and the Rs 2,500 ceiling is attributed to it in the file, but no source is named and the file records no check of the constitutional provision itself -- only that the arithmetic lands on Rs 2,500. Two separate things are unverified here: the ceiling, and that a February bump is how these states in fact apply it. NOT backdated.
+
 ### R1 — Basic salary < 50% of CTC
 
 - **Where:** `compliance_rules.py`
@@ -71,6 +141,27 @@ Someone tried and could not. Distinct from never having tried, and worse: it mea
 ## 4. No human has signed off
 
 The one assertion no automated check can produce. Everything else in this queue can be narrowed by fetching a document; this cannot.
+
+### OP2 — Ceiling on basic salary as a share of CTC: 60%. Bounds the search space; not a legal limit.
+
+- **Where:** `optimizer.BASIC_PCT_MAX`
+- **Instrument:** _none recorded_ (unknown)
+- **Provision:** _none recorded_
+- **Citation state:** _never attempted_
+
+### PT1 — Karnataka professional tax: nil up to Rs 24,999/month gross, Rs 200/month above Rs 25,000.
+
+- **Where:** `payroll_breakdown.PT_MONTHLY_TABLE['karnataka']`
+- **Instrument:** Karnataka Tax on Professions, Trades, Callings and Employments (Amendment) Act, 2025 (in_force)
+- **Provision:** Amendment raising the exemption threshold from Rs 15,000 to Rs 25,000/month and the annual cap from Rs 2,400 to Rs 2,500, in force 1 April 2025.
+- **Citation state:** checked 2026-09-03
+
+### PT4 — Tamil Nadu / Greater Chennai Corporation professional tax, expressed as a monthly equivalent of a six-tier HALF-YEARLY assessment (Rs 0/100/235/510/760/1,095 divided by six).
+
+- **Where:** `payroll_breakdown.PT_MONTHLY_TABLE['tamil_nadu']`
+- **Instrument:** Greater Chennai Corporation professional tax schedule, published by the Government of Tamil Nadu on tnswp.com (in_force)
+- **Provision:** Six-tier half-yearly slab: Rs 0 / 100 / 235 / 510 / 760 / 1,095 across average-half-yearly-income bands.
+- **Citation state:** checked 2026-09-03
 
 ### R2 — CTC > Rs 6L/year but employer PF = 0
 

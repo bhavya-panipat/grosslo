@@ -35,6 +35,28 @@ from __future__ import annotations
 STATUTORY = "statutory"
 CONVENTION = "convention"
 
+# NON_APPLICABILITY — "the law does NOT require this, and here is the authority
+# for that" (INVENTORY_EXPANSION_DESIGN.md §2.3). Needs the same citation
+# evidence as STATUTORY, because it is a statutory claim: it asserts what a
+# provision does not reach, which is as checkable and as falsifiable as
+# asserting what it does.
+#
+# WHY IT IS WORTH INVENTORYING AT ALL, given it describes something the code
+# does NOT do: a reasoned exclusion rots invisibly. If the authority behind it
+# is overruled, or the tool's scope changes so the provision starts applying,
+# nothing in the codebase notices — and the absence of a penalty model is far
+# harder to spot than a wrong number would be. An absent thing is harder to
+# notice than a wrong one, which is this project's most repeated lesson.
+NON_APPLICABILITY = "non_applicability"
+CLAIM_TYPES = (STATUTORY, CONVENTION, NON_APPLICABILITY)
+
+# The claim types that make an assertion about a statute and therefore owe a
+# citation. NON_APPLICABILITY is here deliberately: "this provision does not
+# apply" is not a softer claim than "this provision requires X", and letting it
+# ship without a source would make the easiest way to avoid citing a provision
+# be to assert it does not apply.
+CITEABLE_CLAIM_TYPES = (STATUTORY, NON_APPLICABILITY)
+
 # citation_checked_on has THREE distinguishable states, not two. "Nobody has
 # tried" and "someone tried and could not get to a primary source" are
 # different facts, and the second is worse: it means the claim is uncheckable
@@ -44,6 +66,26 @@ CONVENTION = "convention"
 #   ""                      -> never attempted
 #   "unresolved: <reason>"  -> attempted, no stable primary source reached
 #   "2026-09-09"            -> fetched and read on that date
+#
+# WHAT A DATE HERE REQUIRES, and it is a standing rule rather than a judgement
+# made per claim (INVENTORY_EXPANSION_DESIGN.md §5.1):
+#
+#   A verified citation must be sufficient for an INDEPENDENT PARTY TO REDO THE
+#   CHECK. Evidence that a past check occurred is not the same thing.
+#
+# A named instrument someone can look up qualifies; a named, locatable
+# government document qualifies. "Verified against multiple independent
+# sources", with no source named, does not — it records that someone checked
+# and gives nobody a way to check again. A date alone never qualifies: this
+# field answers WHEN, and the trail lives in instrument/provision/source_url.
+#
+# COROLLARY, and it is the easy mistake: do NOT retroactively supply a trail
+# the original check did not have. Going out today to find a better source and
+# crediting it to a check made earlier on different evidence produces a claim
+# that reads as verified on a basis nobody actually used — the fabricated
+# citation failure in a subtler costume. Finding better evidence today is
+# worthwhile; it is a NEW check, with today's date and today's source, never a
+# backdated upgrade.
 UNRESOLVED = "unresolved: "
 
 # Whether the cited INSTRUMENT is still the governing law. Separate from
@@ -55,6 +97,40 @@ UNRESOLVED = "unresolved: "
 IN_FORCE = "in_force"
 SUPERSEDED = "superseded"
 INSTRUMENT_UNKNOWN = "unknown"
+
+# WHAT KIND of instrument, which is separate from whether it still governs.
+# instrument/instrument_status were designed when every citation in this
+# codebase pointed at an Act. They do not (INVENTORY_EXPANSION_DESIGN.md §2.2):
+#
+#   KIND_ACT           primary legislation — "Income-tax Act, 2025"
+#   KIND_SUBORDINATE   rules, schemes, notifications made under an Act — e.g.
+#                      the Ministry of Labour notification of 15 June 2024 that
+#                      set EPF s. 14B damages at 1%/month
+#   KIND_JUDGMENT      a court decision — e.g. US Technologies v. CIT, which is
+#                      why s. 448 is deliberately not modelled
+#   KIND_CONSTITUTION  e.g. Article 276's Rs 2,500 annual ceiling on
+#                      professional tax
+#
+# This is descriptive: no check branches on it beyond validating the value. It
+# exists because WHAT IT TAKES TO RE-CHECK a citation differs by kind — an Act
+# is looked up, a notification is searched for by date and subject, a judgment
+# is read for what it actually held — and a reader who assumes "Act" when the
+# instrument is a notification will look in the wrong place.
+#
+# A KIND_NONE_EXISTS was designed for Delhi, whose professional tax is zero
+# because no Act has ever been enacted for the NCT. It was never used and is
+# deleted: implementing it showed that an ABSENCE CANNOT BE CITED, and an
+# "instrument: none" tag is indistinguishable from nobody having looked. Delhi
+# cites Article 276 instead — the provision that PERMITS a professional tax
+# without requiring one, which is what makes the absence lawful rather than an
+# oversight. That is a stronger claim than an untethered tag, so the tag went
+# rather than the claim.
+KIND_ACT = "act"
+KIND_SUBORDINATE = "subordinate"
+KIND_JUDGMENT = "judgment"
+KIND_CONSTITUTION = "constitution"
+INSTRUMENT_KINDS = (KIND_ACT, KIND_SUBORDINATE, KIND_JUDGMENT,
+                    KIND_CONSTITUTION)
 
 class ProvenanceMixin:
     """
@@ -83,12 +159,44 @@ class ProvenanceMixin:
     same reason — the alternative that cannot drift also cannot be checked.
     """
 
+    # KNOWN_DIVERGENCE — where the implementation DELIBERATELY does not match
+    # the instrument, and why (INVENTORY_EXPANSION_DESIGN.md §2.4).
+    #
+    # This is a THIRD claim, separate from the two already here, and the gap it
+    # fills is subtle: a citation can be verified AND the implementation correct
+    # as designed, while the code still knowingly differs from the statute.
+    # Maharashtra's professional tax varies by gender; this tool collects no
+    # gender and uses the general — higher — slab. Tamil Nadu's is a half-yearly
+    # assessment expressed as a monthly equivalent. Both are deliberate, both
+    # conservative, both documented in payroll_breakdown.py, and nothing in the
+    # evidence model could record either.
+    #
+    # Left unrecorded, `verified` reads as "matches the law exactly", and a
+    # future reader either believes that or "fixes" a divergence that was
+    # chosen. Empty means the implementation is INTENDED to match exactly, which
+    # is itself an assertion rather than an absence of one.
+    #
+    # A divergence does NOT block verification: the citation claim and the
+    # fidelity claim are different, exactly as citation_checked_on and
+    # reviewed_by are different.
+    known_divergence = ""
+
     # What a recorded reviewer is ASSERTING. Overridden per carrier because the
     # act genuinely differs: for a compliance rule it is "this predicate
     # correctly implements the claim"; for a legal claim it is "this value
     # matches the cited source". Both are human judgements no check can make,
     # but a message that names the wrong one sends a reviewer to the wrong task.
     REVIEW_MEANS = "reviewed the implementation"
+
+    # Class-level fallback for fields the SHARED CHECKER reads. Both dataclass
+    # carriers declare instrument_kind themselves and shadow this; it exists so
+    # that adding a field to the evidence model cannot make provenance_violations
+    # raise AttributeError on a carrier written before that field existed.
+    # Found by the test stand-in doing exactly that when instrument_kind landed.
+    #
+    # It cannot mask a real omission on the two real carriers: a separate test
+    # asserts their declared field sets agree.
+    instrument_kind = KIND_ACT
 
     @property
     def is_live(self) -> bool:
@@ -145,6 +253,19 @@ class ProvenanceMixin:
 
 
 
+def _looks_like_a_date(value: str) -> bool:
+    """
+    An ISO date, which is what a completed check records.
+
+    Deliberately shape-only: this says the field holds a date, not that the date
+    is plausible or that anything happened on it. Validating further would be
+    checking the claim rather than its form, and that is a human's job.
+    """
+    parts = value.split("-")
+    return (len(parts) == 3 and len(parts[0]) == 4
+            and all(p.isdigit() for p in parts))
+
+
 def provenance_violations(items, pre_protocol_ids=frozenset()) -> list:
     """
     Ways a COLLECTION of provenance-carrying things violates the protocol, as
@@ -170,7 +291,7 @@ def provenance_violations(items, pre_protocol_ids=frozenset()) -> list:
     for rule in items:
         pre = rule.id in pre_protocol_ids
 
-        if rule.claim_type not in (STATUTORY, CONVENTION):
+        if rule.claim_type not in CLAIM_TYPES:
             problems.append(f"{rule.id} has unknown claim_type {rule.claim_type!r}")
 
         if rule.is_live and not pre and not rule.implementation_is_reviewed:
@@ -185,10 +306,31 @@ def provenance_violations(items, pre_protocol_ids=frozenset()) -> list:
         # R1 and R5 are exempt from having a BACKDATED reviewer, not from being
         # citable: a rule asserting that the law requires something, with no
         # provision recorded and no attempt logged, is unverifiable by anyone.
-        if rule.claim_type == STATUTORY:
-            for field in ("source_url", "provision"):
-                if not getattr(rule, field).strip():
-                    problems.append(f"{rule.id} claims statute but carries no {field}")
+        if rule.claim_type in CITEABLE_CLAIM_TYPES:
+            # A RE-FINDABLE TRAIL, satisfied EITHER way. This check used to
+            # demand source_url outright, which was always a proxy for
+            # re-findability rather than the property itself — and the proxy
+            # broke the moment a claim was verified without one.
+            #
+            # PT1 cites the Karnataka amending Act by name, amendment and year.
+            # That is as followable as a link, arguably more durable than one,
+            # and INVENTORY_EXPANSION_DESIGN.md §5.1 says so directly: "a named
+            # instrument a reader can look up qualifies — its specificity is the
+            # trail". Forcing a URL onto it would have meant either leaving a
+            # verified claim permanently flagged, or inventing a link nobody
+            # used, which §5.1's corollary forbids.
+            #
+            # A provision WITHOUT an instrument is not a trail — a section
+            # number is meaningless without an Act — and the check below still
+            # says so separately.
+            has_url = bool(rule.source_url.strip())
+            has_named_instrument = bool(rule.instrument.strip()
+                                        and rule.provision.strip())
+            if not (has_url or has_named_instrument):
+                problems.append(
+                    f"{rule.id} claims statute but carries no re-findable trail "
+                    f"— needs either a source_url, or a named instrument "
+                    f"together with the provision within it")
             # CHECK 2: a citation nobody has even attempted to reach. The
             # unresolved marker satisfies this — "tried and could not" is a
             # recorded outcome; silence is not.
@@ -210,6 +352,10 @@ def provenance_violations(items, pre_protocol_ids=frozenset()) -> list:
             if rule.instrument_status not in (IN_FORCE, SUPERSEDED, INSTRUMENT_UNKNOWN):
                 problems.append(
                     f"{rule.id} has unknown instrument_status {rule.instrument_status!r}")
+            if rule.instrument_kind not in INSTRUMENT_KINDS:
+                problems.append(
+                    f"{rule.id} has unknown instrument_kind {rule.instrument_kind!r} "
+                    f"— expected one of {', '.join(INSTRUMENT_KINDS)}")
             if rule.is_live and rule.cites_superseded_law:
                 problems.append(
                     f"{rule.id} is LIVE and cites a superseded instrument "
@@ -221,6 +367,33 @@ def provenance_violations(items, pre_protocol_ids=frozenset()) -> list:
         if rule.claim_type == CONVENTION:
             if not rule.basis.strip():
                 problems.append(f"{rule.id} is a convention rule with no stated basis")
+
+        # CHECK 7: a deliberate divergence nobody has signed off on. The
+        # existing reviewer check does not express this — a claim can satisfy it
+        # while the divergence itself was never put to anyone. Deciding that
+        # using Maharashtra's general slab for every employee is an acceptable
+        # conservative simplification is a bigger assertion than "the table
+        # matches the Act", and it is the one a reviewer is really being asked
+        # to make.
+        if rule.known_divergence.strip() and not rule.implementation_is_reviewed:
+            problems.append(
+                f"{rule.id} knowingly diverges from its instrument and no one "
+                f"has signed off on the divergence — this is a deliberate "
+                f"departure from the law as written, not a stale value, and "
+                f"needs a reviewer who accepts it rather than one who checks it")
+
+        # CHECK 8: a citation state that is none of the three recognised ones.
+        # Tracked from Stage C1, where this file's OWN data fell into the gap:
+        # a reason was recorded without the "unresolved: " prefix, leaving two
+        # claims neither checked nor attempted-unresolved — the exact silent
+        # miscategorisation the three-valued convention exists to prevent.
+        state = rule.citation_checked_on.strip()
+        if state and not state.startswith(UNRESOLVED) and not _looks_like_a_date(state):
+            problems.append(
+                f"{rule.id} has a citation_checked_on that is neither empty, nor "
+                f"an ISO date, nor prefixed \"{UNRESOLVED}\" — so it belongs to "
+                f"none of the three recognised states and will be read as "
+                f"unchecked-but-not-attempted, which is not what it says")
 
         # CHECK 6: the threshold-origin question, asked of EVERY claim type.
         # Deliberately not restricted to convention rules even though that is
