@@ -32,6 +32,58 @@ MODEL = "claude-sonnet-4-5-20250929"
 
 
 # ---------------------------------------------------------------------------
+# Token accounting (addition spec Tier 3.1, the plumbing-only half).
+#
+# EVERY MODEL CALL GOES THROUGH _create(). Adding a recording line to each call
+# site would have worked today and failed the first time another was added — the same forgotten-call-site failure the output-boundary check
+# exists to catch, reintroduced one layer over. A wrapper makes it structural,
+# and a test asserts no direct _client.messages.create() call survives.
+#
+# TOKENS ARE RECORDED, NOT CURRENCY. A rupee or dollar figure would need a
+# per-model price, and there is no price in this repository to source it from.
+# Inventing one would be precisely the "specific-sounding number with nothing
+# behind it" the addition spec excludes. Tokens are observed; cost is a
+# conversion someone with the current price list can do.
+_USAGE = {"calls": 0, "input_tokens": 0, "output_tokens": 0}
+
+
+def _create(**kwargs):
+    """The single path to the model. Records usage; changes nothing else."""
+    response = _client.messages.create(**kwargs)
+    # ACCOUNTING MUST NEVER BE THE REASON A RESPONSE FAILS, and the first
+    # version of this failed that on its first contact with the real suite.
+    # It read getattr(usage, "input_tokens", 0) or 0 and called int() on the
+    # result — which is safe for a missing attribute, and NOT safe for a bare
+    # Mock, whose auto-created attributes are truthy so `or 0` never fires and
+    # int() raises TypeError. That exception reached the call site's
+    # `except Exception: pass`, which fell back to deterministic text and set
+    # ai_backed False. Thirteen existing guard tests caught it.
+    #
+    # So the whole of accounting is now contained: a call that happened is
+    # always counted, and unreadable token counts are recorded as zero rather
+    # than allowed to escape.
+    try:
+        usage = getattr(response, "usage", None)
+        inp = int(getattr(usage, "input_tokens", 0) or 0)
+        out = int(getattr(usage, "output_tokens", 0) or 0)
+    except Exception:
+        inp = out = 0
+    _USAGE["calls"] += 1
+    _USAGE["input_tokens"] += inp
+    _USAGE["output_tokens"] += out
+    return response
+
+
+def usage_totals() -> dict:
+    """Cumulative model usage for this process."""
+    return dict(_USAGE)
+
+
+def reset_usage() -> None:
+    _USAGE.update(calls=0, input_tokens=0, output_tokens=0)
+
+
+# ---------------------------------------------------------------------------
 # Phase 1: Extraction
 # ---------------------------------------------------------------------------
 
@@ -93,7 +145,7 @@ def extract_from_text(text: str) -> dict:
 
     if _client is not None:
         try:
-            response = _client.messages.create(
+            response = _create(
                 model=MODEL,
                 max_tokens=500,
                 system=EXTRACTION_SYSTEM_PROMPT,
@@ -286,7 +338,7 @@ def explain_result(optimizer_result: dict, rent_paid: float, city: str, skip_ai:
 
     if _client is not None:
         try:
-            response = _client.messages.create(
+            response = _create(
                 model=MODEL,
                 max_tokens=300,
                 system=EXPLAINER_SYSTEM_PROMPT,
@@ -490,7 +542,7 @@ def flag_compliance(structure, rent_paid: float, skip_ai: bool = False) -> dict:
     guard_triggered = False
     if _client is not None:
         try:
-            response = _client.messages.create(
+            response = _create(
                 model=MODEL,
                 max_tokens=400,
                 system=COMPLIANCE_SYSTEM_PROMPT,
@@ -633,7 +685,7 @@ def evaluate_band_guardrail(structure: SalaryStructure, regime: str,
     guard_triggered = False
     if _client is not None:
         try:
-            response = _client.messages.create(
+            response = _create(
                 model=MODEL,
                 max_tokens=400,
                 system=GUARDRAIL_SYSTEM_PROMPT,
@@ -807,7 +859,7 @@ def negotiate(current_structure: SalaryStructure, current_best: dict,
 
     if _client is not None:
         try:
-            response = _client.messages.create(
+            response = _create(
                 model=MODEL,
                 max_tokens=350,
                 system=NEGOTIATION_SYSTEM_PROMPT.format(total_annual_saving=f"{total_saving:,.0f}"),
@@ -894,7 +946,7 @@ def _classify_query(question: str) -> dict:
     if _client is None:
         return {"type": "explanatory"}
     try:
-        response = _client.messages.create(
+        response = _create(
             model=MODEL, max_tokens=150,
             system=QUERY_CLASSIFY_PROMPT,
             messages=[{"role": "user", "content": question}],
@@ -980,7 +1032,7 @@ def answer_query(question: str, context: dict, ctc: float, rent_paid: float,
         guard_triggered = False
         if _client is not None:
             try:
-                response = _client.messages.create(
+                response = _create(
                     model=MODEL, max_tokens=250,
                     system=QUERY_HYPOTHETICAL_SYSTEM_PROMPT,
                     messages=[{"role": "user", "content": json.dumps(payload)}],
@@ -1043,7 +1095,7 @@ def answer_query(question: str, context: dict, ctc: float, rent_paid: float,
     guard_triggered = False
     if _client is not None:
         try:
-            response = _client.messages.create(
+            response = _create(
                 model=MODEL, max_tokens=250,
                 system=QUERY_EXPLAIN_SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": json.dumps({"question": question, "context": grounding})}],
