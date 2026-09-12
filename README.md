@@ -194,20 +194,35 @@ infrastructure:
   confirm" UX without pretending an API call happened where only a file
   upload actually would.
 
-**What this is, and isn't:** real server-side authentication, but scoped
-to two shared role-codes, not per-person accounts. `/hr` and `/finance`
-each sit behind their own login (`role-gate.tsx` + `auth.py`) —
-`HR2026`/`FINANCE2026` by default, overridable via `HR_ACCESS_CODE`/
-`FINANCE_ACCESS_CODE` — verified server-side and backed by a real signed,
-HttpOnly, expiring session cookie (`flask.session`), not a client-side
-`sessionStorage` check anyone could read past in devtools. See "Security
-and privacy posture" below for exactly which routes that session now
-gates. What's still deliberately absent: per-person credentials or
-accounts (both roles remain shared secrets), login rate-limiting/lockout,
-a steady-state company roster (persistence is Postgres as of Phase 1.1,
-but it stores submissions awaiting review, not an employee master), a
-second-approver escalation tier, or a notification system for pending
-reviews. These are reasonable ideas in isolation; none of them
+**What this is, and isn't:** real server-side authentication with
+**per-user accounts** as of Roadmap Phase 1.2. Sign-in is email + password
+(`POST /api/auth/login`), resolved inside the tenant the subdomain names and
+never from a tenant field in the request body. Passwords are hashed with
+pbkdf2:sha256; a failed lookup still performs a dummy hash, so a valid email
+cannot be distinguished from an invalid one by timing. Authorisation is
+permission-based (`auth.py`'s `PERMISSIONS` / `ROLE_PERMISSIONS` /
+`require_permission`), not a role-string comparison, and `/api/users` manages
+accounts and their roles. The session is a signed, HttpOnly, expiring cookie
+(`flask.session`), not a client-side `sessionStorage` check anyone could read
+past in devtools. See "Security and privacy posture" below for exactly which
+routes it gates.
+
+**Sign-in is throttled**, per IP and per account, in a rolling window
+(`LOGIN_MAX_PER_IP`, `LOGIN_MAX_PER_ACCOUNT`, `LOGIN_WINDOW_SECONDS`). The
+check runs *before* any credential is verified, so a throttled attempt also
+costs no pbkdf2 work — the limiter doubles as the defence against using login
+as a CPU amplifier.
+
+**The shared role-codes still exist, narrowed to one job.** A tenant's code
+bootstraps its *first owner account*, once, and a code login deliberately does
+not produce a usable session. After bootstrap the path is refused outright
+("Shared access codes are no longer used for this workspace").
+
+What's still genuinely absent: **password reset, MFA, and any permanent
+lockout** — the limiter is a rolling window, not a lock. Also absent: a
+steady-state company roster (persistence is Postgres as of Phase 1.1, but it
+stores submissions awaiting review, not an employee master), a second-approver
+escalation tier, and a notification system for pending reviews. These are reasonable ideas in isolation; none of them
 belong on top of an approval layer already honestly labeled as a demo
 simplification — making that layer *look* more sophisticated than it
 actually is would undermine the exact honesty this section is trying to
@@ -505,9 +520,10 @@ guess at what the new number would be.
     `/api/razorpayx/balance` require `finance` specifically. Verified live:
     an anonymous `curl` to `/api/submissions` now 401s, where it previously
     returned everyone's name/CTC/bank account/IFSC/email with zero auth.
-    What's still true, stated plainly: this is **two shared role-codes,
-    not per-person accounts** — no registration, no individual
-    credentials, no login rate-limiting or lockout. `POST /api/submissions`
+    What's still true, stated plainly: accounts are **created by an owner
+    through `/api/users`, not by self-registration**, and there is no
+    password reset, no MFA, and no permanent lockout — sign-in throttling
+    is a rolling per-IP and per-account window. `POST /api/submissions`
     (creating a submission) is deliberately left open, since
     `/optimize/batch`'s public audit-correction flow also calls it and
     exposes no one else's data by doing so — see the code comment on that
@@ -540,10 +556,10 @@ guess at what the new number would be.
     would break the public audit flow. Demo-scale, stated plainly: resets
     on restart, doesn't coordinate across multiple server processes behind
     a real load balancer — this is a real, named limitation, not a claim
-    of production hardening. Distinct from the "no login rate-limiting"
-    gap above — that's about repeated login *attempts* against the shared
-    role-codes, still genuinely absent; this is about repeated *submission*
-    attempts against the one open route, now genuinely present.
+    of production hardening. Distinct from sign-in throttling above — that
+    limits repeated login *attempts* per IP and per account; this limits
+    repeated *submission* attempts against the one route that stays open.
+    Both are now real; they cover different doors.
   - **A sharper version of the same gap, flagged in external review and
     deliberately not rushed into a fix:** the limiter keys on
     `request.remote_addr`, which is a real, well-known failure mode behind
@@ -591,12 +607,17 @@ guess at what the new number would be.
   elsewhere in this document. **This paragraph used to say "real security
   infrastructure was deliberately not built for this submission" — that
   stopped being true partway through this build and the sentence went
-  stale until this pass caught it.** Real session auth, route-level role
-  gating, and a submission rate-limit are all now real and described
-  above, not simulated. What's still genuinely absent — no encryption at
-  rest, no per-person accounts, no login rate-limiting, no production
-  database — is named explicitly in each case above, not folded into one
-  blanket disclaimer that was true on day one and stopped being checked.
+  stale until this pass caught it.** Real session auth, route-level
+  permission gating, per-user accounts, sign-in throttling and a submission
+  rate-limit are all now real and described above, not simulated.
+
+  **This passage was itself stale, and the irony is the point.** It claimed
+  credit for catching staleness while asserting three things that Phases 1.1
+  and 1.2 had already changed: no per-person accounts, no login rate-limiting,
+  no production database. A disclaimer that boasts about being checked is not
+  thereby checked. What's still genuinely absent — no encryption at rest, no
+  password reset, no MFA, no permanent lockout — is named explicitly in each
+  case above, rather than folded into one blanket line that ages badly.
 - **The treasury forecast (`payroll_breakdown.treasury_forecast`) has no
   concept of history or an existing payroll baseline** — there's no database
   anywhere in this app, so the "capital required" figure is a literal sum

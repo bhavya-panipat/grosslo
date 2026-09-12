@@ -437,12 +437,16 @@ read-access control, not none. Not a claim that no PII is stored. The
 audit log remains the one place that genuinely excludes it by
 construction (see below).
 
-**`/hr` and `/finance` now sit behind real server-side session
-authentication (`auth.py` + `role-gate.tsx`), scoped to two shared
-role-codes, not per-person accounts.** Each page's code (`HR2026` /
-`FINANCE2026` by default, overridable via env) is verified server-side and
-issues a real signed, HttpOnly, 8-hour session cookie — not a
-`sessionStorage` check anyone could read past in devtools. `GET
+**`/hr` and `/finance` sit behind real server-side session
+authentication (`auth.py` + `role-gate.tsx`) with PER-USER ACCOUNTS as of
+Roadmap Phase 1.2.** Sign-in is email + password, resolved inside the tenant
+the subdomain names; passwords are pbkdf2:sha256 hashed, and a failed lookup
+still performs a dummy hash so a valid email cannot be told from an invalid
+one by timing. A successful sign-in issues a real signed, HttpOnly, expiring
+session cookie — not a `sessionStorage` check anyone could read past in
+devtools. The original shared role-codes survive for exactly one job:
+bootstrapping a tenant's first owner account, once, with a code login
+deliberately not producing a usable session. `GET
 /api/submissions*` (the routes that expose real PII and bank details)
 requires an `hr` or `finance` session; `/decide`, `/export`, and
 `/api/razorpayx/balance` require `finance` specifically. Verified live: an
@@ -451,8 +455,9 @@ returned everyone's name/CTC/bank account/IFSC/email with zero auth —
 that's the concrete gap this closed. `POST /api/submissions` (create)
 deliberately stays open, since `/optimize/batch`'s public audit-correction
 flow also calls it and exposes no one else's data by doing so. What's
-still true: these remain two shared demo secrets, not per-person
-credentials, and there's no login rate-limiting or lockout.
+still true: accounts are created by an owner through `/api/users` rather than
+by self-registration, and there is no password reset, no MFA, and no permanent
+lockout — sign-in throttling is a rolling per-IP and per-account window.
 
 That one open route is now rate-limited, not just unauthenticated —
 found in a live-defense pressure-test, not by inspection. A submitted
