@@ -110,9 +110,6 @@ INSTRUMENT_UNKNOWN = "unknown"
 #                      why s. 448 is deliberately not modelled
 #   KIND_CONSTITUTION  e.g. Article 276's Rs 2,500 annual ceiling on
 #                      professional tax
-#   KIND_NONE_EXISTS   there is genuinely no instrument, and that is a POSITIVE
-#                      checked finding rather than a gap — Delhi has never
-#                      enacted a professional tax Act at all
 #
 # This is descriptive: no check branches on it beyond validating the value. It
 # exists because WHAT IT TAKES TO RE-CHECK a citation differs by kind — an Act
@@ -120,16 +117,20 @@ INSTRUMENT_UNKNOWN = "unknown"
 # is read for what it actually held — and a reader who assumes "Act" when the
 # instrument is a notification will look in the wrong place.
 #
-# KIND_NONE_EXISTS also disambiguates an empty `instrument`, which otherwise
-# means three different things: nobody recorded one, nobody looked, or there is
-# none to record. Only the third is an answer.
+# A KIND_NONE_EXISTS was designed for Delhi, whose professional tax is zero
+# because no Act has ever been enacted for the NCT. It was never used and is
+# deleted: implementing it showed that an ABSENCE CANNOT BE CITED, and an
+# "instrument: none" tag is indistinguishable from nobody having looked. Delhi
+# cites Article 276 instead — the provision that PERMITS a professional tax
+# without requiring one, which is what makes the absence lawful rather than an
+# oversight. That is a stronger claim than an untethered tag, so the tag went
+# rather than the claim.
 KIND_ACT = "act"
 KIND_SUBORDINATE = "subordinate"
 KIND_JUDGMENT = "judgment"
 KIND_CONSTITUTION = "constitution"
-KIND_NONE_EXISTS = "none_exists"
 INSTRUMENT_KINDS = (KIND_ACT, KIND_SUBORDINATE, KIND_JUDGMENT,
-                    KIND_CONSTITUTION, KIND_NONE_EXISTS)
+                    KIND_CONSTITUTION)
 
 class ProvenanceMixin:
     """
@@ -271,9 +272,30 @@ def provenance_violations(items, pre_protocol_ids=frozenset()) -> list:
         # citable: a rule asserting that the law requires something, with no
         # provision recorded and no attempt logged, is unverifiable by anyone.
         if rule.claim_type in CITEABLE_CLAIM_TYPES:
-            for field in ("source_url", "provision"):
-                if not getattr(rule, field).strip():
-                    problems.append(f"{rule.id} claims statute but carries no {field}")
+            # A RE-FINDABLE TRAIL, satisfied EITHER way. This check used to
+            # demand source_url outright, which was always a proxy for
+            # re-findability rather than the property itself — and the proxy
+            # broke the moment a claim was verified without one.
+            #
+            # PT1 cites the Karnataka amending Act by name, amendment and year.
+            # That is as followable as a link, arguably more durable than one,
+            # and INVENTORY_EXPANSION_DESIGN.md §5.1 says so directly: "a named
+            # instrument a reader can look up qualifies — its specificity is the
+            # trail". Forcing a URL onto it would have meant either leaving a
+            # verified claim permanently flagged, or inventing a link nobody
+            # used, which §5.1's corollary forbids.
+            #
+            # A provision WITHOUT an instrument is not a trail — a section
+            # number is meaningless without an Act — and the check below still
+            # says so separately.
+            has_url = bool(rule.source_url.strip())
+            has_named_instrument = bool(rule.instrument.strip()
+                                        and rule.provision.strip())
+            if not (has_url or has_named_instrument):
+                problems.append(
+                    f"{rule.id} claims statute but carries no re-findable trail "
+                    f"— needs either a source_url, or a named instrument "
+                    f"together with the provision within it")
             # CHECK 2: a citation nobody has even attempted to reach. The
             # unresolved marker satisfies this — "tried and could not" is a
             # recorded outcome; silence is not.

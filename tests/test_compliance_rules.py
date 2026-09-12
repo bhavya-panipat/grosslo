@@ -1050,3 +1050,78 @@ class TestTheEvidenceModelIsNotCoupledToRules(unittest.TestCase):
         self.assertEqual(len(problems), 1)
         self.assertIn("R5", problems[0])
         self.assertIn("superseded", problems[0])
+
+
+class TestTheTrailRequirementAcceptsEitherForm(unittest.TestCase):
+    """
+    INVENTORY_EXPANSION_DESIGN.md §5.1. What a citeable claim owes is a
+    RE-FINDABLE TRAIL, not a URL specifically. The check demanded source_url
+    outright until a claim was verified without one — PT1 cites the Karnataka
+    amending Act by name, amendment and year, which is as followable as a link.
+
+    The proxy was mistaken for the property. These pin the property.
+    """
+
+    def _carrier(self, cid, **kw):
+        base = dict(id=cid, severity="Low", check="c", rationale="r", why="w",
+                    predicate=lambda s, rp: False, status=CANDIDATE,
+                    claim_type=compliance_rules.STATUTORY,
+                    instrument_status=compliance_rules.IN_FORCE,
+                    threshold_origin="t", reviewed_by="R", reviewed_on="2026-09-12")
+        base.update(kw)
+        return compliance_rules.Rule(**base)
+
+    def _problems(self, rule):
+        return compliance_rules.provenance_violations([rule])
+
+    def test_a_url_alone_satisfies_it(self):
+        problems = self._problems(self._carrier(
+            "T1", source_url="https://example.invalid/x",
+            instrument="Some Act, 1952", provision=""))
+        self.assertFalse(any("re-findable trail" in p for p in problems), problems)
+
+    def test_a_named_instrument_with_its_provision_satisfies_it(self):
+        # The PT1 case: no URL captured, and none invented.
+        problems = self._problems(self._carrier(
+            "T2", source_url="", instrument="Some Act (Amendment) Act, 2025",
+            provision="s. 4 — the thing this claim relies on"))
+        self.assertFalse(any("re-findable trail" in p for p in problems), problems)
+
+    def test_neither_form_is_a_violation(self):
+        problems = self._problems(self._carrier(
+            "T3", source_url="", instrument="", provision=""))
+        self.assertTrue(any("T3" in p and "re-findable trail" in p for p in problems),
+                        problems)
+
+    def test_a_provision_with_no_instrument_is_not_a_trail(self):
+        # A section number is meaningless without an Act, and the separate
+        # instrument check still says so.
+        problems = self._problems(self._carrier(
+            "T4", source_url="", instrument="", provision="s. 4"))
+        self.assertTrue(any("T4" in p and "re-findable trail" in p for p in problems),
+                        problems)
+
+    def test_an_instrument_with_no_provision_is_not_a_trail(self):
+        # Naming an Act without saying which part of it carries the claim
+        # leaves a reader the whole statute to search.
+        problems = self._problems(self._carrier(
+            "T5", source_url="", instrument="Some Act, 1952", provision=""))
+        self.assertTrue(any("T5" in p and "re-findable trail" in p for p in problems),
+                        problems)
+
+    def test_the_message_names_both_acceptable_forms(self):
+        problems = self._problems(self._carrier(
+            "T6", source_url="", instrument="", provision=""))
+        message = next(p for p in problems if "re-findable trail" in p)
+        self.assertIn("source_url", message)
+        self.assertIn("provision", message)
+
+    def test_the_first_verified_claim_no_longer_flags_for_a_missing_url(self):
+        # The live case this rule change exists for.
+        import legal_claims
+        pt1 = next(c for c in legal_claims.CLAIMS if c.id == "PT1")
+        self.assertTrue(pt1.citation_is_checked)
+        self.assertEqual(pt1.source_url, "")
+        findings = [f for f in legal_claims.evidence_findings() if f.startswith("PT1")]
+        self.assertFalse(any("trail" in f or "source_url" in f for f in findings),
+                         findings)

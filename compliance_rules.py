@@ -81,7 +81,7 @@ from typing import Callable
 from provenance import (  # noqa: F401  (re-exported for compatibility)
     STATUTORY, CONVENTION, UNRESOLVED, IN_FORCE, SUPERSEDED, INSTRUMENT_UNKNOWN,
     KIND_ACT, KIND_SUBORDINATE, KIND_JUDGMENT, KIND_CONSTITUTION,
-    KIND_NONE_EXISTS, INSTRUMENT_KINDS,
+    INSTRUMENT_KINDS,
     ProvenanceMixin, provenance_violations,
 )
 
