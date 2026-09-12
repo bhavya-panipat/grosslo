@@ -269,3 +269,34 @@ batch, not on a stand-in that happens to correlate with it today.** For B1 that
 is "claims in `penalty_exposure` that assert a value", which stays true when a
 value-less claim joins the same module. A prefix, a length, and a position are
 all the same kind of shortcut.
+
+## 8. Standing principle: assert on structured fields, not on strings
+
+**A test that checks for a substring, or inspects a `repr`, can pass because the
+text happened to match for a reason unrelated to what it claims to test.** That
+shape of assertion is specifically prone to being green for the wrong reason,
+and this project has now produced three instances of it in one session:
+
+1. **R8's call-site claim.** Its basis said `SalaryStructure.total()` has "zero
+   call sites" — true when written, false the moment R8's own predicate called
+   it. A reader verifying by grep would have found the basis contradicted by
+   the rule asserting it.
+2. **`classify_row` vs `compliance_ratio`.** A sabotage that made
+   `compliance_ratio` raise was expected to be caught by two tests; one passed,
+   correctly, because `classify_row` never calls `compliance_ratio`. Only one
+   of the two was ever the real guard.
+3. **The `karnataka` substring.** Deleting Karnataka's key path left the
+   one-state drift test green, because the message then contained the WHOLE
+   `PT_MONTHLY_TABLE` dict, whose `repr` includes the string `karnataka`. The
+   test asserted on claim ids where the distinguishing content was state names.
+
+**The rule: prefer asserting on structured fields over string containment.**
+Compare `claim.instrument_kind == KIND_SUBORDINATE`, not `"notification" in
+message`. Where a message genuinely is the thing under test — an error's wording
+is a real interface — assert on what must be present *and* on what must be
+absent, because a substring check alone cannot distinguish "the right content"
+from "a larger blob that contains it".
+
+**And sabotage every such test.** All three instances were found by breaking the
+mechanism and watching what happened, never by reading the assertion. A green
+test proves nothing about *why* it is green.
