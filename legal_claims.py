@@ -34,10 +34,45 @@ import importlib
 from dataclasses import dataclass
 
 from provenance import (
-    CONVENTION, IN_FORCE, INSTRUMENT_UNKNOWN, STATUTORY,
+    CONVENTION, IN_FORCE, INSTRUMENT_UNKNOWN, NON_APPLICABILITY, STATUTORY,
     KIND_ACT, KIND_SUBORDINATE, KIND_JUDGMENT, KIND_CONSTITUTION,
     ProvenanceMixin, provenance_violations,
 )
+
+
+class _NoValue:
+    """
+    Sentinel for a claim that asserts no value at all.
+
+    NOT None, deliberately. None is a legitimate value for a constant to hold,
+    so using it here would make "this claim has no value" indistinguishable from
+    "this claim's value is None" — the same collapse-two-states-into-one mistake
+    that citation_checked_on's three-valued convention exists to avoid.
+    """
+    _instance = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    def __repr__(self):
+        return "NO_VALUE"
+
+
+NO_VALUE = _NoValue()
+
+
+class ValuelessClaimError(RuntimeError):
+    """
+    Raised when the drift check is asked about a claim that asserts no value.
+
+    The alternative — returning False, meaning "has not drifted" — is what this
+    exists to prevent. A NON_APPLICABILITY claim would then report as checked
+    and fine on every run, having been checked by nothing. A green result
+    nobody computed is worse than a visible gap, which is this project's
+    recurring finding applied to its own checking machinery.
+    """
 
 
 class SymbolMissingError(RuntimeError):
@@ -80,6 +115,9 @@ class Claim(ProvenanceMixin):
     # drift — and cannot check anything either, because it would agree with the
     # code by construction. That is the TOTAL_COMPLIANCE_RULES derived-once
     # mistake in new packaging. Two copies plus a comparison is the point.
+    # NO_VALUE for a claim that asserts no figure at all — see §2.3. A
+    # NON_APPLICABILITY claim says a provision does not apply; there is no
+    # number to compare, and §4.5's drift check cannot cover it.
     asserted_value: object
 
     claim_type: str = STATUTORY
@@ -99,16 +137,45 @@ class Claim(ProvenanceMixin):
     reviewed_by: str = ""
     reviewed_on: str = ""
 
-    # For a claim, a reviewer asserts the VALUE matches the cited source — not
-    # that a predicate is a correct implementation. See ProvenanceMixin.
-    REVIEW_MEANS = "verified the value against the cited source"
+    @property
+    def REVIEW_MEANS(self) -> str:
+        """
+        What a reviewer of THIS claim would be asserting.
+
+        A property rather than a constant because it genuinely differs by claim
+        kind, and a message naming the wrong assertion sends a reviewer to the
+        wrong task. Found when PE5 — which has no value — was reported as
+        needing someone to "verify the value against the cited source".
+
+        Same correction as Stage 2b's, one level finer: there it was rules
+        versus claims, here it is claims that assert a figure versus claims that
+        assert a provision does not reach this tool at all.
+        """
+        if self.claim_type == NON_APPLICABILITY:
+            return ("confirmed the authority still holds and the provision still "
+                    "does not apply")
+        return "verified the value against the cited source"
+
+    @property
+    def asserts_a_value(self) -> bool:
+        """Whether there is a figure for the drift check to compare."""
+        return self.asserted_value is not NO_VALUE
 
     @property
     def where(self) -> str:
-        return f"{self.module}.{self.symbol}"
+        # A claim about an ABSENCE has no symbol to name — it is about the
+        # module as a whole, and saying "penalty_exposure." would read as a
+        # truncation rather than as deliberate.
+        return f"{self.module}.{self.symbol}" if self.symbol else self.module
 
     def live_value(self):
         """The value as the running code actually holds it, read fresh."""
+        if not self.asserts_a_value:
+            raise ValuelessClaimError(
+                f"{self.id} asserts no value ({self.claim_type}), so there is "
+                f"nothing in the code to read. A claim that a provision does "
+                f"not apply is checked by reading the authority behind it, not "
+                f"by comparing a number.")
         module = importlib.import_module(self.module)
         try:
             return getattr(module, self.symbol)
@@ -130,6 +197,13 @@ class Claim(ProvenanceMixin):
         cannot catch the law moving while the code sits still — no local check
         can, and no automated check here can either, given the access wall.
         """
+        if not self.asserts_a_value:
+            raise ValuelessClaimError(
+                f"{self.id} asserts no value, so it cannot drift. Asking this "
+                f"would return False — 'has not drifted' — for a claim nothing "
+                f"has checked, which reads as a clean result nobody computed. "
+                f"Use drift_is_not_applicable() to see which claims the drift "
+                f"check cannot cover.")
         return self.live_value() != self.asserted_value
 
 
@@ -419,6 +493,63 @@ CLAIMS: tuple = (
                          "the tool's scenario, not about the figure.",
         citation_checked_on=UNRESOLVED_PE,
     ),
+
+    # -----------------------------------------------------------------------
+    # STAGE B2 -- the one claim in this codebase that asserts a provision does
+    # NOT apply (INVENTORY_EXPANSION_DESIGN.md §2.3). Adds exactly one
+    # mechanism: a claim with no value.
+    #
+    # It describes an ABSENCE -- penalty_exposure.py models no s. 448 penalty
+    # anywhere -- and that is precisely why it belongs in an inventory. A
+    # reasoned exclusion rots invisibly: if the judgment behind it is overruled,
+    # or the tool's scope changes so the provision starts applying, nothing in
+    # the codebase notices, and a missing penalty model is far harder to spot
+    # than a wrong number.
+    # -----------------------------------------------------------------------
+    Claim(
+        id="PE5", module="penalty_exposure", symbol="",
+        describes="Section 448 (formerly s. 271C) penalty is deliberately NOT "
+                  "modelled anywhere in this module. Not an omission -- a "
+                  "provision checked and excluded as legally inapplicable.",
+        asserted_value=NO_VALUE,
+        claim_type=NON_APPLICABILITY,
+        instrument="US Technologies International (P.) Ltd. v. CIT, "
+                   "[2023] 149 taxmann.com 144 (SC), 10 April 2023",
+        instrument_kind=KIND_JUDGMENT,
+        instrument_status=IN_FORCE,
+        provision="s. 448 (formerly s. 271C of the Income-tax Act, 1961) -- penalty "
+                  "for failure to DEDUCT tax. Held to turn on the words \"fails to "
+                  "deduct\", which do not reach failure to DEPOSIT tax already "
+                  "deducted; belated remittance after deduction is covered "
+                  "exclusively by s. 398(3) (formerly s. 201(1A)) interest.",
+        source_url="https://www.incometaxindia.gov.in/pages/acts/income-tax-act.aspx",
+        threshold_origin="NO NUMERIC THRESHOLD, and no value of any kind. This claim "
+                         "asserts that a provision does not apply, so there is no "
+                         "figure to source. HOW THIS IS KNOWN: by reading the claim "
+                         "-- there is nothing here for a number to be wrong about.",
+        # THE CONDITION THE EXCLUSION DEPENDS ON, recorded because it is the
+        # thing most likely to quietly stop being true. s. 448 is inapplicable
+        # BECAUSE every scenario this module models is the deducted-but-not-
+        # deposited case. If penalty_exposure.py ever models FAILURE TO DEDUCT,
+        # the provision applies and this claim becomes wrong -- not stale, wrong
+        # -- without any law having changed. No automated check can catch that:
+        # it would have to understand what a new scenario represents.
+        citation_checked_on="unresolved: the CITATION here is the most specific in "
+                            "penalty_exposure.py -- a full law-report citation, "
+                            "[2023] 149 taxmann.com 144 (SC), which an independent "
+                            "party can re-find. But the CHECK is recorded in the same "
+                            "\"independently verified against current sources\" "
+                            "language as PE1-PE4, which names no source and does not "
+                            "assert a primary one. Under the standing rule "
+                            "(INVENTORY_EXPANSION_DESIGN.md 5.1) a re-findable trail "
+                            "and a recorded check are BOTH required; this has the "
+                            "first and not the second. It is the closest claim in "
+                            "this file to clearing the bar and a reviewer could "
+                            "likely settle it quickly. NOT backdated. SEPARATELY "
+                            "UNCHECKED, and not a citation question at all: whether "
+                            "the judgment has since been overruled, distinguished, or "
+                            "legislatively displaced by the 2025 Act's re-enactment.",
+    ),
 )
 
 
@@ -447,6 +578,11 @@ def drift_findings() -> list:
     """
     problems = []
     for claim in CLAIMS:
+        # Value-less claims are skipped HERE, once and explicitly, rather than
+        # by each call site remembering to — and drift_is_not_applicable()
+        # below exists so the skip is visible rather than silent.
+        if not claim.asserts_a_value:
+            continue
         if claim.value_has_drifted:
             problems.append(
                 f"{claim.id}: {claim.where} is now {claim.live_value()!r} but "
@@ -456,3 +592,16 @@ def drift_findings() -> list:
                 f"asserted_value and citation_checked_on — updating the value "
                 f"alone reinstates exactly the state this check exists to find.")
     return problems
+
+
+def drift_is_not_applicable() -> tuple:
+    """
+    Claims the drift check structurally cannot cover, named rather than
+    silently skipped.
+
+    drift_findings() returning [] means "nothing drifted", and without this it
+    would quietly also mean "some claims were never eligible to". Those are
+    different facts, and a reader entitled to the first should not be handed
+    the second without being told.
+    """
+    return tuple(c for c in CLAIMS if not c.asserts_a_value)

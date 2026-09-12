@@ -2,7 +2,7 @@
 
 # Legal review queue
 
-**16 items** across 6 live compliance rules and 10 legal claims.
+**17 items** across 6 live compliance rules and 11 legal claims.
 
 ## Read this first
 
@@ -88,6 +88,13 @@ Someone tried and could not. Distinct from never having tried, and worse: it mea
 - **Instrument:** Income-tax Act, 2025 (Act 30 of 2025) (in_force)
 - **Provision:** s. 398(3) (formerly s. 201(1A) of the Income-tax Act, 1961) -- interest for failure to deposit tax already deducted.
 - **Citation state:** unresolved: penalty_exposure.py records that every rate was "independently verified against current sources" and names NONE of them. Note the wording against payroll_breakdown.py's, which says "re-verified live ... against a PRIMARY source" and names the document -- this file claims only "current sources", which does not assert a primary source and gives no trail to follow. Under the standing rule (INVENTORY_EXPANSION_DESIGN.md 5.1) that is evidence a check occurred, not something an independent party can redo. The instrument and provision below are recorded as the file itself states them. NOT backdated: nothing was looked up today and credited to the earlier check.
+
+### PE5 — Section 448 (formerly s. 271C) penalty is deliberately NOT modelled anywhere in this module. Not an omission -- a provision checked and excluded as legally inapplicable.
+
+- **Where:** `penalty_exposure`
+- **Instrument:** US Technologies International (P.) Ltd. v. CIT, [2023] 149 taxmann.com 144 (SC), 10 April 2023 (in_force)
+- **Provision:** s. 448 (formerly s. 271C of the Income-tax Act, 1961) -- penalty for failure to DEDUCT tax. Held to turn on the words "fails to deduct", which do not reach failure to DEPOSIT tax already deducted; belated remittance after deduction is covered exclusively by s. 398(3) (formerly s. 201(1A)) interest.
+- **Citation state:** unresolved: the CITATION here is the most specific in penalty_exposure.py -- a full law-report citation, [2023] 149 taxmann.com 144 (SC), which an independent party can re-find. But the CHECK is recorded in the same "independently verified against current sources" language as PE1-PE4, which names no source and does not assert a primary one. Under the standing rule (INVENTORY_EXPANSION_DESIGN.md 5.1) a re-findable trail and a recorded check are BOTH required; this has the first and not the second. It is the closest claim in this file to clearing the bar and a reviewer could likely settle it quickly. NOT backdated. SEPARATELY UNCHECKED, and not a citation question at all: whether the judgment has since been overruled, distinguished, or legislatively displaced by the 2025 Act's re-enactment.
 
 ### R1 — Basic salary < 50% of CTC
 

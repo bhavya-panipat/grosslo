@@ -35,6 +35,28 @@ from __future__ import annotations
 STATUTORY = "statutory"
 CONVENTION = "convention"
 
+# NON_APPLICABILITY — "the law does NOT require this, and here is the authority
+# for that" (INVENTORY_EXPANSION_DESIGN.md §2.3). Needs the same citation
+# evidence as STATUTORY, because it is a statutory claim: it asserts what a
+# provision does not reach, which is as checkable and as falsifiable as
+# asserting what it does.
+#
+# WHY IT IS WORTH INVENTORYING AT ALL, given it describes something the code
+# does NOT do: a reasoned exclusion rots invisibly. If the authority behind it
+# is overruled, or the tool's scope changes so the provision starts applying,
+# nothing in the codebase notices — and the absence of a penalty model is far
+# harder to spot than a wrong number would be. An absent thing is harder to
+# notice than a wrong one, which is this project's most repeated lesson.
+NON_APPLICABILITY = "non_applicability"
+CLAIM_TYPES = (STATUTORY, CONVENTION, NON_APPLICABILITY)
+
+# The claim types that make an assertion about a statute and therefore owe a
+# citation. NON_APPLICABILITY is here deliberately: "this provision does not
+# apply" is not a softer claim than "this provision requires X", and letting it
+# ship without a source would make the easiest way to avoid citing a provision
+# be to assert it does not apply.
+CITEABLE_CLAIM_TYPES = (STATUTORY, NON_APPLICABILITY)
+
 # citation_checked_on has THREE distinguishable states, not two. "Nobody has
 # tried" and "someone tried and could not get to a primary source" are
 # different facts, and the second is worse: it means the claim is uncheckable
@@ -233,7 +255,7 @@ def provenance_violations(items, pre_protocol_ids=frozenset()) -> list:
     for rule in items:
         pre = rule.id in pre_protocol_ids
 
-        if rule.claim_type not in (STATUTORY, CONVENTION):
+        if rule.claim_type not in CLAIM_TYPES:
             problems.append(f"{rule.id} has unknown claim_type {rule.claim_type!r}")
 
         if rule.is_live and not pre and not rule.implementation_is_reviewed:
@@ -248,7 +270,7 @@ def provenance_violations(items, pre_protocol_ids=frozenset()) -> list:
         # R1 and R5 are exempt from having a BACKDATED reviewer, not from being
         # citable: a rule asserting that the law requires something, with no
         # provision recorded and no attempt logged, is unverifiable by anyone.
-        if rule.claim_type == STATUTORY:
+        if rule.claim_type in CITEABLE_CLAIM_TYPES:
             for field in ("source_url", "provision"):
                 if not getattr(rule, field).strip():
                     problems.append(f"{rule.id} claims statute but carries no {field}")

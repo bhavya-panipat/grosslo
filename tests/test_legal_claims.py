@@ -435,8 +435,13 @@ class TestStageB1PenaltyExposureClaims(unittest.TestCase):
         return next(c for c in legal_claims.CLAIMS if c.id == cid)
 
     def test_stage_b1_added_exactly_the_four_rate_claims(self):
-        self.assertEqual([c.id for c in legal_claims.CLAIMS if c.id.startswith("PE")],
-                         ["PE1", "PE2", "PE3", "PE4"])
+        # The id prefix was the WRONG batch boundary: B2 added PE5 to the same
+        # file and the same prefix. A prefix is a proxy for a batch, and proxies
+        # break when a later batch reuses them — see §7's refinement. Pinned on
+        # what actually distinguishes this batch: the four rate claims by name.
+        rate_claims = [c.id for c in legal_claims.CLAIMS
+                       if c.module == "penalty_exposure" and c.asserts_a_value]
+        self.assertEqual(rate_claims, ["PE1", "PE2", "PE3", "PE4"])
 
     def test_every_recorded_value_matches_the_live_constant(self):
         import penalty_exposure as pe
@@ -481,15 +486,16 @@ class TestStageB1PenaltyExposureClaims(unittest.TestCase):
                               claim.citation_checked_on)
                 self.assertIn("NOT backdated", claim.citation_checked_on)
 
-    def test_the_448_exclusion_is_not_in_this_stage(self):
-        # Stage discipline, pinned: B1 adds one mechanism. A claim asserting a
-        # provision does NOT apply has no value to record, which is B2's work.
-        ids = [c.id for c in legal_claims.CLAIMS]
-        self.assertNotIn("PE5", ids)
-        for claim in legal_claims.CLAIMS:
-            with self.subTest(claim=claim.id):
-                self.assertIsNotNone(claim.asserted_value,
-                                     "a value-less claim arrived before B2")
+    def test_the_four_rate_claims_all_assert_a_value(self):
+        # REPLACES test_the_448_exclusion_is_not_in_this_stage, which pinned
+        # that no value-less claim existed yet. B2 is that arrival, so the
+        # assertion had to go — but what it protected has not: these four are
+        # rate claims, and a rate claim with no figure would be incoherent.
+        for cid in ("PE1", "PE2", "PE3", "PE4"):
+            with self.subTest(claim=cid):
+                claim = self._claim(cid)
+                self.assertTrue(claim.asserts_a_value)
+                self.assertIsInstance(claim.asserted_value, float)
 
 
 class TestInstrumentKind(unittest.TestCase):
@@ -535,3 +541,97 @@ class TestInstrumentKind(unittest.TestCase):
             instrument = "Some Act, 1952"
             instrument_status = provenance.IN_FORCE
         self.assertEqual(provenance.provenance_violations([Old()]), [])
+
+
+class TestStageB2ValuelessClaims(unittest.TestCase):
+    """
+    INVENTORY_EXPANSION_DESIGN.md §2.3, Stage B2. One mechanism: a claim that
+    asserts no value, because it asserts a provision does NOT apply.
+    """
+
+    def _pe5(self):
+        return next(c for c in legal_claims.CLAIMS if c.id == "PE5")
+
+    def test_the_sentinel_is_not_None(self):
+        # None is a legitimate value for a constant to hold, so using it would
+        # collapse "has no value" into "its value is None" — the same
+        # two-states-into-one mistake citation_checked_on avoids.
+        self.assertIsNot(legal_claims.NO_VALUE, None)
+        self.assertIs(legal_claims.NO_VALUE, legal_claims._NoValue())
+        self.assertEqual(repr(legal_claims.NO_VALUE), "NO_VALUE")
+
+    def test_a_claim_with_a_value_of_None_still_counts_as_asserting_one(self):
+        probe = _probe(asserted_value=None)
+        self.assertTrue(probe.asserts_a_value)
+
+    def test_the_drift_check_refuses_rather_than_returning_false(self):
+        # Returning False would mean "has not drifted" for a claim nothing
+        # checked — a green result nobody computed.
+        with self.assertRaises(legal_claims.ValuelessClaimError):
+            self._pe5().value_has_drifted
+        with self.assertRaises(legal_claims.ValuelessClaimError):
+            self._pe5().live_value()
+
+    def test_what_the_drift_check_cannot_cover_is_named_not_silently_skipped(self):
+        # drift_findings() == [] must not quietly also mean "and some claims
+        # were never eligible".
+        self.assertEqual([c.id for c in legal_claims.drift_is_not_applicable()],
+                         ["PE5"])
+        self.assertEqual(legal_claims.drift_findings(), [])
+
+    def test_a_non_applicability_claim_still_owes_a_citation(self):
+        # "This provision does not apply" is not a softer claim than "this
+        # provision requires X". If it shipped without a source, the easiest way
+        # to avoid citing a provision would be to assert it does not apply.
+        from unittest.mock import patch
+        uncited = legal_claims.Claim(
+            id="NA1", module="penalty_exposure", symbol="",
+            describes="d", asserted_value=legal_claims.NO_VALUE,
+            claim_type=provenance.NON_APPLICABILITY, threshold_origin="none")
+        with patch.object(legal_claims, "CLAIMS", (uncited,)):
+            problems = legal_claims.evidence_findings()
+        self.assertTrue(any("NA1" in p and "source_url" in p for p in problems), problems)
+        self.assertTrue(any("NA1" in p and "provision" in p for p in problems), problems)
+
+    def test_the_review_message_names_the_right_assertion(self):
+        # PE5 has no value; asking someone to "verify the value" sends them to
+        # a task that does not exist.
+        findings = [f for f in legal_claims.evidence_findings() if f.startswith("PE5")]
+        self.assertTrue(findings)
+        self.assertIn("the authority still holds", findings[0])
+        self.assertNotIn("verified the value", findings[0])
+        # And a value-asserting claim keeps its own wording.
+        pe1 = [f for f in legal_claims.evidence_findings() if f.startswith("PE1")]
+        self.assertIn("verified the value", pe1[0])
+
+    def test_it_carries_the_judgment_as_its_instrument(self):
+        pe5 = self._pe5()
+        self.assertEqual(pe5.instrument_kind, provenance.KIND_JUDGMENT)
+        self.assertIn("149 taxmann.com 144", pe5.instrument)
+
+    def test_where_reads_as_the_module_not_a_truncated_symbol(self):
+        self.assertEqual(self._pe5().where, "penalty_exposure")
+
+    def test_the_scope_condition_the_exclusion_depends_on_is_recorded(self):
+        # s. 448 is inapplicable BECAUSE this module only models the
+        # deducted-but-not-deposited case. If it ever models failure to deduct,
+        # the claim becomes wrong without any law having changed, and no
+        # automated check can catch that.
+        source = open(os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "legal_claims.py")).read()
+        self.assertIn("ever models FAILURE TO DEDUCT", source)
+
+    def test_the_citation_is_recorded_as_specific_but_still_unresolved(self):
+        # Both halves of §5.1 are required: a re-findable trail AND a recorded
+        # check. PE5 has the first and not the second.
+        pe5 = self._pe5()
+        self.assertFalse(pe5.citation_is_checked)
+        self.assertTrue(pe5.citation_attempt_unresolved)
+        self.assertIn("most specific", pe5.citation_checked_on)
+        self.assertIn("NOT backdated", pe5.citation_checked_on)
+
+    def test_whether_the_judgment_still_stands_is_named_as_unchecked(self):
+        # A separate question from the citation, and the one that would make
+        # this claim wrong rather than merely unverified.
+        self.assertIn("overruled", self._pe5().citation_checked_on)

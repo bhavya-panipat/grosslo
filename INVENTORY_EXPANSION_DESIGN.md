@@ -257,3 +257,15 @@ not on the container.** Filter by the batch's own id prefix, or slice. If the
 container's shape genuinely matters — ordering, or that earlier batches did not
 move — assert that separately and say so, rather than getting it as a side
 effect of an equality check on the whole thing.
+
+**Refinement, found immediately by Stage B2: an id prefix is a PROXY for a
+batch, and proxies break.** §7's fix for the fourth instance was to filter by id
+prefix instead of comparing the whole collection. Stage B2 then added `PE5` to
+the same file and the same `PE` prefix, and the B1 test failed again — for the
+same underlying reason, one level in.
+
+The durable version: **assert on the property that actually distinguishes the
+batch, not on a stand-in that happens to correlate with it today.** For B1 that
+is "claims in `penalty_exposure` that assert a value", which stays true when a
+value-less claim joins the same module. A prefix, a length, and a position are
+all the same kind of shortcut.
