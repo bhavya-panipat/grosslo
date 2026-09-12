@@ -180,6 +180,11 @@ class Rule(ProvenanceMixin):
     # scope decision", and dressing that up as a citation would misrepresent it.
     basis: str = ""
 
+    # Where the implementation DELIBERATELY differs from the instrument,
+    # and why. Empty means it is intended to match exactly. See
+    # provenance.py — a divergence does not block verification.
+    known_divergence: str = ""
+
     # ---- Where the NUMBER came from, asked of every rule -------------------
     # Answers one question in writing, before drafting proceeds: "is this
     # threshold's specific number derived from a statute, and how do you know?"

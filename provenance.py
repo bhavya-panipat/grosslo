@@ -159,6 +159,28 @@ class ProvenanceMixin:
     same reason — the alternative that cannot drift also cannot be checked.
     """
 
+    # KNOWN_DIVERGENCE — where the implementation DELIBERATELY does not match
+    # the instrument, and why (INVENTORY_EXPANSION_DESIGN.md §2.4).
+    #
+    # This is a THIRD claim, separate from the two already here, and the gap it
+    # fills is subtle: a citation can be verified AND the implementation correct
+    # as designed, while the code still knowingly differs from the statute.
+    # Maharashtra's professional tax varies by gender; this tool collects no
+    # gender and uses the general — higher — slab. Tamil Nadu's is a half-yearly
+    # assessment expressed as a monthly equivalent. Both are deliberate, both
+    # conservative, both documented in payroll_breakdown.py, and nothing in the
+    # evidence model could record either.
+    #
+    # Left unrecorded, `verified` reads as "matches the law exactly", and a
+    # future reader either believes that or "fixes" a divergence that was
+    # chosen. Empty means the implementation is INTENDED to match exactly, which
+    # is itself an assertion rather than an absence of one.
+    #
+    # A divergence does NOT block verification: the citation claim and the
+    # fidelity claim are different, exactly as citation_checked_on and
+    # reviewed_by are different.
+    known_divergence = ""
+
     # What a recorded reviewer is ASSERTING. Overridden per carrier because the
     # act genuinely differs: for a compliance rule it is "this predicate
     # correctly implements the claim"; for a legal claim it is "this value
@@ -229,6 +251,19 @@ class ProvenanceMixin:
         """A qualified human judged the predicate a correct implementation."""
         return bool(self.reviewed_by.strip() and self.reviewed_on.strip())
 
+
+
+def _looks_like_a_date(value: str) -> bool:
+    """
+    An ISO date, which is what a completed check records.
+
+    Deliberately shape-only: this says the field holds a date, not that the date
+    is plausible or that anything happened on it. Validating further would be
+    checking the claim rather than its form, and that is a human's job.
+    """
+    parts = value.split("-")
+    return (len(parts) == 3 and len(parts[0]) == 4
+            and all(p.isdigit() for p in parts))
 
 
 def provenance_violations(items, pre_protocol_ids=frozenset()) -> list:
@@ -332,6 +367,33 @@ def provenance_violations(items, pre_protocol_ids=frozenset()) -> list:
         if rule.claim_type == CONVENTION:
             if not rule.basis.strip():
                 problems.append(f"{rule.id} is a convention rule with no stated basis")
+
+        # CHECK 7: a deliberate divergence nobody has signed off on. The
+        # existing reviewer check does not express this — a claim can satisfy it
+        # while the divergence itself was never put to anyone. Deciding that
+        # using Maharashtra's general slab for every employee is an acceptable
+        # conservative simplification is a bigger assertion than "the table
+        # matches the Act", and it is the one a reviewer is really being asked
+        # to make.
+        if rule.known_divergence.strip() and not rule.implementation_is_reviewed:
+            problems.append(
+                f"{rule.id} knowingly diverges from its instrument and no one "
+                f"has signed off on the divergence — this is a deliberate "
+                f"departure from the law as written, not a stale value, and "
+                f"needs a reviewer who accepts it rather than one who checks it")
+
+        # CHECK 8: a citation state that is none of the three recognised ones.
+        # Tracked from Stage C1, where this file's OWN data fell into the gap:
+        # a reason was recorded without the "unresolved: " prefix, leaving two
+        # claims neither checked nor attempted-unresolved — the exact silent
+        # miscategorisation the three-valued convention exists to prevent.
+        state = rule.citation_checked_on.strip()
+        if state and not state.startswith(UNRESOLVED) and not _looks_like_a_date(state):
+            problems.append(
+                f"{rule.id} has a citation_checked_on that is neither empty, nor "
+                f"an ISO date, nor prefixed \"{UNRESOLVED}\" — so it belongs to "
+                f"none of the three recognised states and will be read as "
+                f"unchecked-but-not-attempted, which is not what it says")
 
         # CHECK 6: the threshold-origin question, asked of EVERY claim type.
         # Deliberately not restricted to convention rules even though that is

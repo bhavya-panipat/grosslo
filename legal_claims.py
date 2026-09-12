@@ -159,6 +159,11 @@ class Claim(ProvenanceMixin):
     # changes what re-checking the citation actually involves.
     instrument_kind: str = KIND_ACT
     basis: str = ""
+
+    # Where the implementation DELIBERATELY differs from the instrument,
+    # and why. Empty means it is intended to match exactly. See
+    # provenance.py — a divergence does not block verification.
+    known_divergence: str = ""
     threshold_origin: str = ""
     reviewed_by: str = ""
     reviewed_on: str = ""
@@ -656,6 +661,19 @@ CLAIMS: tuple = (
         instrument_kind=KIND_ACT,
         instrument_status=INSTRUMENT_UNKNOWN,
         provision="",
+        known_divergence="THE ACT DIFFERENTIATES BY GENDER AND THIS TOOL DOES NOT. "
+                         "Maharashtra exempts women up to Rs 25,000/month against "
+                         "Rs 7,500 for the general slab recorded here. Nothing in "
+                         "this product's intake collects gender, so the general slab "
+                         "is applied to everyone. The direction matters and is "
+                         "deliberate: it OVER-states professional tax for the "
+                         "employees the exemption would cover, never under-states it, "
+                         "so a treasury forecast built on it is conservative rather "
+                         "than short. WHAT A REVIEWER IS ACCEPTING is not that the "
+                         "table matches the Act -- it does, for the general slab -- "
+                         "but that applying the general slab to every employee is an "
+                         "acceptable simplification for this tool's purpose. That is "
+                         "a judgement about the product, not about the law.",
         threshold_origin="STATUTORY -- set by Maharashtra's professional tax Act, "
                          "which payroll_breakdown.py refers to without naming. "
                          "SEPARATELY, AND FOR C2: the file records that the Act "
@@ -707,6 +725,19 @@ CLAIMS: tuple = (
         # MATCH -- a named document plus a recorded reason for distrusting the
         # secondary copy.
         citation_checked_on="2026-09-03",
+        known_divergence="A HALF-YEARLY ASSESSMENT EXPRESSED AS A MONTHLY ONE. The "
+                         "published schedule assesses six bands of average HALF-YEARLY "
+                         "income; both the thresholds and the amounts are divided by "
+                         "six here so that one monthly lookup works for every state. "
+                         "Real payroll practice does not literally assess this monthly, "
+                         "and the file flags it as an approximation at the call site. "
+                         "It diverges most for an employee whose income varies across "
+                         "the half-year, since a monthly-equivalent lookup cannot see "
+                         "an average the real assessment is computed on. WHAT A "
+                         "REVIEWER IS ACCEPTING: that a monthly equivalent is close "
+                         "enough for a forecasting tool, and that the rounding to two "
+                         "decimals on each divided figure does not accumulate into a "
+                         "material annual difference.",
         threshold_origin="STATUTORY -- the six half-yearly figures are set by the "
                          "published schedule. The DIVISION BY SIX is not: it is this "
                          "tool's own conversion so one monthly lookup works for every "

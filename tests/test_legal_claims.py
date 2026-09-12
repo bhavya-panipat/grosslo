@@ -777,3 +777,121 @@ class TestStageC1ProfessionalTaxClaims(unittest.TestCase):
         origin = self._claim("PT6").threshold_origin
         self.assertIn("CONSTITUTIONAL", origin)
         self.assertIn("is NOT", origin)
+
+
+class TestStageC2KnownDivergence(unittest.TestCase):
+    """
+    INVENTORY_EXPANSION_DESIGN.md §2.4. The subtle gap: a citation can be
+    verified AND the implementation correct as designed, while the code still
+    knowingly differs from the statute. Left unrecorded, `verified` reads as
+    "matches the law exactly".
+    """
+
+    def _claim(self, cid):
+        return next(c for c in legal_claims.CLAIMS if c.id == cid)
+
+    def test_exactly_the_two_documented_divergences_are_recorded(self):
+        recorded = [c.id for c in legal_claims.CLAIMS if c.known_divergence.strip()]
+        self.assertEqual(recorded, ["PT2", "PT4"])
+
+    def test_empty_means_intended_to_match_not_unexamined(self):
+        # Asserted structurally: every other claim declares the field and
+        # leaves it empty, which is an assertion rather than an absence of one.
+        for claim in legal_claims.CLAIMS:
+            with self.subTest(claim=claim.id):
+                self.assertIsInstance(claim.known_divergence, str)
+
+    def test_a_divergence_does_not_block_verification(self):
+        # The citation claim and the fidelity claim are different, exactly as
+        # citation_checked_on and reviewed_by are. PT4 is both verified and
+        # knowingly divergent, and that combination is coherent.
+        pt4 = self._claim("PT4")
+        self.assertTrue(pt4.citation_is_checked)
+        self.assertTrue(pt4.known_divergence.strip())
+
+    def test_each_divergence_says_what_a_reviewer_would_be_accepting(self):
+        # The point of recording it. A reviewer is not being asked whether the
+        # table matches the Act — it does — but whether the departure is
+        # acceptable for this tool's purpose, which is a different question.
+        for cid in ("PT2", "PT4"):
+            with self.subTest(claim=cid):
+                self.assertIn("WHAT A REVIEWER IS ACCEPTING",
+                              self._claim(cid).known_divergence.upper())
+
+    def test_maharashtras_divergence_records_its_direction(self):
+        # Which way it errs is the part that decides whether it is safe. This
+        # one over-states tax, never under-states it, so a forecast built on it
+        # is conservative rather than short.
+        divergence = self._claim("PT2").known_divergence
+        self.assertIn("OVER-states", divergence)
+        self.assertIn("never under-states", divergence)
+
+    def test_an_unreviewed_divergence_is_its_own_finding(self):
+        # CHECK 7. The existing reviewer check does not express this: a claim
+        # could satisfy that while the divergence itself was never put to anyone.
+        findings = legal_claims.evidence_findings()
+        for cid in ("PT2", "PT4"):
+            with self.subTest(claim=cid):
+                self.assertTrue(
+                    any(f.startswith(cid) and "diverges" in f for f in findings),
+                    "a deliberate departure from the law went unreported")
+
+    def test_a_reviewed_divergence_stops_flagging(self):
+        # Both directions. A check asserted only in its failing state might be
+        # failing for an unrelated reason.
+        from unittest.mock import patch
+        import dataclasses
+        signed = dataclasses.replace(self._claim("PT2"),
+                                     reviewed_by="A Reviewer",
+                                     reviewed_on="2026-09-12")
+        with patch.object(legal_claims, "CLAIMS", (signed,)):
+            findings = legal_claims.evidence_findings()
+        self.assertFalse(any("diverges" in f for f in findings), findings)
+
+
+class TestTheCitationStateIsWellFormed(unittest.TestCase):
+    """
+    CHECK 8, tracked from Stage C1 where this repository's OWN data fell into
+    the gap: a reason was recorded without the "unresolved: " prefix, leaving
+    two claims neither checked nor attempted-unresolved.
+    """
+
+    def test_every_real_claim_is_in_one_of_the_three_states(self):
+        for claim in legal_claims.CLAIMS:
+            with self.subTest(claim=claim.id):
+                state = claim.citation_checked_on.strip()
+                recognised = (not state
+                              or claim.citation_attempt_unresolved
+                              or claim.citation_is_checked
+                              or provenance._looks_like_a_date(state))
+                self.assertTrue(recognised,
+                                f"{claim.id} is in no recognised citation state")
+
+    def test_a_bare_reason_with_no_prefix_is_a_violation(self):
+        # The exact mistake made in C1.
+        from unittest.mock import patch
+        malformed = _probe(claim_type=provenance.STATUTORY, basis="",
+                           instrument="Some Act, 1952",
+                           instrument_status=provenance.IN_FORCE,
+                           provision="s. 4", source_url="https://example.invalid/x",
+                           citation_checked_on="could not reach the source")
+        with patch.object(legal_claims, "CLAIMS", (malformed,)):
+            problems = legal_claims.evidence_findings()
+        self.assertTrue(any("C1" in p and "three recognised states" in p
+                            for p in problems), problems)
+
+    def test_the_three_recognised_forms_do_not_flag(self):
+        from unittest.mock import patch
+        for state in ("", "2026-09-03", "unresolved: tried, 403"):
+            with self.subTest(state=state or "<empty>"):
+                ok = _probe(claim_type=provenance.STATUTORY, basis="",
+                            instrument="Some Act, 1952",
+                            instrument_status=provenance.IN_FORCE,
+                            provision="s. 4",
+                            source_url="https://example.invalid/x",
+                            reviewed_by="R", reviewed_on="2026-09-12",
+                            citation_checked_on=state)
+                with patch.object(legal_claims, "CLAIMS", (ok,)):
+                    problems = legal_claims.evidence_findings()
+                self.assertFalse(any("three recognised states" in p
+                                     for p in problems), problems)
