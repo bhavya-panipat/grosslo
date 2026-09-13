@@ -667,16 +667,39 @@ citation that was wrong from the start.
   flag the user selects) — so this law change doesn't correspond to a code
   defect here, only to a stale section citation (below).
 - Section 10(13A) (HRA exemption) moved to **Section 11, read with
-  Schedule II**. Section 80CCD(2) (employer NPS deduction) moved to
+  ~~Schedule II~~ Schedule III, Table Sl. No. 11** — **corrected 2026-09-13,
+  see below.** Section 80CCD(2) (employer NPS deduction) moved to
   **Section 124, read with Schedule XV** — the 10%/14% old-vs-new-regime
   rate split itself is unchanged and was already correct in
   `tax_engine.py`'s `NPS_80CCD2_CAP_PCT`.
 - **Fixed in code**: every user-facing citation of the old section numbers
-  (392/11+Schedule II/124) across `ai_layer.py`, `execution_trace.py`,
+  (392/11+Schedule III/124) across `ai_layer.py`, `execution_trace.py`,
   `payroll_breakdown.py`, and this document — the old number is kept
   alongside the new one ("Section 124, formerly 80CCD(2)") since it's
   still the more recognizable, more-searched-for term, not because the old
   number is still correct on its own.
+
+**Corrected 2026-09-13 — the HRA exemption's schedule number was wrong:**
+- It is **Schedule III, Table Sl. No. 11**, not Schedule II. Schedule II is a
+  different exemption schedule entirely (agricultural income, life insurance
+  proceeds); Schedule III is *"Income not to be included in total income of
+  eligible persons"*, and entry 11 of its Table is the rent allowance.
+- **Verified from the primary source, and the chain is re-checkable.** CBDT's
+  official *Income-tax Rules, 1962 vis-à-vis Income-tax Rules, 2026* utility
+  maps **Rule 2A → Rule 279**, and Rule 279's own title is *"Limits for the
+  purposes of Schedule III [Table: Sl. No. 11] to the Act"*. Rule 2A was
+  headed *"Limits for the purposes of section 10(13A)"*. So the government's
+  own rule title ties the HRA limits to Schedule III Sl. No. 11 directly —
+  no inference from a third-party concordance is needed.
+- **The 50%/40% split is unchanged**, and it is not in the Act at all:
+  Schedule III Sl. No. 11 delegates it (*"to such extent as may be
+  prescribed"*), exactly as s. 10(13A) delegated to Rule 2A. Rule 279 carries
+  the percentages. Full text in `docs/PRIMARY_SOURCE_LOOKUP_TASK.md`.
+- **Not re-checked, and therefore not asserted here:** *Section 124, read with
+  Schedule XV* above. Section 124 itself is confirmed (the 2025 Act's
+  s. 17(1)(h) refers to *"the scheme referred to in section 124(1)"*), but the
+  Schedule XV pairing came from the same 2026-09-02 pass that produced this
+  Schedule II error and has not been verified independently.
 
 **Checked and found NOT to need a citation change:**
 - Sections 7Q and 14B (`penalty_exposure.py`'s EPF interest/damages) are

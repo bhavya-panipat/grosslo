@@ -260,6 +260,25 @@ HRA exemption as moving to **"Section 11, read with Schedule II"**. The primary
 source says **Schedule III [Table: Sl. No. 11]**. Schedule II is the
 exempt-income schedule (life insurance, agricultural income). Own commit.
 
+**Correction to this document, made while executing step 2.** The error is not
+confined to documentation. `ai_layer.py` L1080 appends
+`"Section 11, read with Schedule II (formerly Section 10(13A))"` to
+`applicable_sections`, which is **emitted to users**. So step 2 splits:
+
+- **2a — documentation.** `README.md`, this file, `LEGAL_CLAIM_INVENTORY_DESIGN.md`
+  (two rows).
+- **2b — emitted text.** `ai_layer.py` L1080. Separate commit, per the standing
+  rule that behavioural changes are never mixed with structural ones.
+
+**And the reason it survived: nothing tests it.** No test in the suite asserts
+on `applicable_sections` or on any string in it. A wrong statutory citation was
+being shown to users, and the suite was green the entire time — which is the
+same gap the output-boundary check was built for, one field over. The boundary
+check verifies that *numbers* in model-facing text are grounded; nothing
+verifies that *citations* handed to the model are correct. Noted, not fixed
+here; it belongs with the tracked `ai_backed` follow-up rather than inside this
+propagation.
+
 ---
 
 ## 5. Sequencing

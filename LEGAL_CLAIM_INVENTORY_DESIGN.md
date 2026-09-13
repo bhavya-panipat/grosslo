@@ -44,7 +44,7 @@ The rule set is the *smallest* concentration of legal claims in this codebase.
 | `payroll_breakdown.py` | `PT_MONTHLY_TABLE` — five separate **state** professional-tax statutes, each independently amendable |
 | `penalty_exposure.py` | EPF s. 7Q, s. 14B (plus a 2024 Ministry notification), s. 398(3), and a *reasoned exclusion* of s. 448 |
 | `optimizer.py` | `BASIC_PCT_MIN` — the motivating bug |
-| `ai_layer.py` | Sections 11 + Sch. II, 392, 124, 17(2)(vii) |
+| `ai_layer.py` | Sections 11 + Sch. III, 392, 124, 17(2)(vii) |
 | `execution_trace.py`, `orchestration.py` | Section 124 |
 | `compliance_rules.py` | R1, R5 — **the only two with structured provenance** |
 | `README.md` | the entire "Regulatory currency" section |
@@ -395,7 +395,7 @@ committing to twenty-five). It is not done. Still uninventoried:
 | `payroll_breakdown.py` | `PT_MONTHLY_TABLE` | Five separate **state** statutes, each independently amendable — the largest single block of uninventoried law here, and the most frequently amended. |
 | `penalty_exposure.py` | `EPF_7Q_MONTHLY_RATE`, `EPF_14B_MONTHLY_RATE`, ss. 398(3), and the reasoned exclusion of s. 448 | The 14B rate depends on a 2024 Ministry notification, which is a different kind of instrument from an Act and may need `instrument` to say so. |
 | `tax_engine.py` | `CESS_RATE`, `EMPLOYER_PF_RATE`, `PF_WAGE_CEILING_BASIC`, `REBATE_87A_THRESHOLD`, `REBATE_87A_MAX` | Same file as the first batch, deferred only to keep that batch small. |
-| `ai_layer.py`, `execution_trace.py`, `orchestration.py` | Sections 11 + Sch. II, 392, 124, 17(2)(vii) | Citations shown to users, not values. May need a claim kind that asserts a *citation* rather than a *number*. |
+| `ai_layer.py`, `execution_trace.py`, `orchestration.py` | Sections 11 + Sch. III, 392, 124, 17(2)(vii) | Citations shown to users, not values. May need a claim kind that asserts a *citation* rather than a *number*. |
 
 **`optimizer.py:BASIC_PCT_MIN` leads that list, explicitly and by priority
 rather than by position.** Two things are known to be true of it:
