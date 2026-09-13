@@ -128,7 +128,7 @@ same *parsing, not policy* argument as `OUTPUT_BOUNDARY_DESIGN.md` §2.1.
 - **Right boundary:** the designator cannot be followed by a letter, a digit,
   `(`, or `[.,]digit`. So "Section 392,000" and "Section 392.5" are not
   references and their numbers are checked. A supplied "Section 80CCD" does not
-  exempt "Section 80CCD(2)"; the `(2)` is left behind and checked.
+  exempt "Section 80CCD(2)". The longer reference is not stripped at all, so both 80 and 2 are checked.
 - **Left boundary:** `\b` before the keyword, so "Subsection 392" is not a
   reference.
 - **Only the reference is removed**, never the text around it. So
@@ -219,3 +219,32 @@ Full suite after every step against the 469 baseline, with `python3 -B` and
   `ai_backed` but is not in that corpus. If it is added later, the boundary
   check will hit the same false positive, and the response it inspects does not
   include `applicable_sections` to exempt against. Recorded, not fixed.
+
+## 8. Proof, as run
+
+Every run was the full suite with `python3 -B` and the bytecode cache cleared.
+Each run was held until no other suite was running against the shared
+Postgres; overlap was checked and none occurred. Failures were predicted before
+each sabotage run. Every sabotaged file was restored with `git checkout` and
+verified against the committed shasum.
+
+| run | result | delta vs 469 |
+|---|---|---|
+| baseline (worktree off `3046e62`) | 469 OK | — |
+| after step 1 (this document) | 469 OK | 0 |
+| after step 2 (structural) | 479 OK | +10, all in `test_query_guard_citations.py` |
+| after step 3 (behavioural) | 485 OK | +16, all in `test_query_guard_citations.py` |
+
+§5 listed two sabotages. Five were run, because the tests make five separate
+claims and each claim should have a run that breaks only that claim:
+
+| sabotage | predicted to fail | failed |
+|---|---|---|
+| A. strip every reference, ignoring the supplied set (option (a)) | `test_an_unsupplied_section_is_still_rejected`, `test_a_shorter_supplied_reference_does_not_exempt_a_longer_one` | exactly those 2 |
+| B. delete the `(?![.,]\d)` right boundary | `test_a_designator_fused_into_a_larger_number_is_not_a_reference`, subtests `392,000` and `392.5` only | exactly those 2 subtests; `Subsection 392` still passed |
+| C. unwire the call site (no `citations=`) | `test_the_prompts_own_example_wording_is_served_not_replaced`, `test_a_conditionally_supplied_citation_is_served_when_it_applies` | exactly those 2 |
+| D. exempt against a fixed list of all three citations instead of this call's list | `test_the_same_citation_falls_back_when_it_was_not_supplied_for_this_user` | exactly that 1 |
+| E. also accept `applicable_sections` from the request's `context` | `test_citations_in_the_request_context_cannot_buy_an_exemption` | exactly that 1 |
+
+No existing test changed state in any run, sabotaged or not. That is expected,
+since none of them covers this path.
