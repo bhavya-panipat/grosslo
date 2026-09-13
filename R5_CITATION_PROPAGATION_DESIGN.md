@@ -279,6 +279,40 @@ verifies that *citations* handed to the model are correct. Noted, not fixed
 here; it belongs with the tracked `ai_backed` follow-up rather than inside this
 propagation.
 
+#### 4.4.1 A separate pre-existing defect, found while checking that step 2b was safe
+
+Before changing the emitted string, the question was whether a longer citation
+could trip `answer_query`'s numeric guard. It cannot — the added tokens are
+`11`, below the `skip_below=100` threshold. **But the check that answered that
+question found something else.**
+
+`answer_query` hands the model `grounding["applicable_sections"]`, then guards
+the model's reply with `_numbers_ungrounded(candidate, allowed)`, where
+`allowed` is built only from *numeric* values in `grounding`.
+`applicable_sections` is a list of **strings**, so the section numbers in it
+never enter `allowed`. Measured, not reasoned:
+
+| model reply | `guard_triggered` |
+|---|---|
+| "…under **Section 124**." | **True** |
+| "…under **Section 392**." | **True** |
+| "…under Section 11, read with Schedule III, Table Sl. No. 11." | False |
+| "Your total tax is Rs 145000…" (grounded) | False |
+
+**The product hands the model a citation and then penalises it for using the
+citation.** Any answer quoting a section number ≥ 100 — which is most of the
+ones this code supplies — trips the guard, sets `ai_backed = False`, and
+silently serves the thin deterministic fallback instead.
+
+This **fails closed**, so it is a quality defect rather than a correctness or
+safety one: no wrong number reaches a user, the answer just quietly gets worse.
+That is precisely why it has gone unnoticed.
+
+Fixing it is out of scope here and is not obvious — adding section numbers to
+`allowed` would weaken the guard by whitelisting three-digit values for every
+answer, which is the opposite of what the guard exists to do. **Recorded as its
+own item, not folded in.**
+
 ---
 
 ## 5. Sequencing

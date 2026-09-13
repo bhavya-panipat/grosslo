@@ -1077,7 +1077,7 @@ def answer_query(question: str, context: dict, ctc: float, rent_paid: float,
         # noted, not silently treated as equally current.
         applicable_sections = []
         if old_best.structure.hra > 0 or new_best.structure.hra > 0:
-            applicable_sections.append("Section 11, read with Schedule II (formerly Section 10(13A))")
+            applicable_sections.append("Section 11, read with Schedule III, Table Sl. No. 11 (formerly Section 10(13A))")
         applicable_sections.append("Section 392 (formerly Section 192)")
         if old_best.structure.employer_nps > 0 or new_best.structure.employer_nps > 0:
             applicable_sections.append("Section 124 (formerly Section 80CCD(2))")
