@@ -1155,7 +1155,13 @@ def answer_query(question: str, context: dict, ctc: float, rent_paid: float,
                 messages=[{"role": "user", "content": json.dumps({"question": question, "context": grounding})}],
             )
             candidate = response.content[0].text.strip()
-            guard_triggered = _numbers_ungrounded(candidate, allowed)
+            # The model was told to cite from applicable_sections, so quoting
+            # one must not read as an ungrounded figure (QUERY_GUARD_CITATION_DESIGN.md).
+            # The SAME list that was serialised above — always server-authored,
+            # since both branches overwrite whatever the request's context held.
+            guard_triggered = _numbers_ungrounded(
+                candidate, allowed, citations=grounding["applicable_sections"]
+            )
             if not guard_triggered:
                 return {"answer": candidate, "ai_backed": True, "recalculated": False, "guard_triggered": False}
         except Exception:

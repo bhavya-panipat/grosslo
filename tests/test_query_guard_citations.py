@@ -11,13 +11,15 @@ something which only LOOKS like it is not. An exemption proven in one direction
 only is exactly what a guard that exempts everything would also pass.
 """
 
+import json
 import os
 import sys
 import unittest
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from ai_layer import _numbers_ungrounded
+from ai_layer import _numbers_ungrounded, answer_query
 
 # Verbatim what answer_query() supplies when HRA and employer NPS both apply.
 SUPPLIED = [
@@ -101,6 +103,74 @@ class TestWhatOnlyLooksLikeASuppliedReferenceIsStillChecked(unittest.TestCase):
         with self.assertRaises(TypeError):
             _numbers_ungrounded("Under Section 392.", ALLOWED,
                                 citations="Section 392 (formerly Section 192)")
+
+
+class TestAnswerQueryServesAnswersThatCiteWhatItSupplied(unittest.TestCase):
+    """
+    End to end through answer_query(): only the model client is mocked. The
+    recompute, the applicable_sections list, the guard and the fallback are all
+    real. Each test also reads back what the model was actually SENT, so a pass
+    cannot come from a citation that was never supplied.
+    """
+
+    CONTEXT = {"recommended_regime": "new", "recommended_tax": 88140.0, "annual_saving": 36972.0}
+
+    def _ask(self, reply, nps_opted=True, context=None):
+        response = Mock()
+        response.content = [Mock(text=reply)]
+        create = Mock(return_value=response)
+        with patch("ai_layer._client", Mock(messages=Mock(create=create))):
+            result = answer_query("why did the new regime win?", context or self.CONTEXT,
+                                  ctc=1_800_000, rent_paid=400_000, city="metro",
+                                  nps_opted=nps_opted)
+        sent = json.loads(create.call_args.kwargs["messages"][0]["content"])
+        return result, sent["context"]["applicable_sections"]
+
+    def test_the_prompts_own_example_wording_is_served_not_replaced(self):
+        # Before this change: ai_backed False, guard_triggered True.
+        reply = "Salary TDS on your pay is deducted under Section 392 (formerly Section 192)."
+        result, supplied = self._ask(reply)
+        self.assertIn("Section 392 (formerly Section 192)", supplied)
+        self.assertEqual(result, {"answer": reply, "ai_backed": True,
+                                  "recalculated": False, "guard_triggered": False})
+
+    def test_a_conditionally_supplied_citation_is_served_when_it_applies(self):
+        reply = "Your employer NPS contribution is deductible under Section 124 (formerly Section 80CCD(2))."
+        result, supplied = self._ask(reply, nps_opted=True)
+        self.assertIn("Section 124 (formerly Section 80CCD(2))", supplied)
+        self.assertTrue(result["ai_backed"])
+        self.assertFalse(result["guard_triggered"])
+
+    def test_the_same_citation_falls_back_when_it_was_not_supplied_for_this_user(self):
+        # Without NPS, no employer NPS in either regime, so Section 124 is not
+        # supplied — and the identical reply is an unsupplied reference. This
+        # is what ties the exemption to the call, not to a fixed list.
+        reply = "Your employer NPS contribution is deductible under Section 124 (formerly Section 80CCD(2))."
+        result, supplied = self._ask(reply, nps_opted=False)
+        self.assertFalse(any("Section 124" in s for s in supplied))
+        self.assertFalse(result["ai_backed"])
+        self.assertTrue(result["guard_triggered"])
+        self.assertIn("88,140", result["answer"])
+
+    def test_an_invented_section_still_falls_back(self):
+        result, _ = self._ask("This is governed by Section 394 of the Act.")
+        self.assertFalse(result["ai_backed"])
+        self.assertTrue(result["guard_triggered"])
+
+    def test_an_ungrounded_figure_next_to_a_supplied_citation_still_falls_back(self):
+        result, _ = self._ask("Under Section 392, your TDS works out to about 4,17,000.")
+        self.assertFalse(result["ai_backed"])
+        self.assertTrue(result["guard_triggered"])
+        self.assertNotIn("4,17,000", result["answer"])
+
+    def test_citations_in_the_request_context_cannot_buy_an_exemption(self):
+        # /api/query passes the request body's context straight in. The list
+        # the guard exempts against must be the one answer_query built.
+        forged = dict(self.CONTEXT, applicable_sections=["Section 555"])
+        result, supplied = self._ask("This falls under Section 555.", context=forged)
+        self.assertNotIn("Section 555", supplied)
+        self.assertFalse(result["ai_backed"])
+        self.assertTrue(result["guard_triggered"])
 
 
 if __name__ == "__main__":
