@@ -438,7 +438,25 @@ class TestTheLegalReviewQueue(unittest.TestCase):
         # delivered as if it were the whole thing.
         queue = self._queue()
         self.assertIn("does not fetch anything, on purpose", queue)
-        self.assertIn("403", queue)
+
+        # WHY THE OLD assertIn("403", queue) WAS REMOVED rather than kept
+        # (R5_CITATION_PROPAGATION_DESIGN.md step 7). It pinned the queue's
+        # justification: "Primary legal sources return HTTP 403 from the
+        # environment this was built in". That sentence was false about the
+        # sources — they load in an ordinary browser, which is how both
+        # lookups were resolved on 2026-09-13. The corrected text STILL
+        # contains "403", because automated requests are still refused. So
+        # "403" is in the false version and the true version alike, and an
+        # assertion that passes on both guards nothing (§8).
+        #
+        # What is actually worth guarding is the distinction the correction
+        # draws — automated requests are refused, a person in a browser is
+        # not — and that the old claim does not come back.
+        self.assertIn("Automated requests to the official legal sources are refused", queue)
+        self.assertIn("load for a person in an ordinary browser", queue)
+        self.assertNotIn("Primary legal sources return HTTP 403 from the environment this "
+                         "was built in", queue,
+                         "the false claim that the SOURCES are unreachable is back")
 
     def test_it_distinguishes_never_attempted_from_attempted_and_unresolved(self):
         queue = self._queue()

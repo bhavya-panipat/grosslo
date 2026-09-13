@@ -360,13 +360,18 @@ def render_document() -> str:
     out.extend([
         "---",
         "",
-        "## 3. What is blocked, and why no statutory candidate is in this batch",
+        "## 3. What is still unresolved, and why no statutory candidate is in this batch yet",
         "",
-        "Primary legal sources could not be reached from the environment these "
-        "rules were drafted in. Official government sites returned HTTP 403 or "
-        "refused connections across repeated attempts, by two people "
-        "independently. Only secondary aggregators were reachable, and a search "
-        "snippet is not a fetched primary source.",
+        "**Automated requests to official government legal sources are refused** "
+        "— HTTP 403, re-tested on 2026-09-14 with default headers and with a "
+        "browser's — **but the same pages load normally for a person using an "
+        "ordinary browser.** This packet previously said the sources themselves "
+        "could not be reached. That was wrong, and it stood for four days: two "
+        "automated attempts were read as proof that the source was unavailable, "
+        "when they only showed that that kind of request is. A person in a "
+        "browser resolved both outstanding lookups in one session on 2026-09-13 "
+        "(`docs/PRIMARY_SOURCE_LOOKUP_TASK.md`). What has not changed: a search "
+        "snippet or a secondary aggregator is still not a primary source.",
         "",
         f"**{len(unresolved)} rule(s) carry a citation attempt that could not be "
         f"resolved:** {', '.join(r.id for r in unresolved) or 'none'}. These are "
@@ -381,13 +386,25 @@ def render_document() -> str:
         "combination is treated as *not* a checked citation.",
         "",
         "A third candidate rule was drafted and **held back**: *HRA structured "
-        "above 50% of basic*, on the ground that the exemption is capped at "
-        "50%/40% of basic regardless of rent, so the excess can never be "
-        "exempt. It is held back because that 50% is a statutory number, and "
-        "shipping it as a convention rule would put a statutory figure into the "
-        "rule set with no citation behind it. It needs a provision, and the "
-        "provision needs a reachable source. See "
-        "`docs/PRIMARY_SOURCE_LOOKUP_TASK.md`.",
+        "above 50% of basic*, on the ground that the exemption is capped at a "
+        "percentage of salary regardless of rent, so HRA above that line can "
+        "never be exempt. It was held back because that 50% is a statutory "
+        "number with no citable provision.",
+        "",
+        "**That blocker is now removed; the rule is still not drafted.** The "
+        "provision was found on 2026-09-13: the exemption is Schedule III, "
+        "Table Sl. No. 11 to the Income-tax Act, 2025, and the 50%/40% split is "
+        "prescribed by Rule 279 of the Income-tax Rules, 2026 — still 50/40, "
+        "with the 50% city list now eight cities rather than four. Drafting it "
+        "under the candidate-rule protocol is separate work, not done here.",
+        "",
+        "**One question for review before it is drafted.** Rule 279 computes the "
+        "cap as a percentage of *salary*, which it defines as including dearness "
+        "allowance where DA is a term of employment. This tool's "
+        "`hra_exemption()` uses basic alone and has no DA field. That is exact "
+        "for any employer that pays no DA, and wrong for one that does — an "
+        "assumption that has never been written down. Is basic-only acceptable "
+        "for this tool's scope? See `docs/PRIMARY_SOURCE_LOOKUP_TASK.md`.",
         "",
         "---",
         "",

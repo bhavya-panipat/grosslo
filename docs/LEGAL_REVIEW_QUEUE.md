@@ -10,7 +10,9 @@
 
 The tool that generates it may notice and flag. It may never decide. It does not deactivate a rule, edit a citation, mark anything verified, or judge that a value is correct — every line below is a task for a person, and marking something verified is a human act.
 
-**It does not fetch anything, on purpose.** Primary legal sources return HTTP 403 from the environment this was built in, confirmed independently by two people. A secondary source is not verification under this project's own standard, so an automated fetch would at best tell you to go and run the browser lookup — which this file already says, without the risk of a fetched snippet being mistaken for proof. See `docs/PRIMARY_SOURCE_LOOKUP_TASK.md`.
+**It does not fetch anything, on purpose.** Automated requests to the official legal sources are refused — HTTP 403, re-tested on 2026-09-14 with default and with browser headers — while the same pages load for a person in an ordinary browser. So the sources *are* readable, just not by the kind of request an automated monitor makes, and this tool does not try to get around that. A secondary source is not verification under this project's own standard either. So an automated fetch would at best tell you to go and read the source in a browser — which this file already says, without the risk of a fetched snippet being mistaken for proof. See `docs/PRIMARY_SOURCE_LOOKUP_TASK.md`.
+
+(An earlier version of this paragraph said the sources themselves returned 403. That over-read two automated failures as a fact about the source rather than about the request, and it stood for four days.)
 
 ---
 

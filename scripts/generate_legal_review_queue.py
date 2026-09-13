@@ -22,14 +22,27 @@ reviewed_by, and no automated path writes it.
 
 WHY IT DOES NOT FETCH ANYTHING, deliberately and against the design's own first
 sketch. §4.6 described a monitor that checks reachable secondary sources. That
-half is not built, because it would add nothing: primary sources return 403 from
-this environment (recorded in R5's own citation_checked_on, confirmed by two
-people independently), and a secondary source is explicitly NOT verification
-under COMPLIANCE_BREADTH_DESIGN.md §3.1 step 2. So an automated fetch would
-produce, at best, a finding that says "go run the browser lookup" — which this
-queue already says, with no network, no flakiness, and no risk of a fetched
-snippet being mistaken for evidence. A content-hash watch on the primary URLs
-would report 403 in perpetuity.
+half is not built, because it would add nothing: AUTOMATED requests to the
+primary sources are refused with HTTP 403, and a secondary source is explicitly
+NOT verification under COMPLIANCE_BREADTH_DESIGN.md §3.1 step 2. So an automated
+fetch would produce, at best, a finding that says "go read it in a browser" —
+which this queue already says, with no network, no flakiness, and no risk of a
+fetched snippet being mistaken for evidence. A content-hash watch on the primary
+URLs would report 403 in perpetuity.
+
+CORRECTED 2026-09-14 — THE PREMISE WAS OVERSTATED, THE DECISION STANDS. This
+paragraph used to say "primary sources return 403 from this environment", as a
+fact about the SOURCES. It was a fact about the REQUESTS. The same pages load
+normally for a person in a browser, and that is how both outstanding lookups were
+resolved on 2026-09-13 (docs/PRIMARY_SOURCE_LOOKUP_TASK.md).
+
+The correction was checked against the decision rather than assumed to leave it
+intact. Re-tested 2026-09-14, three scripted GETs to incometaxindia.gov.in:
+default headers, a browser User-Agent, and browser Accept headers — all HTTP 403.
+The refusal is not header-based, so a monitor built the ordinary way would still
+be refused, and working around bot detection is not something this tool does.
+The not-fetching decision is therefore still right; only its stated reason was
+wrong.
 
 That is narrower than the design promised. It is recorded here rather than
 quietly delivered as if it were the whole thing.
@@ -174,13 +187,21 @@ def render_document() -> str:
         "verified, or judge that a value is correct — every line below is a "
         "task for a person, and marking something verified is a human act.",
         "",
-        "**It does not fetch anything, on purpose.** Primary legal sources "
-        "return HTTP 403 from the environment this was built in, confirmed "
-        "independently by two people. A secondary source is not verification "
-        "under this project's own standard, so an automated fetch would at "
-        "best tell you to go and run the browser lookup — which this file "
-        "already says, without the risk of a fetched snippet being mistaken "
-        "for proof. See `docs/PRIMARY_SOURCE_LOOKUP_TASK.md`.",
+        "**It does not fetch anything, on purpose.** Automated requests to the "
+        "official legal sources are refused — HTTP 403, re-tested on 2026-09-14 "
+        "with default and with browser headers — while the same pages load for "
+        "a person in an ordinary browser. So the sources *are* readable, just "
+        "not by the kind of request an automated monitor makes, and this tool "
+        "does not try to get around that. A secondary source is not "
+        "verification under this project's own standard either. So an "
+        "automated fetch would at best tell you to go and read the source in a "
+        "browser — which this file already says, without the risk of a fetched "
+        "snippet being mistaken for proof. See "
+        "`docs/PRIMARY_SOURCE_LOOKUP_TASK.md`.",
+        "",
+        "(An earlier version of this paragraph said the sources themselves "
+        "returned 403. That over-read two automated failures as a fact about "
+        "the source rather than about the request, and it stood for four days.)",
         "",
         "---",
         "",
