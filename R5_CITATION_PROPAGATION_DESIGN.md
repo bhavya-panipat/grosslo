@@ -464,6 +464,107 @@ hardcoded question says R5 *"cites Section 17(2)(vii) of the Income-tax Act,
 1961"* while L134, derived from data, says *"0 rule(s) cite an instrument that
 has been superseded: none."* That is §3's prediction, now demonstrated.
 
+**Resolved in step 6.** The regenerated packet contains no `17(2)(vii)` and no
+`1961`; only the derived *"0 rule(s)… none"* line remains.
+
+## 4.6 What step 6 found
+
+### 4.6.1 The mechanism's first catch was the real stale question
+
+Order was deliberate. R5's **old** question was given its honest predicate
+(`cites_superseded_law`) and the refusal wired in **before** the question was
+rewritten, then the generator was run:
+
+```
+error: the packet would ask a CA a question whose premise is no longer true.
+  R5: asked on the basis that R5 cites superseded law — that no longer holds.
+  Rewrite or remove the question — do NOT loosen its condition to match.
+```
+
+Exit 1, R5 alone named, R1–R4 not flagged, and the packet on disk
+byte-identical — the refused run wrote nothing. A synthetic test proves a check
+*can* fire; this proves it fires on the case it was built for.
+
+### 4.6.2 Four of five questions bind to a structured field; one cannot, and is justified
+
+| Q | Condition | Kind |
+|---|---|---|
+| R2, R4 | `not threshold_origin` | structured — the field that exists to answer "where did this number come from" |
+| R3 | `claim_type == CONVENTION` | structured, exact |
+| R5 | `citation_is_checked and not implementation_is_reviewed` | structured |
+| R1 | `"Code on Wages 2025" in rationale and not implementation_is_reviewed` | **free text, deliberately** |
+
+R1's is the one containment check, and it is not the §8 anti-pattern: that
+question's *subject* is a phrase in R1's emitted text, so checking for the exact
+phrase checks the thing asked about rather than inferring meaning from wording.
+
+**Refinement over §3.1:** each entry also carries `depends_on`, the condition
+in words. §3.1 proposed a bare lambda, whose failure message would be a lambda's
+repr. A stale question now says *what changed*.
+
+### 4.6.3 R5's rewritten question surfaces the superannuation gap to the CA
+
+The citation half is gone because it is answered. The implementation half
+remains and is sharper: s. 17(1)(h) aggregates **three** funds, the rule sums
+two, and the tool models no superannuation — exact under an assumption nobody
+signed off. That is now *asked* in the packet. It is **not** recorded as a
+`known_divergence`, which remains an open decision (step 5's report).
+
+The rewritten question deliberately does not restate R5's section number,
+instrument or check date. Those are structured fields; retyping them into prose
+is how this list became a second source of truth.
+
+### 4.6.4 Sabotage — three runs, one of them initially invalid
+
+| Sabotage | Failed | Stayed green, correctly |
+|---|---|---|
+| **C** — `stale_active_rule_questions()` returns `[]` | caught_and_named, refuses_to_write | **true_premise** — the empty-list test, green against a broken check, which is why the other two exist |
+| **D** — restore the silent skip of empty tiers | rendered_in_order (tier=1), empty_tier_says_so | worst_tier (reads rows, not rendering) |
+| **E** — empty marker under every tier | empty_tier_says_so: *"an occupied tier claims to be empty"* | rendered_in_order, worst_tier |
+
+**The first run of C tested nothing.** It reported `Ran 1 test … _FailedTest`:
+the three test names were held in an unquoted shell variable, and zsh — unlike
+bash — does not word-split one, so unittest received them as a single argument
+and failed to load it. That output was a loader error, not a result, and was
+discarded rather than counted. Re-run with the names written out: `Ran 3 tests`.
+
+**D first went red as an ERROR, not a FAIL.** The section-slicing helper raised a
+bare `ValueError: substring not found` when tier 1's header was missing — a
+detection, but one that named nothing. The helper now asserts with a message and
+D re-runs as two clean FAILs.
+
+### 4.6.5 A §8 slip caught before running
+
+The empty-tier marker was first `"None."`. A two-word marker can occur by
+coincidence inside an item's own provision or description text, and then *"an
+occupied tier does not carry the marker"* fails for a reason unrelated to
+rendering. It is now a distinctive sentence, bound by name (`EMPTY_TIER`).
+
+### 4.6.6 Found outside step 6's scope: the unverified act number is already in five claims
+
+The sabotage-D failure output dumped the whole rendered queue, and it shows
+**TE1, TE2, TE3, TE4 and PE4** in `legal_claims.py` all recording their
+instrument as **`Income-tax Act, 2025 (Act 30 of 2025)`**.
+
+That is exactly the act number deliberately *not* written into R5, because it
+was never verified. So the repository now spells one instrument two ways, and
+the more authoritative-looking spelling carries the number nobody checked.
+**Not changed here** — it is `legal_claims.py` data, outside this propagation —
+but it undercuts the R5 decision unless it is resolved one way or the other:
+verify the number, or remove it from all five.
+
+### 4.6.7 Two sessions shared one Postgres, and one suite run was invalid
+
+A second session was working in this repository during step 6. Our full-suite
+runs overlapped once. Mine reported **491 run, 1 failure + 38 errors**, every
+one in `test_auth` / `test_identity` (Postgres-backed), in **74s** against a
+normal ~175s. The other session's overlapping run failed identically.
+
+"Probably interference" was treated as a hypothesis, not a finding: after
+confirming no `unittest` process was alive, a clean re-run gave **491 OK in
+178s**. The two sessions now use an explicit request/go handshake before any
+suite run.
+
 ---
 
 ## 5. Sequencing

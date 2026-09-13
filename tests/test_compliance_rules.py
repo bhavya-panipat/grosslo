@@ -891,16 +891,75 @@ class TestTheCAReviewPacketIsGeneratedAndTrue(unittest.TestCase):
         # And the packet on disk must be unchanged by the failed run.
         self.assertEqual(self._run("--check").returncode, 0)
 
-    def test_every_active_rule_question_names_a_rule_that_still_exists(self):
-        # The packet asks five questions about live rules. If one were deleted
-        # or renamed, the packet would ask a CA about a rule that is not there.
+    def _packet_generator(self):
         sys.path.insert(0, os.path.join(
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
         import generate_ca_review_packet as gen
+        return gen
+
+    def test_every_active_rule_question_names_a_rule_that_still_exists(self):
+        # The packet asks five questions about live rules. If one were deleted
+        # or renamed, the packet would ask a CA about a rule that is not there.
+        gen = self._packet_generator()
         known = {r.id for r in compliance_rules.RULES}
-        for rule_id, _question in gen.ACTIVE_RULE_QUESTIONS:
+        for rule_id, _depends_on, _predicate, _question in gen.ACTIVE_RULE_QUESTIONS:
             with self.subTest(rule=rule_id):
                 self.assertIn(rule_id, known)
+
+    def test_every_active_rule_question_still_has_a_true_premise(self):
+        # The test above guards "the rule was deleted". This guards the failure
+        # it passed straight through: "the rule's facts changed underneath the
+        # question" (R5_CITATION_PROPAGATION_DESIGN.md §3). On 2026-09-13 R5's
+        # citation was fixed and the packet kept asking whether R5 cited the
+        # repealed 1961 Act, with the id test green the whole time.
+        gen = self._packet_generator()
+        self.assertEqual(gen.stale_active_rule_questions(), [],
+                         "the packet asks a CA a question whose premise is gone")
+
+    def test_every_active_rule_question_carries_its_own_condition(self):
+        # All five, not only R5's. A condition on one entry teaches a reader
+        # that the other four are guarded by omission (design §6, decision 1).
+        gen = self._packet_generator()
+        for entry in gen.ACTIVE_RULE_QUESTIONS:
+            rule_id, depends_on, predicate, question = entry
+            with self.subTest(rule=rule_id):
+                self.assertTrue(callable(predicate), "no condition to check")
+                self.assertTrue(depends_on.strip(),
+                                "a stale question must say what changed, not print a lambda")
+                self.assertTrue(question.strip())
+
+    def test_a_question_whose_premise_changed_is_caught_and_named(self):
+        # THE OTHER STATE. An empty stale-list is also what a broken check
+        # returns, so the check must be shown to fire. Uses the premise that
+        # actually went false in production: a rule that cites superseded law.
+        # Patched onto a COPY of R5, so the live rule set is not what is tested.
+        from dataclasses import replace
+        from unittest.mock import patch
+        gen = self._packet_generator()
+        r5 = next(r for r in compliance_rules.RULES if r.id == "R5")
+        reviewed_r5 = replace(r5, reviewed_by="A CA", reviewed_on="2026-09-14")
+        rules = tuple(reviewed_r5 if r.id == "R5" else r for r in compliance_rules.RULES)
+        with patch.object(compliance_rules, "RULES", rules):
+            stale = gen.stale_active_rule_questions()
+        self.assertEqual([rid for rid, _ in stale], ["R5"],
+                         "reviewing R5 should make exactly its question stale")
+        self.assertIn("implementation has not been reviewed", stale[0][1],
+                      "the stale report should name the condition that changed")
+
+    def test_generation_refuses_to_write_a_stale_question(self):
+        # Not merely reported: refused, and nothing written. Same contract the
+        # generator already holds for a mislabelled worked example.
+        from dataclasses import replace
+        from unittest.mock import patch
+        gen = self._packet_generator()
+        r3 = next(r for r in compliance_rules.RULES if r.id == "R3")
+        rules = tuple(replace(r3, claim_type=compliance_rules.STATUTORY) if r.id == "R3" else r
+                      for r in compliance_rules.RULES)
+        with patch.object(compliance_rules, "RULES", rules):
+            with self.assertRaises(SystemExit) as caught:
+                gen.render_document()
+        self.assertIn("R3", str(caught.exception))
+        self.assertIn("still classified CONVENTION", str(caught.exception))
 
     def test_every_worked_example_names_a_rule_that_still_exists(self):
         sys.path.insert(0, os.path.join(

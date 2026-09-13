@@ -87,43 +87,122 @@ EXAMPLES = {
 # and are not blocked on anything — they are things this phase found while
 # building the rule set and could not settle without someone qualified.
 #
-# Each names a rule id, and a test asserts every id here still exists, so the
-# packet cannot end up asking about a rule that was deleted.
+# EACH QUESTION CARRIES THE CONDITION IT DEPENDS ON, AND GENERATION REFUSES TO
+# EMIT A QUESTION WHOSE CONDITION NO LONGER HOLDS.
+#
+# Why (R5_CITATION_PROPAGATION_DESIGN.md §3). This list used to be (rule_id,
+# question), guarded by a test that the rule id still existed. That guard was
+# written against "a rule was deleted" and passed straight through "the rule's
+# facts changed underneath the question". It did exactly that on 2026-09-13:
+# R5's citation was fixed, and the packet went on asking a CA whether R5 still
+# cited the repealed 1961 Act — ten lines above a derived count saying no rule
+# cited superseded law, from a green generator.
+#
+# The condition is a predicate over the rule's STRUCTURED fields, not a
+# substring of the question (INVENTORY_EXPANSION_DESIGN.md §8): a prose
+# question cannot be diffed against a dataclass, and matching its wording would
+# pass on coincidence and fail on honest rewording. Every entry has one, not
+# only R5's — a guard on one entry would teach a reader that the unguarded four
+# are safe by omission.
+#
+# Shape: (rule_id, depends_on, predicate, question). `depends_on` is the
+# predicate in words, so a stale question names what changed rather than
+# printing a lambda.
 # ---------------------------------------------------------------------------
 
 ACTIVE_RULE_QUESTIONS = [
-    ("R1", "The rule's emitted text says \"Code on Wages 2025\". The Act is the "
+    ("R1",
+     # The ONE predicate here that reads free text, and deliberately: this
+     # question's subject IS a phrase in R1's emitted text. Checking for the
+     # exact phrase is checking the thing asked about, not inferring meaning
+     # from wording — the distinction §8 turns on.
+     "R1's emitted text still names the Code on Wages \"2025\" and its "
+     "implementation has not been reviewed",
+     lambda r: "Code on Wages 2025" in r.rationale and not r.implementation_is_reviewed,
+     "The rule's emitted text says \"Code on Wages 2025\". The Act is the "
            "Code on Wages, **2019** (Act 29 of 2019); 21 November 2025 is when "
            "it came into force, not its year. The text is deliberately left "
            "byte-identical — changing emitted text is a behaviour change, not "
            "provenance backfill. Should it be corrected, and does the "
            "underlying claim (Basic + DA at least 50% of remuneration, with no "
            "DA field in this private-sector-scoped tool) hold as stated?"),
-    ("R3", "Classified CONVENTION, but its stated reason is a legal "
+    ("R3",
+     "R3 is still classified CONVENTION",
+     lambda r: r.claim_type == compliance_rules.CONVENTION,
+     "Classified CONVENTION, but its stated reason is a legal "
            "precondition — the HRA exemption requires rent actually paid and "
            "documented. It was classified as a convention because it flags a "
            "realisability risk rather than asserting a violation, and its "
            "severity is Low. That is a judgement call this file should not "
            "settle on its own. Is CONVENTION right, or is this STATUTORY and "
            "mislabelled?"),
-    ("R2", "The Rs 6,00,000 threshold has NO recorded derivation. It has been "
+    ("R2",
+     # threshold_origin is the field that exists to answer exactly "where did
+     # this number come from" (CHECK 6). Recording one is what would settle
+     # this question, so its absence is the precise condition — structured,
+     # and it goes false the moment someone records a derivation.
+     "no threshold_origin is recorded for R2's Rs 6,00,000 figure",
+     lambda r: not r.threshold_origin.strip(),
+     "The Rs 6,00,000 threshold has NO recorded derivation. It has been "
            "in the code since the initial commit with no basis stated in any "
            "commit message, the project brief, or the rules table. It is "
            "recorded as unknown rather than given a plausible-sounding "
            "justification. Where should this line actually sit?"),
-    ("R4", "The 10% figure has NO recorded derivation either — present since "
+    ("R4",
+     "no threshold_origin is recorded for R4's 10% figure",
+     lambda r: not r.threshold_origin.strip(),
+     "The 10% figure has NO recorded derivation either — present since "
            "the initial commit, with no survey, policy sample or source named "
            "anywhere in the repository. Same question: where should it sit, and "
            "on what basis?"),
-    ("R5", "Cites Section 17(2)(vii) of the Income-tax Act, **1961**, which the "
-           "Income-tax Act, 2025 replaced with effect from 1 April 2026. The "
-           "underlying obligation (a Rs 7.5L aggregate ceiling on employer "
-           "PF/NPS/superannuation) is believed to survive, but this citation no "
-           "longer locates it and the successor number was NOT guessed. "
-           "Separately: the excess is not modelled in this tool's tax engine at "
-           "all, so a structure crossing the threshold carries an unmodelled "
-           "liability. Both need confirming."),
+    ("R5",
+     # REWRITTEN 2026-09-14. The previous question asked whether R5 still cited
+     # the repealed 1961 Act; its condition (cites_superseded_law) went false
+     # when the citation was fixed, and generation refused it — the first real
+     # catch this mechanism made. The citation half is gone because it is
+     # answered. The implementation half is not, and it is now sharper.
+     #
+     # This question deliberately does NOT restate R5's section number,
+     # instrument or check date. Those live in structured fields; typing them
+     # into prose is how this list became a second source of truth to begin
+     # with. It states only what its condition guards (citation verified,
+     # implementation unreviewed) plus claims about the LAW, which do not drift
+     # with this repository's data.
+     "R5's citation is verified but its implementation has not been reviewed",
+     lambda r: r.citation_is_checked and not r.implementation_is_reviewed,
+     "The citation is now verified against the in-force Act, and the Rs "
+           "7,50,000 ceiling carried over unchanged — so what remains is "
+           "whether the IMPLEMENTATION is acceptable, in two respects. "
+           "(1) The rule sums employer PF and NPS, but the provision aggregates "
+           "THREE funds: a recognised provident fund, the notified pension "
+           "scheme, and an approved superannuation fund. This tool models no "
+           "superannuation component, so the sum is exact for every structure "
+           "it builds — but only under that assumption, which nobody has "
+           "signed off. (2) The excess over the ceiling is a taxable perquisite "
+           "that this tool's tax engine does not compute at all, so a "
+           "structure crossing it carries an unmodelled liability that the "
+           "rule flags but never quantifies. Are both acceptable as stated?"),
 ]
+
+
+def stale_active_rule_questions() -> list:
+    """
+    Every active-rule question whose premise no longer holds, as
+    (rule_id, depends_on). Empty means every question still makes sense.
+
+    A question about a rule that no longer exists is reported as stale too,
+    rather than raising KeyError — it is the same failure (the question's
+    premise is gone), and it should read as one.
+    """
+    by_id = {r.id: r for r in compliance_rules.RULES}
+    stale = []
+    for rule_id, depends_on, predicate, _question in ACTIVE_RULE_QUESTIONS:
+        rule = by_id.get(rule_id)
+        if rule is None:
+            stale.append((rule_id, f"rule {rule_id} exists"))
+        elif not predicate(rule):
+            stale.append((rule_id, depends_on))
+    return stale
 
 
 def _fmt_money(value: float) -> str:
@@ -257,7 +336,15 @@ def render_document() -> str:
         "",
     ])
     by_id = {r.id: r for r in compliance_rules.RULES}
-    for rule_id, question in ACTIVE_RULE_QUESTIONS:
+    stale = stale_active_rule_questions()
+    if stale:
+        raise SystemExit(
+            "error: the packet would ask a CA a question whose premise is no "
+            "longer true.\n"
+            + "".join(f"  {rid}: asked on the basis that {dep} — that no longer holds.\n"
+                      for rid, dep in stale)
+            + "  Rewrite or remove the question — do NOT loosen its condition to match.")
+    for rule_id, _depends_on, _predicate, question in ACTIVE_RULE_QUESTIONS:
         rule = by_id[rule_id]
         out.append(f"### {rule_id} — {rule.check}")
         out.append("")

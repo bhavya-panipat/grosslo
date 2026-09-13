@@ -14,6 +14,12 @@ The tool that generates it may notice and flag. It may never decide. It does not
 
 ---
 
+## 1. Cites law that has been superseded
+
+Worst of the four. The citation may match its source text perfectly and still point at a repealed Act, so it reads as verified while locating nothing. Strictly worse than an unresolved citation, which is at least visibly a gap.
+
+**None.** No live item is currently in this tier.
+
 ## 2. Asserts law with no citation recorded anywhere
 
 A statutory claim nobody can check, because there is nothing to check against. Unverifiable by anyone, not merely unverified.

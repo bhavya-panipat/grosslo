@@ -301,6 +301,62 @@ class TestTheLegalReviewQueue(unittest.TestCase):
         import generate_legal_review_queue as gen
         return gen
 
+    def _tier_section(self, doc, rank):
+        """The rendered text of one tier: from its header to the next '## '."""
+        # An explicit assertion, not doc.index(). Sabotage D (restoring the old
+        # silent skip of empty tiers) first showed this helper raising a bare
+        # "ValueError: substring not found" — red, but as an ERROR that named
+        # nothing. A failure should say what broke.
+        start = doc.find(f"\n## {rank}. ")
+        self.assertNotEqual(start, -1, f"tier {rank} has no header in the rendered queue")
+        nxt = doc.find("\n## ", start + 1)
+        return doc[start: nxt if nxt != -1 else len(doc)]
+
+    def test_every_tier_is_rendered_in_order_even_when_empty(self):
+        # R5_CITATION_PROPAGATION_DESIGN.md §4.5.3. The renderer used to emit a
+        # tier header only when a row in that tier arrived, so emptying tier 1
+        # made the queue silently open at "## 2.". Rendering is this test's
+        # subject, so it reads rendered output — but binds each header to the
+        # generator's own TIERS tuple, not to a hand-typed copy of the titles.
+        gen = self._generator()
+        doc = gen.render_document()
+        positions = []
+        for rank, title, _why in gen.TIERS:
+            header = f"## {rank}. {title}"
+            with self.subTest(tier=rank):
+                self.assertIn(header, doc, f"tier {rank} was not rendered")
+            positions.append(doc.find(header))
+        self.assertEqual(positions, sorted(positions), "tiers rendered out of order")
+        self.assertEqual([t[0] for t in gen.TIERS], [1, 2, 3, 4])
+
+    def test_an_empty_tier_says_so_and_an_occupied_tier_does_not(self):
+        # BOTH STATES, in one test. A marker that appeared under every tier
+        # would satisfy "an empty tier says so" while meaning nothing, so the
+        # occupied case must be shown NOT to carry it — including tier 1 itself
+        # once something is put in it.
+        from unittest.mock import patch
+        gen = self._generator()
+
+        doc = gen.render_document()
+        self.assertIn(gen.EMPTY_TIER, self._tier_section(doc, 1),
+                      "tier 1 is empty but does not say so")
+        self.assertNotIn(gen.EMPTY_TIER, self._tier_section(doc, 4),
+                         "an occupied tier claims to be empty")
+
+        stale = compliance_rules.Rule(
+            id="R74", severity="Low", check="c", rationale="r", why="w",
+            predicate=lambda s, rp: False, status=compliance_rules.ACTIVE,
+            claim_type=compliance_rules.STATUTORY,
+            source_url="https://example.invalid/x", provision="P",
+            citation_checked_on="2026-09-09", instrument="Some Act, 1961",
+            instrument_status=compliance_rules.SUPERSEDED,
+            threshold_origin="probe: no numeric threshold")
+        with patch.object(compliance_rules, "RULES", compliance_rules.RULES + (stale,)):
+            occupied = self._tier_section(gen.render_document(), 1)
+        self.assertIn("### R74", occupied, "the superseded item did not land in tier 1")
+        self.assertNotIn(gen.EMPTY_TIER, occupied,
+                         "tier 1 still claims to be empty with an item in it")
+
     def test_the_worst_tier_is_empty_and_would_still_rank_first(self):
         # WAS test_the_worst_item_is_first_not_the_easiest, which hardcoded
         # queue.index("### R5") as the worst item. R5 cited a repealed Act; since

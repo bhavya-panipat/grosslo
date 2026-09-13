@@ -121,7 +121,7 @@ The 10% figure has NO recorded derivation either — present since the initial c
 
 *Severity High, statutory, currently ACTIVE.*
 
-Cites Section 17(2)(vii) of the Income-tax Act, **1961**, which the Income-tax Act, 2025 replaced with effect from 1 April 2026. The underlying obligation (a Rs 7.5L aggregate ceiling on employer PF/NPS/superannuation) is believed to survive, but this citation no longer locates it and the successor number was NOT guessed. Separately: the excess is not modelled in this tool's tax engine at all, so a structure crossing the threshold carries an unmodelled liability. Both need confirming.
+The citation is now verified against the in-force Act, and the Rs 7,50,000 ceiling carried over unchanged — so what remains is whether the IMPLEMENTATION is acceptable, in two respects. (1) The rule sums employer PF and NPS, but the provision aggregates THREE funds: a recognised provident fund, the notified pension scheme, and an approved superannuation fund. This tool models no superannuation component, so the sum is exact for every structure it builds — but only under that assumption, which nobody has signed off. (2) The excess over the ceiling is a taxable perquisite that this tool's tax engine does not compute at all, so a structure crossing it carries an unmodelled liability that the rule flags but never quantifies. Are both acceptable as stated?
 
 ---
 

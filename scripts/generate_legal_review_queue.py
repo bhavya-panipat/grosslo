@@ -73,6 +73,41 @@ UNREVIEWED = (
     "queue can be narrowed by fetching a document; this cannot.")
 
 
+# Every tier, in rank order. render_document() walks THIS, not the rows, so a
+# tier with nothing in it is still rendered rather than silently skipped.
+TIERS = (CITES_DEAD_LAW, NO_CITATION_AT_ALL, ATTEMPTED_UNRESOLVED, UNREVIEWED)
+
+# The exact marker an empty tier renders. Named so a test can bind to it rather
+# than to prose that might be reworded (INVENTORY_EXPANSION_DESIGN.md §8).
+#
+# A whole distinctive sentence, deliberately NOT just "None.". A two-word marker
+# can occur by coincidence inside an item's own provision or description text,
+# which would make "an occupied tier does not carry the marker" fail for a
+# reason unrelated to rendering — passing or failing on coincidence is the
+# failure §8 names.
+EMPTY_TIER = "No live item is currently in this tier."
+
+
+def _render_item(item) -> list:
+    out = [
+        f"### {item.id} — {_describes(item)}",
+        "",
+        f"- **Where:** {_where(item)}",
+        f"- **Instrument:** {item.instrument or '_none recorded_'} "
+        f"({item.instrument_status})",
+        f"- **Provision:** {item.provision or '_none recorded_'}",
+    ]
+    state = item.citation_checked_on.strip()
+    if not state:
+        shown = "_never attempted_"
+    elif item.citation_attempt_unresolved:
+        shown = state
+    else:
+        shown = f"checked {state}"
+    out += [f"- **Citation state:** {shown}", ""]
+    return out
+
+
 def _tier(item):
     if item.is_live and item.cites_superseded_law:
         return CITES_DEAD_LAW
@@ -151,28 +186,26 @@ def render_document() -> str:
         "",
     ]
 
-    current_tier = None
+    # EVERY TIER IS RENDERED, INCLUDING AN EMPTY ONE, AND AN EMPTY ONE SAYS SO.
+    #
+    # This loop used to emit a tier's header only when a row in that tier
+    # arrived. That was invisible while every tier was occupied. On 2026-09-13
+    # R5 — the only tier-1 item — had its citation fixed, tier 1 emptied, and
+    # the queue silently began at "## 2." (R5_CITATION_PROPAGATION_DESIGN.md
+    # §4.5.3). A numbered list that starts at 2 reads as a deletion, and
+    # silence cannot distinguish "checked, and nothing cites dead law" from
+    # "that check never ran". Zero is a finding (§2.1), so it is written down —
+    # the same thing the CA packet already does with "0 rule(s) … none".
+    by_tier = {tier: [] for tier in TIERS}
     for tier, item in rows:
-        if tier is not current_tier:
-            current_tier = tier
-            rank, title, why = tier
-            out += [f"## {rank}. {title}", "", why, ""]
-        out += [
-            f"### {item.id} — {_describes(item)}",
-            "",
-            f"- **Where:** {_where(item)}",
-            f"- **Instrument:** {item.instrument or '_none recorded_'} "
-            f"({item.instrument_status})",
-            f"- **Provision:** {item.provision or '_none recorded_'}",
-        ]
-        state = item.citation_checked_on.strip()
-        if not state:
-            shown = "_never attempted_"
-        elif item.citation_attempt_unresolved:
-            shown = state
-        else:
-            shown = f"checked {state}"
-        out += [f"- **Citation state:** {shown}", ""]
+        by_tier[tier].append(item)
+    for tier in TIERS:
+        rank, title, why = tier
+        out += [f"## {rank}. {title}", "", why, ""]
+        if not by_tier[tier]:
+            out += [f"**None.** {EMPTY_TIER}", ""]
+        for item in by_tier[tier]:
+            out += _render_item(item)
 
     out += [
         "---",
