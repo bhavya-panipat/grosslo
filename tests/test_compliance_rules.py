@@ -274,9 +274,32 @@ class TestTheCandidateGate(unittest.TestCase):
 
 class TestTheProtocolIsEnforcedNotJustDocumented(unittest.TestCase):
 
-    def test_the_rule_set_has_exactly_one_known_open_violation(self):
-        # See test_the_only_open_violation_is_the_known_R5_citation.
-        self.assertEqual(len(compliance_rules.protocol_violations()), 1)
+    def test_the_rule_set_is_clean_and_the_check_still_fires(self):
+        # WAS test_the_rule_set_has_exactly_one_known_open_violation, pinned to
+        # R5 citing the repealed 1961 Act. R5 has cited the in-force 2025 Act
+        # since 2026-09-13, so the honest count is zero
+        # (R5_CITATION_PROPAGATION_DESIGN.md §2.1) — no violation is kept or
+        # invented to preserve a non-empty list.
+        #
+        # BUT an empty-list assertion alone passes identically whether the
+        # protocol check works or has been deleted. So it is paired with a probe
+        # that MUST still be flagged. Neither half means anything without the
+        # other.
+        from unittest.mock import patch
+        self.assertEqual(compliance_rules.protocol_violations(), [])
+        stale = compliance_rules.Rule(
+            id="R70", severity="Low", check="c", rationale="r", why="w",
+            predicate=lambda s, rp: False, status=ACTIVE,
+            claim_type=compliance_rules.STATUTORY,
+            source_url="https://example.invalid/x", provision="P",
+            citation_checked_on="2026-09-09", instrument="Some Act, 1961",
+            instrument_status=compliance_rules.SUPERSEDED,
+            threshold_origin="probe: no numeric threshold",
+            reviewed_by="R", reviewed_on="2026-09-09")
+        with patch.object(compliance_rules, "RULES", compliance_rules.RULES + (stale,)):
+            problems = compliance_rules.protocol_violations()
+        self.assertTrue(any("R70" in p and "superseded" in p for p in problems),
+                        f"a live rule citing a superseded Act was not flagged: {problems}")
 
     def test_an_active_rule_without_a_recorded_reviewer_is_a_violation(self):
         from unittest.mock import patch
@@ -461,24 +484,44 @@ class TestTheFourProtocolChecks(unittest.TestCase):
 
     # --- the shipped rule set satisfies all four ----------------------------
 
-    def test_the_only_open_violation_is_the_known_R5_citation(self):
+    def test_the_shipped_set_is_clean_and_a_superseded_citation_still_flags(self):
         """
-        R5 is KNOWINGLY in violation, and that is pinned rather than silenced.
+        The shipped rule set is clean, and a superseded citation still flags.
 
-        Its citation points at the Income-tax Act, 1961, which the 2025 Act
-        replaced from 1 April 2026. The rule stays ACTIVE on purpose: the
-        underlying Rs 7.5L composite ceiling is very likely still law, and
-        removing a real compliance check because its citation went stale would
-        trade a documentation problem for a coverage gap.
+        (unittest -v prints a docstring's FIRST LINE as the test's name. This
+        first line used to read "WAS test_the_only_open_violation...", which
+        made the verbose run report the retired name — so the history lives
+        below instead, where it cannot impersonate the test.)
 
-        Pinned as EXACTLY one violation so the known gap stays visible AND any
-        additional violation still fails the build. An assertEqual([]) here
-        would have required either suppressing this or pretending it is fixed.
+        WAS test_the_only_open_violation_is_the_known_R5_citation. That test
+        pinned R5 as KNOWINGLY in violation — citing the Income-tax
+        Act, 1961 after the 2025 Act replaced it — and its docstring warned
+        that an assertEqual([]) here "would have required either suppressing
+        this or pretending it is fixed". Both halves of that warning are
+        honoured below.
+
+        It is NOT suppressed and NOT pretended: R5 was actually fixed on
+        2026-09-13, from the primary source. 1961 s. 17(2)(vii) is 2025
+        s. 17(1)(h), with the Rs 7.5L ceiling and the three funds unchanged.
+        The docstring's own reasoning was vindicated — the rule stayed ACTIVE,
+        and it turned out the underlying ceiling WAS still law.
+
+        So assertEqual([]) is now the honest assertion. What would still be
+        pretending is asserting it ALONE, because an empty list is also what a
+        deleted check returns. The superseded-instrument check must be shown
+        to fire in the same test that shows it finds nothing real.
         """
-        violations = compliance_rules.protocol_violations()
-        self.assertEqual(len(violations), 1, violations)
-        self.assertIn("R5", violations[0])
-        self.assertIn("superseded", violations[0])
+        self.assertEqual(compliance_rules.protocol_violations(), [])
+        stale = self._rule("R71", status=ACTIVE,
+                           claim_type=compliance_rules.STATUTORY,
+                           source_url="https://example.invalid/x", provision="P",
+                           citation_checked_on="2026-09-09",
+                           instrument="Some Act, 1961",
+                           instrument_status=compliance_rules.SUPERSEDED,
+                           reviewed_by="R", reviewed_on="2026-09-09")
+        problems = self._violations_with(stale)
+        self.assertTrue(any("R71" in p and "superseded" in p for p in problems),
+                        f"the superseded-instrument check did not fire: {problems}")
 
     def test_both_statutory_rules_record_a_citation_attempt(self):
         # R1 and R5 are grandfathered on having a backdated REVIEWER, not on
@@ -562,14 +605,32 @@ class TestTheGoverningInstrumentCheck(unittest.TestCase):
                 with self.subTest(rule=rule.id):
                     self.assertTrue(rule.instrument.strip())
 
-    def test_R5_is_recorded_as_citing_superseded_law(self):
+    def test_R5_cites_the_in_force_act_and_no_act_number_was_invented(self):
+        # WAS test_R5_is_recorded_as_citing_superseded_law, whose guard was
+        # "the successor provision must NOT have been guessed". That guard did
+        # its job: nothing was guessed, and on 2026-09-13 the successor was
+        # READ, not inferred — 1961 s. 17(2)(vii) -> 2025 s. 17(1)(h).
         r5 = next(r for r in compliance_rules.RULES if r.id == "R5")
-        self.assertTrue(r5.cites_superseded_law)
-        self.assertFalse(r5.citation_is_checked)
-        self.assertIn("1961", r5.instrument)
-        # The successor provision must NOT have been guessed.
-        self.assertNotIn("2025", r5.provision,
-                         "a successor section number appears to have been invented")
+        self.assertEqual(r5.instrument_status, compliance_rules.IN_FORCE)
+        self.assertTrue(r5.citation_is_checked)
+        self.assertFalse(r5.cites_superseded_law)
+
+        # The anti-fabrication guard survives in a new shape. The lookup task
+        # asked for "Income-tax Act, 2025 (Act 30 of 2025)"; that act number
+        # was never verified and was deliberately not written. EXACT equality,
+        # not containment (INVENTORY_EXPANSION_DESIGN.md §8): assertIn("2025")
+        # would pass with an invented number appended, which is precisely the
+        # thing being guarded against.
+        self.assertEqual(r5.instrument, "Income-tax Act, 2025",
+                         "something was appended to R5's instrument — if it is "
+                         "the act number, was it verified?")
+
+        # Deliberately NOT asserted: that `provision` contains "17(1)(h)".
+        # provision is free text, so that would be the string-containment
+        # anti-pattern §8 names — it would pass on a sentence that mentions the
+        # section while citing something else. The citation's truth rests on
+        # the primary source recorded in docs/PRIMARY_SOURCE_LOOKUP_TASK.md,
+        # not on a substring a test can find.
 
 
 class TestTheFirstBatchesBasesAreTrueNotJustStated(unittest.TestCase):
@@ -1043,13 +1104,33 @@ class TestTheEvidenceModelIsNotCoupledToRules(unittest.TestCase):
                 self.assertTrue(hasattr(compliance_rules.RULES[0], name),
                                 "Rule lost a property it still needs")
 
-    def test_R5_still_surfaces_exactly_as_before_the_refactor(self):
-        # The refactor's own claim: no behaviour change. R5 is the live Type A
-        # finding this mechanism exists to carry.
-        problems = compliance_rules.protocol_violations()
-        self.assertEqual(len(problems), 1)
-        self.assertIn("R5", problems[0])
-        self.assertIn("superseded", problems[0])
+    def test_the_extracted_model_still_flags_a_superseded_rule_carrier(self):
+        # RENAMED, not silently repurposed (R5_CITATION_PROPAGATION_DESIGN.md
+        # §2.3). This was test_R5_still_surfaces_exactly_as_before_the_refactor:
+        # it pinned the step-1 extraction's no-behaviour-change claim using R5,
+        # then the one live superseded citation, as its subject. That refactor
+        # finished three phases ago and R5 no longer cites superseded law, so
+        # the old name would now describe work that is done using a subject that
+        # is gone — a name that lies about what the test proves.
+        #
+        # What the old test ACTUALLY guarded is still worth guarding: that the
+        # superseded check, moved off Rule into provenance_violations(), still
+        # fires for a Rule carrier. The C4 test above proves it for a non-Rule
+        # carrier; this proves it for a Rule, calling the extracted function
+        # directly rather than through the module-level wrapper.
+        self.assertEqual(compliance_rules.protocol_violations(), [])
+        stale_rule = compliance_rules.Rule(
+            id="R72", severity="Low", check="c", rationale="r", why="w",
+            predicate=lambda s, rp: False, status=ACTIVE,
+            claim_type=compliance_rules.STATUTORY,
+            source_url="https://example.invalid/x", provision="P",
+            citation_checked_on="2026-09-09", instrument="Some Act, 1961",
+            instrument_status=compliance_rules.SUPERSEDED,
+            threshold_origin="probe: no numeric threshold",
+            reviewed_by="R", reviewed_on="2026-09-09")
+        problems = compliance_rules.provenance_violations([stale_rule])
+        self.assertTrue(any("R72" in p and "superseded" in p for p in problems),
+                        f"the extracted check no longer flags a Rule carrier: {problems}")
 
 
 class TestTheTrailRequirementAcceptsEitherForm(unittest.TestCase):

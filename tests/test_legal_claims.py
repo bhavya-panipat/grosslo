@@ -295,15 +295,54 @@ class TestTheLegalReviewQueue(unittest.TestCase):
         self.assertIn("### TE1", queue, "no legal claim reached the queue")
         self.assertIn("compliance rules and", queue)
 
-    def test_the_worst_item_is_first_not_the_easiest(self):
-        # Ranked by how badly a reader could be misled, never by effort. R5
-        # cites a repealed Act — it reads as verified while locating nothing,
-        # which is worse than a visibly-missing citation.
-        queue = self._queue()
-        first = queue.index("### R5")
-        for other in ("### TE1", "### TE2", "### TE3", "### R1", "### TE4"):
+    def _generator(self):
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        sys.path.insert(0, os.path.join(root, "scripts"))
+        import generate_legal_review_queue as gen
+        return gen
+
+    def test_the_worst_tier_is_empty_and_would_still_rank_first(self):
+        # WAS test_the_worst_item_is_first_not_the_easiest, which hardcoded
+        # queue.index("### R5") as the worst item. R5 cited a repealed Act; since
+        # 2026-09-13 it cites the in-force one and correctly ranks 21st of 23
+        # (R5_CITATION_PROPAGATION_DESIGN.md §4.5.2). The PRINCIPLE the test
+        # protected is unchanged — ranked by how badly a reader could be misled,
+        # never by effort — so it is retargeted, not deleted.
+        #
+        # TWO CHANGES OF METHOD, both deliberate:
+        #
+        # 1. Structured rows, not rendered markdown. The old test indexed "### R5"
+        #    in the committed file, and read a STALE file green for the wrong
+        #    reason while R5's data had already changed underneath it. collect()
+        #    returns the tier tuple and the item, so the assertion binds to the
+        #    ranking decision itself (§8), not to how a header happens to render.
+        #
+        # 2. Both states. An empty tier alone is also what a broken _tier()
+        #    produces, so a synthetic live superseded item must be shown to rank
+        #    first in the same test that shows no real item does.
+        from unittest.mock import patch
+        gen = self._generator()
+
+        real = [item.id for tier, item in gen.collect() if tier is gen.CITES_DEAD_LAW]
+        self.assertEqual(real, [], f"live items citing superseded law: {real}")
+
+        stale = compliance_rules.Rule(
+            id="R73", severity="Low", check="c", rationale="r", why="w",
+            predicate=lambda s, rp: False, status=compliance_rules.ACTIVE,
+            claim_type=compliance_rules.STATUTORY,
+            source_url="https://example.invalid/x", provision="P",
+            citation_checked_on="2026-09-09", instrument="Some Act, 1961",
+            instrument_status=compliance_rules.SUPERSEDED,
+            threshold_origin="probe: no numeric threshold")
+        with patch.object(compliance_rules, "RULES", compliance_rules.RULES + (stale,)):
+            rows = gen.collect()
+        order = [item.id for _, item in rows]
+        self.assertIs(rows[0][0], gen.CITES_DEAD_LAW,
+                      "the superseded-law tier is no longer ranked first")
+        first = order.index("R73")
+        for other in ("TE1", "TE2", "TE3", "R1", "TE4"):
             with self.subTest(item=other):
-                self.assertLess(first, queue.index(other),
+                self.assertLess(first, order.index(other),
                                 "a lesser item outranked the superseded-law item")
 
     def test_every_live_rule_and_every_claim_is_accounted_for(self):
