@@ -223,7 +223,54 @@ def _extract_numbers(text: str) -> list[float]:
     return nums
 
 
-def _numbers_ungrounded(text: str, allowed_numbers: set, skip_below: float = 100) -> bool:
+# A statutory reference: a keyword, then a designator — "Section 392",
+# "Section 80CCD(2)", "Schedule III", "Sl. No. 11" (QUERY_GUARD_CITATION_DESIGN.md).
+# The designator is a CITATION TOKEN, not a figure, but _extract_numbers cannot
+# tell "Section 392" from "Rs 392".
+#
+# The right boundary fails closed: "Section 392,000", "Section 392.5" and a
+# bare "Section 80CCD" in front of "(2)" are NOT references, so their numbers
+# are still checked. \b on the left keeps "Subsection 392" out.
+#
+# ONE PATTERN PARSES BOTH SIDES — the citations supplied to the model and the
+# model's reply — so the two can never disagree about what a reference is.
+_CITATION_REFERENCE = re.compile(
+    r"\b(Section|Schedule|Rule|Form|Sl\.\s*No\.)\s+"
+    r"([0-9A-Z]+(?:\([0-9A-Z]+\))*)"
+    r"(?![0-9A-Z(])(?![.,]\d)",
+    re.IGNORECASE,
+)
+
+
+def _citation_key(match) -> tuple:
+    return re.sub(r"\s+", "", match.group(1)).lower(), match.group(2).upper()
+
+
+def _strip_supplied_citations(text: str, citations) -> str:
+    """
+    `text` with every reference that ALSO appears in `citations` blanked out.
+
+    Only supplied references are removed. A reference the model wrote that was
+    never supplied ("Section 394") is left in place and its number is checked
+    like any other — stripping every citation-shaped token would let the model
+    exempt a number just by writing "Section" in front of it. Nor is this a
+    value whitelist: "Rs 392" is not in citation position and stays a figure.
+    So the keyword list only controls which SUPPLIED references can be
+    recognised; it can never widen the exemption past what was supplied.
+    """
+    if isinstance(citations, str):
+        # Iterating a bare string would parse it character by character, find
+        # nothing, and silently exempt nothing — a quiet version of the exact
+        # defect this exists to fix. Rejected rather than coerced.
+        raise TypeError("citations must be a collection of strings, not a str")
+    supplied = {_citation_key(m) for c in citations for m in _CITATION_REFERENCE.finditer(c)}
+    return _CITATION_REFERENCE.sub(
+        lambda m: " " if _citation_key(m) in supplied else m.group(0), text
+    )
+
+
+def _numbers_ungrounded(text: str, allowed_numbers: set, skip_below: float = 100,
+                        citations=()) -> bool:
     """
     True if `text` contains a number not present in `allowed_numbers`
     (within tolerance 1). skip_below=100 matches explain_result's/
@@ -233,7 +280,14 @@ def _numbers_ungrounded(text: str, allowed_numbers: set, skip_below: float = 100
     "50%" is exactly the kind of small, high-stakes number those rules
     turn on, and skipping it would silently exempt the single most
     safety-critical figure (e.g. R1's 50% statutory floor) from the check.
+
+    citations: the statutory reference strings the CALLER handed the model.
+    References to exactly those are not figures and are removed before
+    extraction; everything else is checked unchanged. Empty (the default)
+    takes the original code path with no stripping at all.
     """
+    if citations:
+        text = _strip_supplied_citations(text, citations)
     found = _extract_numbers(text)
     return any(n >= skip_below and not any(abs(n - a) < 1 for a in allowed_numbers) for n in found)
 
@@ -1101,7 +1155,13 @@ def answer_query(question: str, context: dict, ctc: float, rent_paid: float,
                 messages=[{"role": "user", "content": json.dumps({"question": question, "context": grounding})}],
             )
             candidate = response.content[0].text.strip()
-            guard_triggered = _numbers_ungrounded(candidate, allowed)
+            # The model was told to cite from applicable_sections, so quoting
+            # one must not read as an ungrounded figure (QUERY_GUARD_CITATION_DESIGN.md).
+            # The SAME list that was serialised above — always server-authored,
+            # since both branches overwrite whatever the request's context held.
+            guard_triggered = _numbers_ungrounded(
+                candidate, allowed, citations=grounding["applicable_sections"]
+            )
             if not guard_triggered:
                 return {"answer": candidate, "ai_backed": True, "recalculated": False, "guard_triggered": False}
         except Exception:
