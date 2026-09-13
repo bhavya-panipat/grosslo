@@ -682,12 +682,55 @@ citation that was wrong from the start.
 - Sections 7Q and 14B (`penalty_exposure.py`'s EPF interest/damages) are
   under the EPF & Miscellaneous Provisions Act 1952 — a different statute
   from the Income-tax Act entirely, unaffected by this renumbering.
-- **Section 17(2)(vii)** (the >₹7.5L aggregate PF+NPS perquisite rule
-  behind Rule R5 and the payroll guardrail) — re-checked 2026-09-02 against
-  multiple independent sources on the Income-tax Act 2025's actual salary
-  chapter (Sections 15–17). Confirmed retained at its original number; not
-  every section moved in the renumbering, and this was verified rather than
-  assumed just because most of its neighbors did move.
+- ~~**Section 17(2)(vii)**~~ — **THIS ENTRY WAS WRONG AND IS CORRECTED
+  BELOW.** It should never have been in this list.
+
+**Corrected 2026-09-13 — an entry in the list above that was not true:**
+- **Section 17(2)(vii)** (the >₹7.5L aggregate PF+NPS perquisite rule behind
+  Rule R5 and the payroll guardrail) **did move.** It is **Section 17(1)(h)**
+  of the Income-tax Act, 2025, and the companion accretion provision moved
+  17(2)(viia) → **17(1)(i)**.
+
+  What this document said on 2026-09-02 was: *"re-checked … against multiple
+  independent sources on the Income-tax Act 2025's actual salary chapter
+  (Sections 15–17). Confirmed retained at its original number; not every
+  section moved in the renumbering, and this was verified rather than assumed
+  just because most of its neighbors did move."*
+
+  **The interesting part is that most of that was right.** The 2025 Act's
+  salary chapter *is* Sections 15–17. Section 17 *is* still the perquisite
+  section. It *is* true that not every section moved. The sweep was not
+  inventing anything.
+
+  **It checked at section granularity and reported at sub-clause
+  granularity.** "Section 17 is still perquisites" is true and was verified;
+  "therefore 17(2)(vii) is retained" does not follow from it and was not. The
+  1961 Act's 17(2) perquisite list was restructured into the 2025 Act's 17(1),
+  so every sub-clause under it moved while the section number above it did
+  not. A check one level coarser than the claim it is used to support will
+  keep returning confirmations, and they will keep being real confirmations
+  of a different proposition.
+
+  That is a sharper failure than "someone guessed", and a more dangerous one,
+  because the verification genuinely happened.
+
+  The correction came from the primary source on 2026-09-13: CBDT's own
+  parallel-reading comparison on `incometaxindia.gov.in`, which places 1961
+  s. 17 beside 2025 s. 17. Verbatim text of both is in
+  `docs/PRIMARY_SOURCE_LOOKUP_TASK.md`.
+
+  **The rule itself was never wrong.** The Rs 7,50,000 aggregate ceiling and
+  the three-fund composition (recognised PF, the notified pension scheme,
+  approved superannuation) carried over unchanged. What was wrong was the
+  citation, and the confidence attached to it.
+
+  **Why this is left visible rather than quietly rewritten.** A verified
+  citation must let an independent party redo the check. This one could not:
+  the "multiple independent sources" were never named, so nobody could repeat
+  the check and notice it had been run one level too coarse. And it went
+  unchallenged for eleven days because it read as *more* rigorous than the
+  entries around it — an explicit claim that something was verified rather
+  than assumed is the last thing anyone re-checks.
 
 **Resolved 2026-09-02 — previously left as an open gap below, now
 confirmed and fixed in code:**

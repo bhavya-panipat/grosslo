@@ -27,10 +27,42 @@ Sources checked live on 2026-08-24 (see chat for citations):
 Citation sweep re-verified live 2026-09-02 against the Income Tax Act 2025
 (in force 1 April 2026, current for this tax year): Section 87A -> Section
 156, Section 80CCD(2) -> Section 124, Section 201(1A) -> Section 398(3),
-Section 271C -> Section 448. Section 17(2)(vii) (the >Rs 7.5L PF+NPS
-perquisite rule referenced in ai_layer.py/compliance_rules.md) was checked
-and confirmed retained at its original number in the new Act — not every
-section moved. Internal Python names below (REBATE_87A_THRESHOLD,
+Section 271C -> Section 448.
+
+CORRECTION, 2026-09-13. That sweep also reported that Section 17(2)(vii) (the
+>Rs 7.5L PF+NPS perquisite rule referenced in ai_layer.py/compliance_rules.md)
+"was checked and confirmed retained at its original number in the new Act —
+not every section moved". THAT WAS WRONG. The section did move: it is Section
+17(1)(h) of the Income-tax Act, 2025, with the companion accretion provision
+17(2)(viia) -> 17(1)(i). Read from the primary source on 2026-09-13 in CBDT's
+own parallel-reading comparison, which places 1961 s. 17 beside 2025 s. 17;
+see docs/PRIMARY_SOURCE_LOOKUP_TASK.md for the verbatim text of both. The
+substance survived unchanged — same Rs 7,50,000 aggregate ceiling, same three
+funds — so what was wrong was the citation, not the rule.
+
+The wrong claim is quoted rather than deleted, because the useful fact is not
+just the right section number but HOW it went wrong. The sweep was not
+inventing: the 2025 Act's salary chapter really is Sections 15-17, Section 17
+really is still "Perquisite", and it really is true that not every section
+moved. The sweep CHECKED AT SECTION GRANULARITY AND REPORTED AT SUB-CLAUSE
+GRANULARITY. "Section 17 is still perquisites" is true and verified;
+"therefore 17(2)(vii) is retained" does not follow, and is false — the 1961
+Act's 17(2) list was restructured into the 2025 Act's 17(1), so every
+sub-clause moved while the section number above them did not.
+
+A check one level coarser than the claim it is used to support will keep
+returning confirmations, and they will keep being real confirmations of a
+different proposition. This is the only known instance here.
+
+What that implies for the four mappings above, stated honestly: one bad result
+is evidence about the method, not only about the one entry. Of the four, only
+80CCD(2) -> 124 has been independently corroborated since (the 2025 Act's
+s. 17(1)(h) itself refers to "the scheme referred to in section 124(1)", and
+s. 124 is headed as the pension-scheme contribution deduction). 87A -> 156,
+201(1A) -> 398(3) and 271C -> 448 have NOT been re-checked against a primary
+source and are not asserted here as verified.
+
+Internal Python names below (REBATE_87A_THRESHOLD,
 NPS_80CCD2_CAP_PCT, etc.) keep their old-Act-numbered names deliberately,
 same precedent as NPS_80CCD2_CAP_PCT elsewhere in this codebase — renaming
 constants is a bigger diff for zero behavioral gain; only citation TEXT

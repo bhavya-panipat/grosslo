@@ -21,7 +21,8 @@ provision 17(2)(viia) → 17(1)(i).
 **R5's predicate was correct all along. Only its citation was stale.** That is
 the good outcome, and it was arrived at rather than assumed.
 
-**Settled against us:** `tax_engine.py`'s module docstring says
+**Settled against us — and the diagnosis is more useful than the correction.**
+`tax_engine.py`'s module docstring says
 
 > Section 17(2)(vii) … was checked and confirmed retained at its original
 > number in the new Act — not every section moved.
@@ -37,6 +38,30 @@ This matters beyond one docstring. It is the only surviving instance of a
 citation sweep in this project asserting a *positive* verification result that
 turned out to be wrong. §4 of this document treats it as its own correction with
 its own commit, not as a line swept up in a rename.
+
+### 1.1 The failure mode, named — found while writing the correction
+
+The first draft of this correction said *"every clause of that is wrong"*. That
+was an over-claim, and checking it produced the more valuable finding.
+
+**Most of the 2026-09-02 sweep's statement was true.** The 2025 Act's salary
+chapter *is* Sections 15–17. Section 17 *is* still headed "Perquisite". It *is*
+true that not every section moved. Nothing was invented.
+
+**The sweep checked at section granularity and reported at sub-clause
+granularity.** "Section 17 is still perquisites" is true and was genuinely
+verified. "Therefore 17(2)(vii) is retained" does not follow from it — the 1961
+Act's 17(2) perquisite list was restructured into the 2025 Act's 17(1), so every
+sub-clause beneath it moved while the section number above them did not.
+
+**A check one level coarser than the claim it supports will keep returning
+confirmations, and they will keep being real confirmations of a different
+proposition.** That is a sharper failure than a guess, and more dangerous,
+because the verification actually happened and the evidence is genuine.
+
+It is also the same shape as the finding in §3 below: a guard that binds the
+*id* while the *claim* is what moved. Both are checks aimed one level off the
+thing they are trusted to protect.
 
 ---
 
@@ -201,15 +226,34 @@ lookup outcome. This is a deliberate blank, and a reviewer should see it as one.
 | Site | Note |
 |---|---|
 | `tax_engine.py` L30–32 | Asserts the section was *confirmed retained*. It was not. §1. |
+| `README.md` L685–690 | **The same false claim, in a stronger form.** |
 
-This is the only site where the existing text is **wrong**, as opposed to
-out of date. It gets its own commit and its own sentence in the message.
+**Correction to this document, made while executing step 1.** §4.4 below
+originally filed `README.md` L685 under "prose that describes the
+investigation". That was wrong. It is not prose about the investigation — it is
+the **source instance of the false claim**, filed under the heading *"Checked
+and found NOT to need a citation change"*, and asserting the section was
+*"verified rather than assumed just because most of its neighbors did move"*.
+
+It is also the instance R5's own `citation_checked_on` quotes by name when it
+sets the repository's claim against the independent reviewer's. Missing it
+would have left the load-bearing copy standing while correcting the quieter one.
+
+Both are **wrong**, as opposed to out of date. They share step 1's commit.
+
+That this document mis-classified one of the two sites it was written to
+enumerate is worth leaving on the record: a blast-radius list assembled by
+grepping one phrase will group by *where text matched*, not by *what kind of
+claim it is*, and the second grouping is the one that decides sequencing.
 
 ### 4.4 Prose that describes the investigation, now finished
 
 `provenance.py` L27 (R5 as a live example of the access wall),
 `COMPLIANCE_BREADTH_DESIGN.md` L481, `LEGAL_CLAIM_INVENTORY_DESIGN.md`
-§10.2 and L418, `README.md` L449/L685.
+§10.2 and L418, `README.md` L449.
+
+(`README.md` L685 was listed here in the first draft and has been moved to
+§4.3, where it belongs — see the correction recorded there.)
 
 `README.md` also carries a separate error the lookup surfaced: it records the
 HRA exemption as moving to **"Section 11, read with Schedule II"**. The primary
