@@ -313,6 +313,20 @@ Fixing it is out of scope here and is not obvious — adding section numbers to
 answer, which is the opposite of what the guard exists to do. **Recorded as its
 own item, not folded in.**
 
+**Resolved for `answer_query` by `QUERY_GUARD_CITATION_DESIGN.md`** (merged at
+`f6a3394`). A reference is blanked out before extraction only when it is written
+in citation form *and* that exact reference was in the `applicable_sections`
+this call supplied. Nothing is added to `allowed`. An unsupplied "Section 394"
+and a bare "Rs 392" are still rejected.
+
+**§4.4.2 below is not closed by that fix.** It was written without §4.4.2 in
+view: `citations=` is passed only by `answer_query`, and `flag_compliance`
+still builds `allowed` from `_extract_numbers(rationale)`. Re-measured on
+`f6a3394`: R5's rationale still yields `{1, 2, 7.5, 17}`, and *"exceed the
+limit by 1 lakh"* still passes. The same grammar is the natural starting point
+for §4.4.2, but that fix runs in the opposite direction (keeping citation
+digits *out* of `allowed`) and needs its own design.
+
 #### 4.4.2 The same defect from the other side — found executing step 5
 
 §4.4.1 is citation digits **missing** from `allowed`, so a valid citation gets
