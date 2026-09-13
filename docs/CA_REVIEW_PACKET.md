@@ -129,9 +129,9 @@ Cites Section 17(2)(vii) of the Income-tax Act, **1961**, which the Income-tax A
 
 Primary legal sources could not be reached from the environment these rules were drafted in. Official government sites returned HTTP 403 or refused connections across repeated attempts, by two people independently. Only secondary aggregators were reachable, and a search snippet is not a fetched primary source.
 
-**2 rule(s) carry a citation attempt that could not be resolved:** R1, R5. These are recorded as *attempted and unresolved*, which is deliberately distinguished from *never attempted* — the first means the claim is uncheckable from here, which is worse than merely unchecked.
+**1 rule(s) carry a citation attempt that could not be resolved:** R1. These are recorded as *attempted and unresolved*, which is deliberately distinguished from *never attempted* — the first means the claim is uncheckable from here, which is worse than merely unchecked.
 
-**1 rule(s) cite an instrument that has been superseded:** R5. A citation can match its source text perfectly and still point at a repealed Act, which would read as verified while citing dead law. That combination is treated as *not* a checked citation.
+**0 rule(s) cite an instrument that has been superseded:** none. A citation can match its source text perfectly and still point at a repealed Act, which would read as verified while citing dead law. That combination is treated as *not* a checked citation.
 
 A third candidate rule was drafted and **held back**: *HRA structured above 50% of basic*, on the ground that the exemption is capped at 50%/40% of basic regardless of rent, so the excess can never be exempt. It is held back because that 50% is a statutory number, and shipping it as a convention rule would put a statutory figure into the rule set with no citation behind it. It needs a provision, and the provision needs a reachable source. See `docs/PRIMARY_SOURCE_LOOKUP_TASK.md`.
 

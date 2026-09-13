@@ -14,17 +14,6 @@ The tool that generates it may notice and flag. It may never decide. It does not
 
 ---
 
-## 1. Cites law that has been superseded
-
-Worst of the four. The citation may match its source text perfectly and still point at a repealed Act, so it reads as verified while locating nothing. Strictly worse than an unresolved citation, which is at least visibly a gap.
-
-### R5 — Aggregate employer PF + NPS > Rs 7.5L/year
-
-- **Where:** `compliance_rules.py`
-- **Instrument:** Income-tax Act, 1961 (superseded)
-- **Provision:** Income-tax Act, s. 17(2)(vii) — employer contributions to recognised PF, NPS and approved superannuation fund exceeding Rs 7,50,000 in aggregate treated as a perquisite.
-- **Citation state:** unresolved: TWO SEPARATE PROBLEMS, neither settled. (1) CITATION UNREACHABLE - attempted 2026-09-09, incometaxindia.gov.in returned HTTP 403 on the section pages and on the official Income-tax Act 2025 PDF; indiacode.nic.in refused connection then 403. (2) GOVERNING INSTRUMENT IN DOUBT - s. 17(2)(vii) belongs to the Income-tax Act, 1961, which the Income-tax Act, 2025 (Act 30 of 2025) replaced with effect from 1 April 2026. The repository's own README states this section was 're-checked 2026-09-02 ... Confirmed retained at its original number'; an independent reviewer reports the 2025 Act reorganised numbering substantially and that 17(2)(vii) is unlikely to be the correct current citation. THOSE TWO CLAIMS CONFLICT AND THIS FILE DOES NOT PICK A WINNER. The successor provision was NOT guessed: no primary text was reachable to confirm it, and a secondary comparison table alone is not sufficient. Blocked pending a scope decision on which law this rule should describe.
-
 ## 2. Asserts law with no citation recorded anywhere
 
 A statutory claim nobody can check, because there is nothing to check against. Unverifiable by anyone, not merely unverified.
@@ -183,6 +172,13 @@ The one assertion no automated check can produce. Everything else in this queue 
 - **Instrument:** _none recorded_ (unknown)
 - **Provision:** _none recorded_
 - **Citation state:** _never attempted_
+
+### R5 — Aggregate employer PF + NPS > Rs 7.5L/year
+
+- **Where:** `compliance_rules.py`
+- **Instrument:** Income-tax Act, 2025 (in_force)
+- **Provision:** Income-tax Act, 2025, s. 17(1)(h) — aggregate amount of any contribution, in excess of Rs 7,50,000 in a tax year, made to the account of the assessee by the employer in (i) a recognised provident fund, (ii) the scheme referred to in s. 124(1), and (iii) an approved superannuation fund, treated as a perquisite. Companion accretion provision: s. 17(1)(i). SUCCESSOR TO 1961 s. 17(2)(vii); the accretion provision succeeds 1961 s. 17(2)(viia). Ceiling and fund composition both carried over unchanged. TO REDO THIS CHECK: open the source_url, page to Section 17 ("Perquisite"), press Compare, and add Income-tax Act, 1961 section 17 — CBDT renders both texts side by side. The deep link is not recorded because the site addresses sections by internal CMS id through JavaScript rather than by URL, so the navigation path is the re-findable trail, not a link.
+- **Citation state:** checked 2026-09-13
 
 ### R6 — Special allowance = 0
 

@@ -319,16 +319,34 @@ RULES: tuple = (
         why="The excess over Rs 7.5L is a taxable perquisite under Section 17(2)(vii) — NOT currently modeled in tax_engine.py's tax calculation, so any structure crossing this threshold has an unmodeled tax liability the tool doesn't account for",
         predicate=lambda s, rent_paid: (s.employer_pf + s.employer_nps) > 750_000,
         claim_type=STATUTORY,
-        instrument="Income-tax Act, 1961",
-        # SUPERSEDED, not merely old: the 2025 Act replaced the 1961 Act from
-        # 1 April 2026. The underlying obligation (a composite Rs 7.5L ceiling
-        # on employer PF/NPS/superannuation contributions) very likely survives
-        # in the successor Act — but this citation no longer locates it, and the
-        # successor's provision number is deliberately NOT guessed here.
-        instrument_status=SUPERSEDED,
-        source_url="https://www.incometaxindia.gov.in/w/section-17",
-        provision="Income-tax Act, s. 17(2)(vii) — employer contributions to recognised PF, NPS and approved superannuation fund exceeding Rs 7,50,000 in aggregate treated as a perquisite.",
-        citation_checked_on="unresolved: TWO SEPARATE PROBLEMS, neither settled. (1) CITATION UNREACHABLE - attempted 2026-09-09, incometaxindia.gov.in returned HTTP 403 on the section pages and on the official Income-tax Act 2025 PDF; indiacode.nic.in refused connection then 403. (2) GOVERNING INSTRUMENT IN DOUBT - s. 17(2)(vii) belongs to the Income-tax Act, 1961, which the Income-tax Act, 2025 (Act 30 of 2025) replaced with effect from 1 April 2026. The repository's own README states this section was 're-checked 2026-09-02 ... Confirmed retained at its original number'; an independent reviewer reports the 2025 Act reorganised numbering substantially and that 17(2)(vii) is unlikely to be the correct current citation. THOSE TWO CLAIMS CONFLICT AND THIS FILE DOES NOT PICK A WINNER. The successor provision was NOT guessed: no primary text was reachable to confirm it, and a secondary comparison table alone is not sufficient. Blocked pending a scope decision on which law this rule should describe.",
+        instrument="Income-tax Act, 2025",
+        # THE ACT NUMBER IS DELIBERATELY ABSENT. docs/PRIMARY_SOURCE_LOOKUP_TASK.md
+        # instructed writing "Income-tax Act, 2025 (Act 30 of 2025)". That number
+        # was NOT verified — indiacode.nic.in served errors on every path tried
+        # on 2026-09-13 — and an unchecked number sitting inside a record whose
+        # date says it was checked is precisely the failure §5.1 exists to stop.
+        # s. 1 of the Act was read and confirms the short title and the
+        # 1 April 2026 commencement; that is the extent of what is claimed.
+        instrument_status=IN_FORCE,
+        source_url="https://www.incometaxindia.gov.in/income-tax-act-2025",
+        provision=(
+            "Income-tax Act, 2025, s. 17(1)(h) — aggregate amount of any "
+            "contribution, in excess of Rs 7,50,000 in a tax year, made to the "
+            "account of the assessee by the employer in (i) a recognised "
+            "provident fund, (ii) the scheme referred to in s. 124(1), and "
+            "(iii) an approved superannuation fund, treated as a perquisite. "
+            "Companion accretion provision: s. 17(1)(i). "
+            "SUCCESSOR TO 1961 s. 17(2)(vii); the accretion provision succeeds "
+            "1961 s. 17(2)(viia). Ceiling and fund composition both carried "
+            "over unchanged. "
+            "TO REDO THIS CHECK: open the source_url, page to Section 17 "
+            "(\"Perquisite\"), press Compare, and add Income-tax Act, 1961 "
+            "section 17 — CBDT renders both texts side by side. The deep link "
+            "is not recorded because the site addresses sections by internal "
+            "CMS id through JavaScript rather than by URL, so the navigation "
+            "path is the re-findable trail, not a link."
+        ),
+        citation_checked_on="2026-09-13",
         status=ACTIVE,
     ),
     Rule(

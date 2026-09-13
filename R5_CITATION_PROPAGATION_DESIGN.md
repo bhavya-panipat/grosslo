@@ -315,6 +315,94 @@ own item, not folded in.**
 
 ---
 
+## 4.5 What step 3 revealed when run on its own
+
+Recorded as corrections to this design, made while executing step 3. Every one
+of them was found by running the step in isolation and reading the actual
+failures — none by re-reading the plan.
+
+### 4.5.1 The citation data is not artefact-neutral
+
+§4.1 called the five citation fields *"no emitted text changes"* and §5 put all
+artefact regeneration in step 5. **Wrong.** `provision`, `instrument` and
+`citation_checked_on` are rendered into `docs/CA_REVIEW_PACKET.md` and
+`docs/LEGAL_REVIEW_QUEUE.md`. Predicted 4 failures; got **7**:
+
+| Failure | Actual cause, from the failure line |
+|---|---|
+| `test_the_committed_packet_matches_what_the_generator_produces` | `CA_REVIEW_PACKET.md is stale.` |
+| `test_the_committed_queue_matches_the_generator` | `queue is stale.` |
+| `test_a_mislabelled_worked_example_fails_generation` | Fails at **L831**, its closing `--check`. It *reached* 831, so every assertion about mislabelled examples passed — a downstream symptom of the stale packet, not a broken mechanism. |
+
+The distinction §4.1 needed was not *emitted vs structural* but **user-facing
+vs reviewer-facing**. R5's `rationale` — what a user sees on a flag — is still
+byte-identical. The reviewer artefacts are not, and cannot be, because they
+exist to render exactly this data. **They are regenerated in step 3**, since a
+data commit with knowingly stale artefacts would fail its sync tests for
+reasons unrelated to the pins.
+
+### 4.5.2 A fifth pin, in a different file
+
+Regenerating cleared those three and **unmasked** a failure that had been
+hidden: `test_legal_claims.py::test_the_worst_item_is_first_not_the_easiest`,
+five subtests. It hardcodes `queue.index("### R5")` as the worst item.
+
+§2.2 listed three pins and §4 one more, all in `test_compliance_rules.py`. The
+blast radius was mapped by grepping that file. **The fifth pin lives in
+`test_legal_claims.py`**, which is why it was never seen.
+
+**It was green for the wrong reason until regeneration.** It reads the
+*committed* queue. While that artefact was stale it still listed R5 first, so
+the ordering test kept passing against current data that no longer supported
+it. What made that safe is that the sync test fails *first* — the ordering
+assertion is only trustworthy because a separate test guarantees the artefact
+it reads is current. Neither test is sufficient alone.
+
+Its failure is correct. R5 now has a verified citation and ranks 21st of 23.
+Retarget in step 4 by the same both-states pattern as §2.2: assert the real
+queue has **no** tier-1 item, and inject a synthetic superseded item to prove
+it still outranks TE1/TE2/TE3/R1/TE4.
+
+### 4.5.3 The queue renders an empty tier as silence
+
+The ranking is four tiers; R5 was the **only** tier-1 item ("cites law that has
+been superseded"). The regenerated queue's headers are now:
+
+```
+## 2. Asserts law with no citation recorded anywhere
+## 3. Citation attempted, no primary source reached
+## 4. No human has signed off
+```
+
+`render_document()` only emits a header when a row arrives, so **tier 1 simply
+disappears** and the list opens at "2.". That is §2.1 violated at the rendering
+layer: "none cite dead law, checked" becomes indistinguishable from "that check
+did not run", and a numbered list starting at 2 reads as a deletion.
+
+The CA packet already does this correctly — *"**0 rule(s) cite an instrument
+that has been superseded:** none."* — so the fix has a precedent in the same
+repository. **Not fixed in step 3**: it is a generator mechanism change and
+belongs with step 6.
+
+### 4.5.4 The stale 403 claim is hardcoded in two generators
+
+The CA packet's *"Official government sites returned HTTP 403 or refused
+connections across repeated attempts"* and the queue's *"Primary legal sources
+return HTTP 403 from the environment this was built in, confirmed
+independently by two people"* are both now known false — the sites were
+reachable by browser throughout. The queue's version also justifies a design
+choice (*"It does not fetch anything, on purpose"*) on that premise.
+
+Same class as §3: hand-written prose restating a fact, with nothing binding it
+to reality. Two instances. Step 6/7.
+
+**The step-3 packet is knowingly self-contradictory** until step 6: L124's
+hardcoded question says R5 *"cites Section 17(2)(vii) of the Income-tax Act,
+1961"* while L134, derived from data, says *"0 rule(s) cite an instrument that
+has been superseded: none."* That is §3's prediction, now demonstrated.
+
+---
+
 ## 5. Sequencing
 
 Separate commits, in this order. **Do not reorder or combine.**
@@ -324,13 +412,19 @@ Separate commits, in this order. **Do not reorder or combine.**
    wrong, and burying it inside a citation update hides that.
 2. **Correct the README Schedule II → Schedule III error.** Unrelated to R5;
    found in the same lookup.
-3. **R5 citation data** (§4.1). Structural. Emitted text byte-identical —
-   asserted, not stated.
-4. **Retarget the three violation pins** (§2.2), with the sabotage run named.
+3. **R5 citation data** (§4.1) **+ regenerate the two reviewer artefacts**
+   (§4.5.1). User-facing emitted text byte-identical. Commits **knowingly red**
+   at exactly the five pins of step 4 — reported, not hidden in a combined
+   commit.
+4. **Retarget the ~~three~~ five pins** (§2.2, §4.5.2), with the sabotage run
+   named. Four in `test_compliance_rules.py`, one in `test_legal_claims.py`.
 5. **R5 emitted text** (§4.2) + regenerate artefacts. Behavioural, separate
    from step 3 by the standing rule.
-6. **Packet-generator predicates** (§3.1). Its own mechanism, its own tests.
-7. **Investigation prose** (§4.4). Documentation only.
+6. **Packet-generator predicates** (§3.1), **plus the queue's empty-tier
+   rendering (§4.5.3)**. Generator mechanisms, their own tests.
+7. **Investigation prose** (§4.4) **and the hardcoded 403 claims in both
+   generators (§4.5.4).** The generator prose changes regenerate artefacts, so
+   that half is not documentation-only and gets its own commit.
 
 Full suite after every step, reported against the 469 baseline, deltas named
 test by test. `python3 -B` with the cache cleared throughout.
