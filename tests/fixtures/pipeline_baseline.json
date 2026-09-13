@@ -360,8 +360,8 @@
           "severity": "High"
         },
         {
-          "message": "Aggregate employer PF + NPS exceeds Rs 7.5L/year \u2014 the excess is a taxable perquisite under Section 17(2)(vii), which this tool's tax engine does not currently model.",
-          "rationale": "Aggregate employer PF + NPS exceeds Rs 7.5L/year \u2014 the excess is a taxable perquisite under Section 17(2)(vii), which this tool's tax engine does not currently model.",
+          "message": "Aggregate employer PF + NPS exceeds Rs 7.5L/year \u2014 the excess is a taxable perquisite under Section 17(1)(h) (formerly Section 17(2)(vii)), which this tool's tax engine does not currently model.",
+          "rationale": "Aggregate employer PF + NPS exceeds Rs 7.5L/year \u2014 the excess is a taxable perquisite under Section 17(1)(h) (formerly Section 17(2)(vii)), which this tool's tax engine does not currently model.",
           "rule_id": "R5",
           "severity": "High"
         }

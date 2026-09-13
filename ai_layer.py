@@ -646,7 +646,7 @@ def evaluate_band_guardrail(structure: SalaryStructure, regime: str,
             if epfo_ok else
             f"Aggregate employer PF + NPS of Rs {epfo_total:,.0f} exceeds the "
             f"Rs {EPFO_AGGREGATE_CEILING:,.0f}/year ceiling — the excess is a "
-            "taxable perquisite under Section 17(2)(vii), not currently "
+            "taxable perquisite under Section 17(1)(h) (formerly Section 17(2)(vii)), not currently "
             "modeled in the tax engine."
         ),
     })

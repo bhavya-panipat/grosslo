@@ -313,6 +313,55 @@ Fixing it is out of scope here and is not obvious — adding section numbers to
 answer, which is the opposite of what the guard exists to do. **Recorded as its
 own item, not folded in.**
 
+#### 4.4.2 The same defect from the other side — found executing step 5
+
+§4.4.1 is citation digits **missing** from `allowed`, so a valid citation gets
+rejected. Step 5 found the mirror image: citation digits **present** in
+`allowed`, so an invented figure gets accepted.
+
+`flag_compliance` builds `allowed` from `_extract_numbers(rationale)` with
+`skip_below=0`. A rationale's section number is therefore whitelisted as if it
+were a figure. Correcting R5's citation changed that set — measured:
+
+| | allowed from R5's rationale |
+|---|---|
+| before (`17(2)(vii)`) | `{2, 7.5, 17}` |
+| after (`17(1)(h) (formerly 17(2)(vii))`) | `{1, 2, 7.5, 17}` |
+
+**The correction widens the guard by exactly one number, `1`.** Both effects,
+measured on a model rephrasing:
+
+| rephrasing | before | after |
+|---|---|---|
+| "The excess is taxable under Section 17(1)(h)." — *correct* | rejected | **passes** ✓ |
+| "…exceed the limit by **1 lakh**." — *fabricated* | caught | **passes** ✗ |
+
+**This is disclosed rather than avoided, for two measured reasons:**
+
+1. **It is pre-existing.** The *original* repealed-Act rationale already let
+   *"exceed the limit by 2 lakh"* and *"17 thousand rupees over"* through.
+   Section digits have leaked into `allowed` since before this propagation.
+2. **It is unavoidable at this layer.** Every correct citation of the
+   provision contributes `1` — `"Section 17(1)(h)"`, `"s. 17(1)(h)"` and the
+   "formerly" form alike. The only way not to add it is to keep citing
+   repealed law, which is strictly worse.
+
+**One cause, two symptoms.** Citations and figures share a single namespace in
+`_extract_numbers`. §4.4.1 and §4.4.2 are the same defect observed in opposite
+directions, and a fix that strips citation tokens before extracting figures —
+the direction already recorded for §4.4.1, analogous to `output_boundary.py`'s
+`_IDENTIFIER_TOKEN` — closes both at once. That work is running as a separate
+task; **this finding belongs in its scope**, because a fix for §4.4.1 alone
+could be written that leaves §4.4.2 standing.
+
+#### 4.4.3 Two user-facing citations with no coverage of any kind
+
+Recapturing the pipeline baseline for step 5 showed its fixture contains R5's
+compliance `rationale` but **not** `ai_layer.py`'s `epfo_ceiling` guardrail
+rationale, which step 5 also changed. With `applicable_sections` (§4.4), that
+makes two user-facing statutory citations that no unit test, no fixture and no
+characterization baseline would notice changing.
+
 ---
 
 ## 4.5 What step 3 revealed when run on its own

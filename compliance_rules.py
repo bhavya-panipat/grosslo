@@ -315,8 +315,8 @@ RULES: tuple = (
     Rule(
         id="R5", severity="High",
         check="Aggregate employer PF + NPS > Rs 7.5L/year",
-        rationale="Aggregate employer PF + NPS exceeds Rs 7.5L/year — the excess is a taxable perquisite under Section 17(2)(vii), which this tool's tax engine does not currently model.",
-        why="The excess over Rs 7.5L is a taxable perquisite under Section 17(2)(vii) — NOT currently modeled in tax_engine.py's tax calculation, so any structure crossing this threshold has an unmodeled tax liability the tool doesn't account for",
+        rationale="Aggregate employer PF + NPS exceeds Rs 7.5L/year — the excess is a taxable perquisite under Section 17(1)(h) (formerly Section 17(2)(vii)), which this tool's tax engine does not currently model.",
+        why="The excess over Rs 7.5L is a taxable perquisite under Section 17(1)(h) (formerly Section 17(2)(vii)) — NOT currently modeled in tax_engine.py's tax calculation, so any structure crossing this threshold has an unmodeled tax liability the tool doesn't account for",
         predicate=lambda s, rent_paid: (s.employer_pf + s.employer_nps) > 750_000,
         claim_type=STATUTORY,
         instrument="Income-tax Act, 2025",
