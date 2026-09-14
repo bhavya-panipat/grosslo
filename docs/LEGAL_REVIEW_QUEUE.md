@@ -132,7 +132,7 @@ Someone tried and could not. Distinct from never having tried, and worse: it mea
 
 - **Where:** `tax_engine.NPS_80CCD2_CAP_PCT`
 - **Instrument:** Income-tax Act, 2025 (Act 30 of 2025) (in_force)
-- **Provision:** Section 124, read with Schedule XV (formerly s. 80CCD(2) of the Income-tax Act, 1961) -- employer contribution to the National Pension System deductible from salary income.
+- **Provision:** Income-tax Act, 2025, s. 124(1)(b), read with s. 124(2) and s. 124(13)(b) -- the employer's contribution to the notified pension scheme is deductible in computing total income up to 10% of salary (14% where the employer is the Central or a State Government, s. 124(1)(a)); under s. 202(1), the new tax regime, the 10% is read as 14% (s. 124(2)); 'salary' includes dearness allowance where the terms of employment so provide (s. 124(13)(b)). Formerly s. 80CCD(2) of the Income-tax Act, 1961. TO REDO THIS CHECK: open the source_url, search the section list for 124, press Compare, and add Income-tax Act, 1961 section 80CCD.
 - **Citation state:** unresolved: attempted 2026-09-10 and NOT resolved to a primary source. What the repository records is a 2026-09-01 README pass and a 2026-09-02 sweep in tax_engine.py's docstring, both against SECONDARY sources, which this project's own standard refuses to treat as verification (COMPLIANCE_BREADTH_DESIGN.md §3.1 step 2). Those record the SECTION renumbering 80CCD(2) -> 124; the README additionally states the 10%/14% split is unchanged. Primary sources remain unreachable from this environment -- see docs/PRIMARY_SOURCE_LOOKUP_TASK.md. Recorded as attempted-and-unresolved rather than verified.
 
 ## 4. No human has signed off

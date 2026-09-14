@@ -350,17 +350,33 @@ CLAIMS: tuple = (
                   "14% under the new regime, 10% under the old.",
         asserted_value={"new": 0.14, "old": 0.10},
         claim_type=STATUTORY,
-        # The ONE claim in this batch with a provision recorded anywhere in the
-        # repository, and it is recorded here because the repo records it -- not
-        # because it is confirmed. README's "Regulatory currency" section and
-        # tax_engine.py's own docstring both name this mapping.
-        provision="Section 124, read with Schedule XV (formerly s. 80CCD(2) of "
-                  "the Income-tax Act, 1961) -- employer contribution to the "
-                  "National Pension System deductible from salary income.",
-        source_url="https://www.incometaxindia.gov.in/pages/acts/income-tax-act.aspx",
+        # PROVISION READ FROM THE PRIMARY SOURCE on 2026-09-14 (R1_TE4_RECORD_
+        # UPDATE_DESIGN.md SS3.2). It used to say "Section 124, read with
+        # Schedule XV ... deductible from salary income", copied from README and
+        # tax_engine.py's docstring. Two parts of that were wrong: the cap lives
+        # wholly inside s. 124 (Schedule XV appears there only in sub-sections
+        # (6) and (11), about withdrawals), and it is a deduction in computing
+        # TOTAL income, not from salary income.
+        provision="Income-tax Act, 2025, s. 124(1)(b), read with s. 124(2) and "
+                  "s. 124(13)(b) -- the employer's contribution to the notified "
+                  "pension scheme is deductible in computing total income up to "
+                  "10% of salary (14% where the employer is the Central or a "
+                  "State Government, s. 124(1)(a)); under s. 202(1), the new "
+                  "tax regime, the 10% is read as 14% (s. 124(2)); 'salary' "
+                  "includes dearness allowance where the terms of employment so "
+                  "provide (s. 124(13)(b)). Formerly s. 80CCD(2) of the "
+                  "Income-tax Act, 1961. TO REDO THIS CHECK: open the source_url, "
+                  "search the section list for 124, press Compare, and add "
+                  "Income-tax Act, 1961 section 80CCD.",
+        # The old /pages/acts/income-tax-act.aspx redirects to the homepage.
+        source_url="https://www.incometaxindia.gov.in/income-tax-act-2025",
         instrument="Income-tax Act, 2025 (Act 30 of 2025)",
         instrument_status=IN_FORCE,
-        threshold_origin="STATUTORY -- the 10%/14% split is set by the Act. See TE1.",
+        # "See TE1" pointed at a claim with no verified provision.
+        threshold_origin="STATUTORY -- s. 124(1)(b) sets 10%, s. 124(2) reads it as "
+                         "14% under s. 202(1); s. 124(1)(a) sets 14% for a "
+                         "government employer. Read from the primary source "
+                         "2026-09-14.",
         citation_checked_on="unresolved: attempted 2026-09-10 and NOT resolved to a "
                             "primary source. What the repository records is a "
                             "2026-09-01 README pass and a 2026-09-02 sweep in "
