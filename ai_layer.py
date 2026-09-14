@@ -1255,9 +1255,15 @@ def answer_query(question: str, context: dict, ctc: float, rent_paid: float,
             # one must not read as an ungrounded figure (QUERY_GUARD_CITATION_DESIGN.md).
             # The SAME list that was serialised above — always server-authored,
             # since both branches overwrite whatever the request's context held.
+            #
+            # And the prompt's "do not cite any section not present in that
+            # list" is enforced, not just asked for. Below 100 the figure
+            # check skips numbers entirely, so an invented "Section 80C" or
+            # "Section 16" used to be served (RATIONALE_GUARD_CITATION_DESIGN.md
+            # §4.7, closing QUERY_GUARD_CITATION_DESIGN.md §7).
             guard_triggered = _numbers_ungrounded(
                 candidate, allowed, citations=grounding["applicable_sections"]
-            )
+            ) or _citations_unsupplied(candidate, grounding["applicable_sections"])
             if not guard_triggered:
                 return {"answer": candidate, "ai_backed": True, "recalculated": False, "guard_triggered": False}
         except Exception:

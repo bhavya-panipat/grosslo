@@ -13,6 +13,7 @@ only is exactly what a guard that exempts everything would also pass.
 
 import json
 import os
+import re
 import sys
 import unittest
 from unittest.mock import Mock, patch
@@ -171,6 +172,40 @@ class TestAnswerQueryServesAnswersThatCiteWhatItSupplied(unittest.TestCase):
         self.assertNotIn("Section 555", supplied)
         self.assertFalse(result["ai_backed"])
         self.assertTrue(result["guard_triggered"])
+
+
+class TestAnswerQueryRejectsSectionsItNeverSupplied(TestAnswerQueryServesAnswersThatCiteWhatItSupplied):
+    """
+    RATIONALE_GUARD_CITATION_DESIGN.md §8 step 8, and the gap §7 of this
+    design left open. Below 100 the figure check skips numbers, so an invented
+    low section passed it. Both lines below were served as model text on
+    8e7fab0. The prompt already forbids citing anything not in
+    applicable_sections; this enforces it.
+
+    Subclasses the class above only to reuse _ask. Its tests also run again
+    under this name, so they still hold with the membership check in place.
+    """
+
+    def test_low_sections_never_supplied_are_rejected(self):
+        for reply, reference in (("You can also claim Section 80C for your PF contributions.", r"\bSection 80C\b"),
+                                 ("Your standard deduction falls under Section 16.", r"\bSection 16\b")):
+            with self.subTest(reply=reply):
+                result, supplied = self._ask(reply)
+                # Whole reference, not substring: "80C" is a substring of the
+                # supplied "80CCD(2)", which is a different section.
+                self.assertFalse(any(re.search(reference, s) for s in supplied), supplied)
+                self.assertTrue(result["guard_triggered"])
+                self.assertFalse(result["ai_backed"])
+
+    def test_control_every_reference_in_a_supplied_multi_part_citation_is_served(self):
+        # "Section 11", "Schedule III" and "Sl. No. 11" are three references in
+        # one supplied string. All three must count as supplied.
+        reply = ("Your HRA is exempt under Section 11, read with Schedule III, "
+                 "Table Sl. No. 11 (formerly Section 10(13A)).")
+        result, supplied = self._ask(reply)
+        self.assertIn("Section 11, read with Schedule III, Table Sl. No. 11 (formerly Section 10(13A))", supplied)
+        self.assertFalse(result["guard_triggered"])
+        self.assertTrue(result["ai_backed"])
 
 
 if __name__ == "__main__":
