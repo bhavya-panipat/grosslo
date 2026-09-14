@@ -9,7 +9,7 @@ additional advice.
 
 | Rule ID | Check | Rationale | Severity | Status |
 |---|---|---|---|---|
-| R1 | Basic salary < 50% of CTC | Statutory violation, not a soft convention: the Code on Wages 2025 (effective 21 Nov 2025) requires Basic + DA to be at least 50% of total remuneration — this tool has no separate DA field (scoped to private-sector employees, where DA doesn't apply), so Basic alone is the relevant component. Falling below this line triggers automatic reclassification of the excess allowances as "wages" for PF and gratuity purposes, with real penalty exposure — not just a market-convention miss | High | active |
+| R1 | Basic salary < 50% of CTC | Statutory violation, not a soft convention: the Code on Wages 2025 requires Basic + DA to be at least 50% of total remuneration — this tool has no separate DA field (scoped to private-sector employees, where DA doesn't apply), so Basic alone is the relevant component. Falling below this line triggers automatic reclassification of the excess allowances as "wages" for PF and gratuity purposes, with real penalty exposure — not just a market-convention miss | High | active |
 | R2 | CTC > Rs 6L/year but employer PF = 0 | PF is near-universal for salaried employees above minimum wage thresholds; a missing PF component at this CTC level is unusual and worth confirming isn't an oversight | Medium | active |
 | R3 | HRA claimed but rent_paid = 0 or not provided | HRA exemption requires actual rent payment with supporting documentation; claiming HRA structure without a rent input suggests the exemption may not be realizable | Low | active |
 | R4 | LTA > 10% of CTC | Exceeds typical company LTA policy ceilings; may not be realizable given actual travel-and-bills requirements | Low | active |

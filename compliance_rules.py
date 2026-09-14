@@ -266,7 +266,7 @@ RULES: tuple = (
         id="R1", severity="High",
         check="Basic salary < 50% of CTC",
         rationale="Basic salary is below 50% of CTC, violating the Code on Wages 2025 requirement that Basic + DA be at least 50% of total remuneration (no DA field in this tool — Basic alone is the relevant component for a private-sector structure). This triggers automatic reclassification of the excess allowances as \"wages\" for PF and gratuity purposes, not just a market-convention miss.",
-        why="Statutory violation, not a soft convention: the Code on Wages 2025 (effective 21 Nov 2025) requires Basic + DA to be at least 50% of total remuneration — this tool has no separate DA field (scoped to private-sector employees, where DA doesn't apply), so Basic alone is the relevant component. Falling below this line triggers automatic reclassification of the excess allowances as \"wages\" for PF and gratuity purposes, with real penalty exposure — not just a market-convention miss",
+        why="Statutory violation, not a soft convention: the Code on Wages 2025 requires Basic + DA to be at least 50% of total remuneration — this tool has no separate DA field (scoped to private-sector employees, where DA doesn't apply), so Basic alone is the relevant component. Falling below this line triggers automatic reclassification of the excess allowances as \"wages\" for PF and gratuity purposes, with real penalty exposure — not just a market-convention miss",
         predicate=lambda s, rent_paid: (s.basic / s.ctc if s.ctc else 0) < 0.50,
         claim_type=STATUTORY,
         # NAMING DISCREPANCY FOUND WHILE BACKFILLING: this rule's own text says
@@ -275,11 +275,30 @@ RULES: tuple = (
         # rationale text is left byte-identical here because changing emitted
         # text is a behaviour change, not backfill — flagged for the CA review
         # rather than silently edited.
-        source_url="https://www.indiacode.nic.in/handle/123456789/15793",
+        source_url="https://indiacode.gov.in/act/77a51a9b-c4c0-455c-809c-13d2efb3c8e5/details",
         instrument="Code on Wages, 2019 (Act 29 of 2019)",
         instrument_status=IN_FORCE,
-        provision="Code on Wages, 2019 (Act 29 of 2019), s. 2(y) — definition of \"wages\"; proviso on excluded allowances exceeding one-half of all remuneration. In force 21 Nov 2025.",
-        citation_checked_on="unresolved: attempted 2026-09-09; no primary source reachable from this environment. indiacode.nic.in returned connection-refused then HTTP 403, labour.gov.in HTTP 403, incometaxindia.gov.in HTTP 403 on two URLs. The only reachable copies were secondary aggregators, and PDF-only, with no PDF text extractor available here. Search snippets summarised both provisions consistently, but a snippet is not a fetched primary source and is not recorded as one.",
+        provision=("Code on Wages, 2019 (Act 29 of 2019), s. 2(y) — definition of \"wages\": all remuneration, including basic pay, dearness allowance and retaining allowance, excluding clauses (a) to (k). First proviso: if payments under clauses (a) to (i) exceed one-half, or such other per cent. as the Central Government may notify, of all remuneration, the excess is deemed remuneration and added to wages. "
+            "COMMENCEMENT OF s. 2 IS NOT RECORDED HERE because it is not verified (see citation_checked_on). "
+            "TO REDO THIS CHECK: open the source_url (India Code), choose Sections, open Section 2 \"Definitions\", "
+            "and read clause (y) and its first proviso."
+        ),
+        citation_checked_on=(
+            "unresolved: attempted 2026-09-14 against the primary source, India Code (indiacode.gov.in). "
+            "VERIFIED: Act Number 29, enacted 08-08-2019; the text of s. 2(y) and its first proviso. "
+            "NOT VERIFIED: the commencement of s. 2. India Code lists only a notification of 18 Dec 2020 (S.O. 4604(E)), "
+            "which commenced parts of ss. 42, 67 and 69, not s. 2. So the Act is in force in part, and that is what "
+            "instrument_status records -- it is an Act-level fact and does NOT establish that the provision this rule "
+            "cites is in force (checking at Act granularity and reporting at provision granularity; "
+            "R5_CITATION_PROPAGATION_DESIGN.md SS1.1). Also not checked: whether any other percentage was notified. "
+            "Replaces the 2026-09-09 record, whose reason -- no primary source reachable -- is no longer true; "
+            "see docs/PRIMARY_SOURCE_LOOKUP_TASK.md."
+        ),
+        # D5: the origin of the 50%, now read from the primary text.
+        threshold_origin=(
+            "STATUTORY -- \"one-half\", s. 2(y) first proviso, Code on Wages, 2019, \"or such other per cent. as may "
+            "be notified by the Central Government\". Whether any other percentage has been notified: NOT CHECKED."
+        ),
         status=ACTIVE,
     ),
     Rule(
