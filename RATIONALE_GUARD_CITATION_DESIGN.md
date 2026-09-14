@@ -67,7 +67,7 @@ different kind of problem. Ranked:
 **Numbers 1 and 2 are not a wider version of §4.4.1, and this document's
 first version was wrong to present them that way.** So was the pointer
 `0e57895` added to R5 §4.4.2, which folded them into "the leak is wider than
-`flag_compliance`". The correction to that pointer is sequenced in §8.
+`flag_compliance`". That pointer was corrected in `dec893f`.
 
 **Per-line scoping (§4.5) closes 1 and 2 on its own, whatever happens with
 citation stripping.** Once each line is checked only against its own flag's
@@ -464,3 +464,37 @@ exchange with the concurrent session over the shared Postgres.
   hand: made-up grounding inside a test of the grounding checker.
 - **Citations inside rationale text** (§4.3): the root fix, deferred.
 - **Figure-free reordering and unparsed reference forms** (§5.4).
+
+## 10. Implementation record
+
+Each step's results, as run. Full suite with `python3 -B` and the cache
+cleared, in a worktree at the commit, after a "request run" / "go" exchange.
+No run overlapped another.
+
+### Step 3: per-line grounding (`a98e83f`, pushed with `24cccfc`)
+
+Behaviour, severities 1 and 2: each rephrased line is checked only against its
+own flag's (or check's) rationale, at `flag_compliance` and
+`evaluate_band_guardrail`. No helper was added (§8, corrected in `2ede961`).
+
+| run | result |
+|---|---|
+| baseline, `2ede961` | 491 OK |
+| `a98e83f` | **501 OK**: +10. The test-ID diff shows exactly the 10 tests in `tests/test_rationale_guard_scope.py`; nothing removed or renamed, no existing test changed state |
+
+Two sabotage runs, failures predicted before each. `ai_layer.py` was restored and
+checked against the committed shasum after each.
+
+| sabotage | predicted to fail | failed |
+|---|---|---|
+| **U.** Restore the batch union at both call sites | `test_a_figure_borrowed_from_another_flag_is_rejected`, `test_lines_returned_in_swapped_order_are_rejected`, `test_a_citation_belonging_to_another_flag_is_rejected`, `test_a_figure_borrowed_from_another_check_is_rejected`, `test_messages_returned_in_swapped_order_are_rejected` | exactly those 5; every control passed |
+| **R.** Pair each line with the wrong flag (reversed order) | `test_control_correct_lines_in_order_are_served_to_the_right_flags`, `test_control_the_same_citation_in_its_own_flags_line_is_served`, `test_lines_returned_in_swapped_order_are_rejected`, `test_control_correct_messages_in_order_are_served_to_the_right_checks`, `test_messages_returned_in_swapped_order_are_rejected` | exactly those 5 |
+
+U shows that the tests catch the pool coming back. R shows they pin **which**
+rationale a line is checked against, not merely that the set got smaller. A
+guard checking every line against some single flag's rationale would pass U's
+tests and fail R's.
+
+**Still open after step 3, as planned:** citation digits leak *within* a flag
+(severity 3, step 5); fabricated citations with grounded digits (severity 4,
+step 6b); `negotiate` (step 7); the membership check at `answer_query` (step 8).
