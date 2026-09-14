@@ -311,8 +311,9 @@ CLAIMS: tuple = (
         # "(Act 30 of 2025)" REMOVED 2026-09-14 from TE1-TE4 and PE4 together
         # (R1_TE4_RECORD_UPDATE_DESIGN.md D2 = B). The act number was never
         # verified; R5 already omitted it for that reason. The Gazette check
-        # could not settle it in one session -- its listing does not carry act
-        # numbers, so verifying needs the Gazette PDF -- and removing an
+        # could not settle it in one session -- the Act's own entry was not
+        # located, and the subject lines inspected carried no act numbers, so
+        # the number would have to be read from a Gazette PDF -- and removing an
         # unverified assertion needs no new evidence. The short title and the
         # 1 April 2026 commencement ARE verified (s. 1, read 2026-09-13).
         instrument="Income-tax Act, 2025",

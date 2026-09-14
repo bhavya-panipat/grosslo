@@ -1,6 +1,9 @@
 # R1 and TE4 record updates — design
 
-**Status:** design only. Nothing here is built, and no data record has changed.
+**Status: implemented 2026-09-14/15 — D2 to D6 (steps 1–5); D1 opened as its own
+design, `TAX_ENGINE_EMPLOYER_NPS_DESIGN.md`, awaiting approval.** This line used to read
+*"design only. Nothing here is built, and no data record has changed."* Corrections
+found while implementing are recorded in §9, not folded silently into the plan.
 
 The second primary-source lookup (`docs/PRIMARY_SOURCE_LOOKUP_TASK.md`, "SECOND
 LOOKUP", commit `fd601fc`) reached the primary source for both records and
@@ -312,3 +315,56 @@ the other TE/PE records under D2), `scripts/generate_ca_review_packet.py`,
 both generated artefacts, and `tests/test_legal_claims.py`. **Not `ai_layer.py`**,
 where the rationale-guard implementation is in progress. Keeping R1's emitted
 text unchanged was confirmed compatible with that work on 2026-09-14.
+
+---
+
+## 9. What implementation found — corrections to this design
+
+Every item below was found by executing a step, not by re-reading the plan.
+
+### 9.1 D2 went to its fallback, and why — recorded precisely
+
+C (verify in the Gazette) did not settle it in one session, so B applied: the
+number was removed from TE1–TE4 and PE4 (`3f717f9`). What actually happened on
+`egazette.gov.in`, so the next attempt does not repeat it:
+
+- The site and its Bill/Assent/Act search work in a browser.
+- **A keyword containing a hyphen is rejected** as a special character, by a
+  JavaScript alert — so "Income-tax" looked like nothing happened.
+- **Dates typed `dd/mm/yyyy` crash the server search** (Runtime Error). The site
+  expects `dd-Mon-yyyy`.
+- The Act's own entry was **not located**, and the subject lines inspected
+  carried no act numbers — so the number would have to be read from a Gazette
+  PDF, which is a download.
+
+(The step-5 commit message says the listing "does not carry act numbers". That
+generalises from the rows inspected; the corrected wording is above and in the
+code comment.)
+
+### 9.2 The same unverified date lived in three places, not one
+
+§2.2 listed R1's `provision` as carrying the unverified *"In force 21 Nov 2025"*.
+It was also in R1's **`why`** (`"(effective 21 Nov 2025)"`) and in the **CA packet's
+R1 question** (*"21 November 2025 is when it came into force"*). All three are
+corrected (`2521f3f`, `3486588`) — the date only; the parked "2025" year and
+"requirement" framing are untouched.
+
+### 9.3 Two test pins §4 did not list
+
+§4 was built by grepping for TE4 by name, which misses **collection-level**
+assertions. Two broke when TE4 was verified:
+
+- `test_karnataka_and_tamil_nadu_are_the_first_verified_citations` — pinned the
+  verified set as `[PT1, PT4]`. Renamed and retargeted to `[TE4, PT1, PT4]`.
+- `test_all_four_are_unverified_and_that_is_the_batch_working` — its own comment
+  predicted it would break "the moment something was verified". Now asserts none of
+  the four is **reviewed** and exactly TE4 is **citation-checked**.
+
+Both broke for the reason the project wants. The lesson is the §7 one again: a
+blast radius mapped by *name* misses tests written over the *collection*.
+
+### 9.4 Suite runs moved to a clean worktree
+
+Another session had uncommitted `ai_layer.py` work in the shared tree, so a run
+there would have tested its in-progress code with this one. Each step was
+committed by path and verified in a detached worktree at that commit.

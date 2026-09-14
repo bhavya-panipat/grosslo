@@ -8,8 +8,9 @@ Its purpose is to be the single place someone can read to know where a
 multi-phase effort with real human dependencies actually stands, without
 reconstructing it from separate closing reports.
 
-_Last updated: 2026-09-14, after the R5 citation propagation
-(`R5_CITATION_PROPAGATION_DESIGN.md`) and the gap-owner table below. Previously
+_Last updated: 2026-09-15, after the R1/TE4 record updates
+(`R1_TE4_RECORD_UPDATE_DESIGN.md`). Before that, 2026-09-14, after the R5 citation
+propagation (`R5_CITATION_PROPAGATION_DESIGN.md`) and the gap-owner table below. Previously
 2026-09-13, at the close of Phase 2.4b._
 
 ---
@@ -23,14 +24,16 @@ _Last updated: 2026-09-14, after the R5 citation propagation
 | **2.1** Pipeline orchestration | Declared `STAGES` sequence, `stages_run` in the API response, characterization baseline | 1 frontend file uncompiled (`api-types.ts`) |
 | **2.2** Compliance rule breadth | Rule set as data with one source of truth, candidate-rule protocol with six steps, generated rules table, `compliance_pct` reports its denominator | **CA review packet** — 2 candidate rules + 5 questions on live rules. 1 frontend file uncompiled (`ring-metric.tsx`) |
 | **2.4** Legal claim inventory | `provenance.py` evidence model, `Claim` record with no inert state, 4 `tax_engine` claims, drift check, ranked review queue over both carriers | — superseded by 2.4b below |
-| **2.4b** Inventory expansion | **17 claims across five files**, including `optimizer.py`'s `BASIC_PCT_MIN`. `instrument_kind`, value-less claims, key paths, `known_divergence`, the §5.1 verified rule | **15 unverified claims**; no human has signed off on anything. *(The browser lookup for R5 that was listed here is done — 2026-09-13.)* |
+| **2.4b** Inventory expansion | **17 claims across five files**, including `optimizer.py`'s `BASIC_PCT_MIN`. `instrument_kind`, value-less claims, key paths, `known_divergence`, the §5.1 verified rule | **14 unverified claims** (TE4's citation verified 2026-09-14); no human has signed off on anything. *(The browser lookup for R5 that was listed here is done — 2026-09-13.)* |
 
 ## The honest state of the compliance work
 
 Phases 2.2, 2.4 and 2.4b together built the machinery for knowing whether this
 tool's legal claims are correct.
 
-**It is no longer reading zero.** Two claims now carry verified citations — PT1
+**It is no longer reading zero.** Three claims now carry verified citations. TE4, the
+employer-NPS cap, was verified from the primary source on 2026-09-14 by the repeatable
+browser method below. The first two were PT1
 Karnataka, cited by named amending Act, and PT4 Tamil Nadu, checked against the
 government's own PDF. They arrived from an unplanned direction: `payroll_breakdown.py`
 had already done the work properly and, crucially, **named the documents**. Three
@@ -38,12 +41,12 @@ other states got the same diligence on the same day and no names, and are
 unresolved. That difference — what got written down — is the entire difference in
 outcome, and it is the clearest argument in this repository for §5.1.
 
-**15 of 17 claims remain unverified, and nothing at all has been signed off by a
+**14 of 17 claims remain unverified, and nothing at all has been signed off by a
 qualified human.**
 
 Stated plainly and not rounded up, because it would be easy to let *"we built
 the system that tracks this"* slide into sounding like *"this is tracked and
-fine"*: **2.4 shipped a measuring instrument, not a fix. It now reads two out of
+fine"*: **2.4 shipped a measuring instrument, not a fix. It now reads three out of
 seventeen.** Replacing an unexamined assumption with a measured, named gap is
 real progress. It is not the same claim as the gap being closed.
 
@@ -56,7 +59,7 @@ Every remaining step needs a person, not more code.
 | **2026-09-13** | Primary-source browser lookup (`docs/PRIMARY_SOURCE_LOOKUP_TASK.md`) — two lookups, one session, 15–30 min | **Done 2026-09-13, from the primary source.** R5: 1961 s. 17(2)(vii) → 2025 **s. 17(1)(h)**, ceiling and fund composition unchanged; R5 has cited the in-force Act since `ca170d4`. HRA candidate: Schedule III, Table Sl. No. 11, percentages in Rules 2026 r. 279 — unblocked, not yet drafted. *(This row previously read "Not started", with R5 active on the repealed 1961 Act.)* |
 | **2026-10-10** | CA packet escalation trigger — if no reviewer engaged, escalate finding one | Not started |
 | **2026-11-09** | Check-in on the build-block date, 30 days out | Pending |
-| **2026-12-09** | An unverified claim becomes build-blocking | **15 claims pointed at it.** Two are verified, but through a file that had already done the work. **A repeatable method now exists and has worked:** one person with a browser, using CBDT's section browser and its parallel-reading Compare, resolved two lookups in one session on 2026-09-13. **No claim on this list has been cleared by it yet** — the path is proven, not travelled. |
+| **2026-12-09** | An unverified claim becomes build-blocking | **14 claims unverified.** Three are verified: PT1 and PT4 through a file that had already done the work, and **TE4 through the repeatable browser method** — CBDT's section browser and its parallel-reading Compare — on 2026-09-14. Verified is not cleared: TE4 still carries an unreviewed finding and an unreviewed divergence. *(Until 2026-09-15 this row said the method had cleared no claim yet.)* |
 
 ## Open gaps: owner and next action
 
@@ -69,14 +72,25 @@ Owners are records and roles, not sessions. Sessions end; records don't.
 | Gap | Severity | Owner | Next action | Deadline |
 |---|---|---|---|---|
 | **The rationale guard fails open.** In `flag_compliance` and `evaluate_band_guardrail`, a fabricated figure in an AI rephrasing can pass when it equals a citation digit or **another flag's real figure**. The text is served as `ai_backed` and quoted as a routing reason by `orchestration.py`. A fabricated section whose digits are grounded also passes. | **Guard failure, live** whenever the AI layer is configured and a flag fires. | Numeric guard, `ai_layer.py`. Decisions: project owner. | Decide questions 3 (Act years) and 4 (a check that every cited reference was supplied) in `RATIONALE_GUARD_CITATION_DESIGN.md` §7, then implement §8. Per-line scoping goes first. | None formal. It is live now. |
-| **`(Act 30 of 2025)` is unverified but recorded as fact** on TE1, TE2, TE3, TE4 and PE4. R5 deliberately omits the same number because it was never verified. | An unverified figure stated as settled, in five records. | Legal-claim inventory: `legal_claims.py` and R5 in `compliance_rules.py`. All six are fixed together, because fixing them separately makes the inconsistency worse. | A person with a browser checks the Act number against a primary source (India Code, or the Gazette notification if India Code's search fails). Verified: add it to R5 as well. Not verified: remove it from all five. | 2026-12-09: all five claims are unverified, so they are build-blocking from that date. |
-| **R1's and TE4's `citation_checked_on` say primary sources are "unreachable"**, but the review queue that renders them says those sources load in a browser. | The queue contradicts itself through its data. | Legal-claim inventory. | Do the R1 and TE4 lookups in a browser, which resolves both outright. Don't reword the records. | 2026-12-09 |
-| **R1's emitted text says "Code on Wages 2025"; its `instrument` says 2019.** | A wrong year in user-facing text, pending a CA ruling. It also keeps one guard leak open (`RATIONALE_GUARD_CITATION_DESIGN.md` §4.6). | CA reviewer. Already tracked as packet question R1 (`docs/CA_REVIEW_PACKET.md`) and deliberately not restated here. | The CA rules on the packet question. | 2026-10-10 escalation trigger |
+| **The tax engine double-counts employer NPS.** `taxable_income_for_structure()` leaves employer NPS out of gross salary and subtracts it anyway, so every NPS-opted structure's tax is under-stated by the tax on the whole contribution — measured: +₹23,587 at ₹18L CTC to +₹1,31,040 at ₹50L, 15–24% of tax owed. Savings measured against the naive baseline are over-stated. No recommendation changes. | **Wrong tax figure, live** for every structure with employer NPS, AI layer or not. | Tax engine, `tax_engine.py`. Decisions D1-1 to D1-4: project owner. | Approve `TAX_ENGINE_EMPLOYER_NPS_DESIGN.md` (recommended: Option B), then implement it; decide how to treat stored submissions computed before the fix (D1-4). | None formal. It is live now. |
+| **R1 cites s. 2(y) of the Code on Wages, 2019, whose commencement is not verified.** The text and Act No. 29 were read from India Code on 2026-09-14; India Code lists only a partial 18 Dec 2020 notification, not one for s. 2. OP1 records the same proposition. | A statutory rule whose provision may not yet be in force — unknown, not known wrong. | Legal-claim inventory: R1 in `compliance_rules.py`, and OP1. | A person with a browser finds the Gazette commencement notification for s. 2 of the Code on Wages. Found: record it and mark the citation checked. The Gazette's search needs a keyword with no hyphen and dates as `dd-Mon-yyyy`. | 2026-12-09 (OP1 is a claim) |
+| **R1's emitted text says "Code on Wages 2025"; its `instrument` says 2019. Added 2026-09-14: s. 2(y) is a deeming rule, and whether R1's predicate implements it depends on how allowances outside the exclusion list are read.** | A wrong year in user-facing text, pending a CA ruling. It also keeps one guard leak open (`RATIONALE_GUARD_CITATION_DESIGN.md` §4.6). | CA reviewer. Already tracked as packet question R1 (`docs/CA_REVIEW_PACKET.md`) and deliberately not restated here. | The CA rules on the packet question. | 2026-10-10 escalation trigger |
 
 The full list of items the R5 propagation left open, including CA questions
 already in the packet, is `R5_CITATION_PROPAGATION_DESIGN.md` §4.7.5. This table
-covers only the rows above that have no other owner, plus the guard failure,
-which is the most severe open item in the repository.
+covers only the rows above that have no other owner, plus the guard failure and
+the tax-engine double count, the two most severe open items in the repository.
+
+**Closed 2026-09-14:**
+- ~~`(Act 30 of 2025)` unverified but recorded as fact on TE1–TE4 and PE4~~ — the Gazette
+  check could not settle it in one session — the Act's own entry was not located, and
+  the subject lines inspected carried no act numbers, so the number would have to be
+  read from a Gazette PDF — so it was **removed from all five**, matching
+  R5. Commit `3f717f9`.
+- ~~R1's and TE4's `citation_checked_on` say primary sources are unreachable~~ —
+  **TE4** was verified from s. 124 on the primary source (`3f717f9`). **R1**'s reason
+  was corrected: its text and act number are verified, and its commencement is
+  not (`2521f3f`). That remaining part is the R1 row above.
 
 ## The inventory — `BASIC_PCT_MIN` is DONE; what is left
 

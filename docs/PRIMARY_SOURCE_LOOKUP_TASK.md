@@ -407,7 +407,14 @@ put a verified date on a record whose provision text is partly wrong.
 ## What this lookup does NOT do
 
 **No data record was changed.** R1, TE4 and the review queue are exactly as they
-were. Both outcomes need decisions first — the R1 predicate question needs a CA,
+were.
+
+> **Follow-up, 2026-09-14/15:** the records were then updated under
+> `R1_TE4_RECORD_UPDATE_DESIGN.md`. **TE4 is now citation-checked** (2026-09-14).
+> **R1 stays unresolved**, now for the true reason — commencement of s. 2 not
+> verified. The unverified act number was removed from TE1–TE4 and PE4 after the
+> Gazette check did not settle it (§9.1 of that design). This paragraph above
+> described the state at the time of the lookup and is kept as written. Both outcomes need decisions first — the R1 predicate question needs a CA,
 TE4 needs its provision text corrected and a divergence recorded — so the
 records are not edited ahead of those decisions.
 
