@@ -548,3 +548,40 @@ the passing branch's text. That text is shown to users as the check's message.
 `execution_trace.py` L58 still emits *"… Section 124 NPS cap (formerly
 80CCD(2))"* in a pipeline trace message. It is user-visible text in the old
 form, but it is not a rationale the guard grounds against.
+
+### Step 5: citation digits no longer ground figures (`a743339`)
+
+Behaviour, severity 3 (R5 §4.4.2): both guards ground each line in
+`_grounded_figures(its rationale)` and pass `citations=[that rationale]`.
+
+| run | result |
+|---|---|
+| `5060498` (previous step) | 513 OK |
+| `a743339` | **524 OK**: +11 by test-ID diff (`tests/test_rationale_guard_citations.py`) |
+
+Before committing, the new tests were run against the pre-step code
+(`ed15ef0`). They failed exactly 10 times, and every failure was a fabrication
+that code served as model text: R5's "1 lakh", "2 lakh" and "17 thousand";
+epfo's "1 lakh"; the NPS cap's "2% of basic" and "Rs 124"; the unsupplied R5
+"Section 17(1)(i)" and "Section 17(2)(viia)"; the unsupplied epfo
+"Section 17(1)(i)"; and the abbreviated "s. 17(1)(h)". Every correct-citation
+control passed on both.
+
+| sabotage | predicted to fail | failed |
+|---|---|---|
+| **V1.** Allowed set from the unstripped rationale, `citations=` kept | the same 10 subtests as the pre-step run | exactly those 10 |
+| **V2.** `citations=` dropped, stripped allowed set kept | 5 controls: `test_R5_quoting_its_citation_is_served`, `test_R5_quoting_its_citation_and_the_former_one_is_served`, `test_epfo_quoting_its_citation_is_served`, `test_nps_cap_quoting_its_citations_is_served`, and step 3's `test_control_the_same_citation_in_its_own_flags_line_is_served` | exactly those 5 |
+
+V1 and V2 fail disjoint sets. That is the claim of §4.1 and §4.5 made
+concrete. Stripping only the allowed side rejects every correct citation (V2).
+Stripping only the reply leaves every citation-digit fabrication served (V1).
+Neither half works alone.
+
+**Still open after step 5:** a fabricated section whose digits equal a real
+figure of the same flag, such as "Section 50" in R1 and "Section 14" on the NPS
+cap (severity 4, step 6). Also `negotiate` (step 7), the membership check at
+`answer_query` (step 8), and "Rs 2,025" in R1's line (decision 3, deferred).
+
+A pause interrupted this step: the runs above started after it, under a fresh
+"go". `a743339` was reported to the concurrent session as unverified until
+they finished.
