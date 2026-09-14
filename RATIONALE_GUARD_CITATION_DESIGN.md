@@ -9,15 +9,30 @@ without §4.4.2 in view and left §4.4.2 open. `1dc895c` records that.
 **This document is scoped by inventory, not by the section it resolves.** The
 last fix went wrong because its scope came from the one call site a finding
 named. So this design starts by listing every call site that builds `allowed`
-from text, and every string that reaches one. The list is longer than §4.4.2,
-and §2 says which findings this design takes on and which it doesn't.
+from text, and every string that reaches one.
 
-All measurements are on `1dc895c` unless stated. "Prototype" means the design
-below, applied in a throwaway worktree that was never committed.
+**Revision 2 (2026-09-14), after review of `54e139f`.** The first version had
+three faults, all corrected here:
+
+1. **It filed the cross-flag defect under the wrong severity.** It called it "a
+   separate defect" and put it as open decision 2, next to a quality issue. It
+   is the failure the numeric guard exists to prevent. §1.1 now says so.
+2. **It never ran the test that separates a safe citation exemption from an
+   unsafe one:** a fabricated section number that was never supplied. Its
+   prototype table had no such case. This revision runs it (§5.1), and that run
+   found a gap no variant of the first design closed.
+3. **Its year mechanism was not the one described as safe in review.** It took
+   the year from the rationale text, not from the structured record. §4.6
+   measures three mechanisms.
+
+Measurements are on `1dc895c` unless stated. Revision-2 measurements are on
+`0e57895`, which has the same `ai_layer.py`. "Prototype" means the design
+applied in a throwaway worktree that was never committed. The patch is kept
+out of the repository.
 
 ---
 
-## 1. The defect, end to end
+## 1. The defects, end to end
 
 The model client is mocked; everything else is real code.
 
@@ -33,9 +48,32 @@ The model client is mocked; everything else is real code.
 `check["message"]`. `orchestration.py` L99–101 quotes that text verbatim as the
 stated reason for a routing decision.
 
-**This is the direction that matters.** §4.4.1 failed closed: answers got worse,
-but no wrong number reached anyone. §4.4.2 fails **open**: a fabricated figure
-reaches a user and a routing reason.
+### 1.1 Severity: the defects here do not share a category
+
+§4.4.1 was accepted as a quality defect **because it fails closed**: a genuine
+citation is wrongly rejected, the user gets the fallback, and nothing false
+reaches anyone. Most of what this inventory found fails **open**, which is a
+different kind of problem. Ranked:
+
+| # | defect | direction | what reaches a user | category |
+|---|---|---|---|---|
+| 1 | **Cross-flag grounding pool.** `allowed` is the union over every triggered flag, so flag A's line is checked against flag B's figures. | **open** | A **fabricated** figure in flag A that happens to equal a real figure of flag B. Measured: R1 + R4, *"LTA exceeds **50%** of CTC"* (real 10%), served. | **Guard failure.** No figure may escape without a deterministic source, and this one has none. It is the guard's core failure, reopened by the check's **scope**, not by a missing check. |
+| 2 | **Swapped lines**, the same pool seen differently. Lines map to flags by index. | **open** | Real figures attached to the **wrong flag**. Measured: R1 → *"LTA exceeds 10% of CTC"*, served and quoted as the reason for a High-severity routing. | **Guard failure** (misattribution). Every number is real; the claim it is attached to is false. |
+| 3 | **Citation digits in `allowed`** (§4.4.2), at `flag_compliance` and `evaluate_band_guardrail`. | **open** | A fabricated figure equal to a citation digit: *"1 lakh"*, *"2% of basic"*, *"Rs 124"*. | **Guard failure.** |
+| 4 | **Fabricated citation whose digits equal a real figure of the same flag.** | **open** (and pre-existing) | A section never supplied: *"Section 50"* in R1's line, *"Section 14"* in the NPS cap line. Served by every figure-based variant, including `1dc895c` (§5.1). | **Citation fabrication.** A figure check cannot see it by construction (§4.7). |
+| 5 | `negotiate` lever citation (§2.3 item 5). | closed | The fallback instead of a correct answer. | Quality: §4.4.1 again. |
+| — | §4.4.1 itself, in `answer_query` | closed | fixed at `f6a3394` | Quality. |
+
+**Numbers 1 and 2 are not a wider version of §4.4.1, and this document's
+first version was wrong to present them that way.** So was the pointer
+`0e57895` added to R5 §4.4.2, which folded them into "the leak is wider than
+`flag_compliance`". The correction to that pointer is sequenced in §8.
+
+**Per-line scoping (§4.5) closes 1 and 2 on its own, whatever happens with
+citation stripping.** Once each line is checked only against its own flag's
+rationale, flag A cannot borrow flag B's figures. Measured in §5.1: both are
+rejected under every per-line variant and served under every union variant.
+That is why it goes first in §8.
 
 ## 2. Inventory
 
@@ -47,7 +85,12 @@ reaches a user and a routing reason.
 | `evaluate_band_guardrail` L734–736 | `_extract_numbers(rationale)`, union over failing checks | 0 | **no** |
 
 No other call site builds `allowed` from text. `explain_result`, `negotiate` and
-both `answer_query` paths build it from numeric values.
+both `answer_query` paths build it from numeric values (grep of every
+`allowed`/`allowed_numbers` construction in `ai_layer.py`).
+
+**Call sites that hand the model citation strings** are a different list, and
+decision 4 concerns it: `answer_query` (`applicable_sections`), `negotiate`
+(`changed_levers`), and the two rationale sites above.
 
 ### 2.2 Every rationale that reaches those two sites, and what it adds
 
@@ -72,244 +115,342 @@ what is left after stripping those references.
 
 1. **A second call site.** `evaluate_band_guardrail` has the same pattern, and
    its `epfo_ceiling` text carries the same citation as R5. §4.4.3 already
-   noted that nothing covers that rationale. *In scope.*
+   noted that nothing covers that rationale.
 2. **A citation no keyword-anchored grammar can recognise.** `80ccd2_cap` says
-   "Section 124 cap **(formerly 80CCD(2))**", with no "Section" keyword. Even
-   after stripping, 80 and 2 stay in `allowed`, and "cap of 2% of basic" still
-   passes. Every other citation in the codebase uses
-   "(formerly Section …)". *In scope* (§4.2).
-3. **An Act's year.** R1's "Code on Wages 2025" puts 2025 into `allowed`. The
-   repository also **contradicts itself** here: R1's own `instrument` field is
-   `Code on Wages, 2019 (Act 29 of 2019)`, and its `provision` says *"In force
-   21 Nov 2025"*. That is a legal-claim question, not a guard question.
-   *The guard half is open decision 1; the claim half is out of scope* (§7).
-4. **The union across flags, which is a separate defect.** `allowed` is the union
-   of every triggered rationale. A real figure from one flag therefore grounds a
-   fabricated figure in another, with no citation involved:
-
-   | fired | rephrasing | `1dc895c` | citation fix only | + per-line grounding |
-   |---|---|---|---|---|
-   | R1 + R5 | "Basic salary is below **17%** of CTC." | served | rejected | rejected |
-   | R1 + R5 | "Basic salary is below **7.5%** of CTC." | served | **served** | rejected |
-   | R1 + R4 | "LTA exceeds **50%** of CTC." (real: 10%) | served | **served** | rejected |
-
-   **And it hides reordered lines.** Lines map to flags by index. With R1 + R4
-   firing and the model returning the two lines in swapped order, `1dc895c`
-   serves both, measured:
-
-   ```
-   R1 -> LTA exceeds 10% of CTC.
-   R4 -> Basic salary is below 50% of CTC.
-   ```
-
-   `orchestration.py` would then give *"R1 (High) — LTA exceeds 10% of CTC."* as
-   the reason for a High-severity routing decision. Grounding each line against
-   its own rationale rejects this, because 10 is not in R1's figures. *Open
-   decision 2.*
+   "Section 124 cap **(formerly 80CCD(2))**", with no "Section" keyword. Every
+   other citation in the codebase uses "(formerly Section …)". See §4.2.
+3. **An Act's year.** R1's "Code on Wages 2025" puts 2025 into `allowed`. R1's
+   own `instrument` field says **2019**. That conflict is already an open
+   question for the CA: `docs/CA_REVIEW_PACKET.md` L100, deliberately left in
+   the emitted text for the CA to rule on. See §4.6.
+4. **The cross-flag pool and swapped lines.** Severity 1 and 2 in §1.1.
 5. **A third §4.4.1-shaped instance.** `negotiate()` is wired in
    (`pipeline.py` L152). It hands the model the lever text
    `"NPS enrollment (Section 124, formerly 80CCD2)"`, and its prompt says to
-   reference levers *"by name"*. Its guard uses the default `skip_below=100`, so
-   a reply naming that lever trips on 124 and falls back. Passing
-   `citations=changed_levers` fixes it (measured: True → False). Fails closed.
-   *Open decision 3.*
+   reference levers *"by name"*. Measured: a reply naming that lever is rejected
+   at `1dc895c`, and served once `citations=changed_levers` is passed.
 
 ### 2.4 The suite cannot see any of this
 
-Both prototype variants in §5 ran the full suite at **485 OK**: the same count
-and the same result as `1dc895c`. So no existing test covers the leak, the
-second call site, the cross-flag case or the reordered lines. Nothing would
-notice the fix if it were reverted. §6 is not optional.
+Three prototype runs of the full suite have now been green: two variants at
+`1dc895c` (485 OK) and the revision-2 combination at `0e57895` (491 OK, §5.3).
+No existing test covers the leak, the second call site, the cross-flag pool,
+swapped lines, or fabricated citations. Nothing would notice any fix here being
+reverted. §6 is not optional.
 
 ## 3. Why the §4.4.1 mechanism alone does not close this
 
 `citations=` changes the **candidate** side. It stops a supplied reference from
 counting as a figure in the model's reply. Here the defect is on the
 **`allowed`** side: the allowed set is built by `_extract_numbers` from the same
-text that contains the citation. Passing `citations=` to these two sites
-without changing how `allowed` is built changes nothing, because every
-citation digit is already in `allowed`.
+text that contains the citation. Passing `citations=` without changing how
+`allowed` is built changes nothing, because every citation digit is already in
+`allowed`.
 
-## 4. Options, measured
+## 4. Options and mechanism
 
 ### 4.1 Rejected: strip citations from the `allowed` side only
 
-This keeps citation digits out of `allowed` but still checks them in the reply.
 Measured: the correct R5 rephrasing *"…taxable under Section 17(1)(h)"* is
-**rejected**. It trades a fail-open defect for a fail-closed one on every
-correct citation. That is §4.4.1 recreated at two more call sites.
+**rejected**. That is §4.4.1 recreated at two more call sites.
 
 ### 4.2 Rejected: add "formerly" to the reference grammar
 
-This would recognise "(formerly 80CCD(2))" as it stands. Measured: it also
-parses *"14% of basic (formerly **10**% under the old rule)"* as the reference
-`formerly 10`, and would exempt a real figure. Every existing keyword names
-a kind of legal provision; "formerly" doesn't, and can come before anything.
-
-**Chosen instead: correct the text** to "(formerly Section 80CCD(2))", the form
-`applicable_sections`, R5 and the `epfo_ceiling` rationale already use. That
-changes emitted text, so it gets its own commit (§8). Checked: no fixture, CA
-packet or review queue contains that string. `FINOS_PROJECT_BRIEF.md` L157 and
-L327 mention 80CCD(2) in prose but don't quote this rationale.
+Measured: it parses *"14% of basic (formerly **10**% under the old rule)"* as
+the reference `formerly 10`, and would exempt a real figure. **Chosen instead:
+correct the text** to "(formerly Section 80CCD(2))". That changes emitted text,
+so it gets its own commit. Checked: no fixture, CA packet or review queue
+contains the old string.
 
 ### 4.3 Rejected for now: take citations out of rationale text entirely
 
-`Rule` already has `provision` and `instrument` fields. The rationale could hold
-only figures, with citations shown from those fields. That is the root fix, and
-it is recorded as the long-term direction. It is rejected **here** because it
-rewrites user-facing and reviewer-facing text, regenerates both reviewer
-artefacts, and lands in the middle of the R5 propagation, which is changing
-that same text right now. The guard does not need it.
+`Rule.provision` and `Rule.instrument` already exist. Rationales could hold only
+figures, with citations shown from those fields. That is the root fix, recorded
+as the long-term direction. It is rejected here because it rewrites
+user-facing and reviewer-facing text that is under CA review (§2.3 item 3). The
+guard does not need it.
 
 ### 4.4 Rejected: declare each rule's allowed figures explicitly
 
-For example `Rule.figures = {7.5}`. That is a second source of truth next to
-the rationale, and it would drift the first time someone edits a rationale.
-That is the failure this repository keeps finding.
+A second source of truth next to the rationale, which would drift on the first
+edit.
 
-### 4.5 Chosen: strip on both sides, using the rationales as the supplied citations
+### 4.5 Chosen: per-flag scope; strip only references that flag supplied
 
-For the rationales that reach a call site:
+**Which of the two readings this is.** Review drew the line between
+**(a)** stripping anything citation-shaped, unconditionally, which would exempt
+a hallucinated "Section 999", and **(b)** exempting only citations present in
+the real grounding for that flag. **This is (b).** It was not (a) in the first
+version either, but the first version was (b) with a batch-wide scope, and
+§5.1 shows what that let through.
+
+For each line, and its flag only:
 
 ```
-allowed   = figures of each rationale, with the references in those rationales removed
-candidate = checked with citations=those same rationales
+allowed(line)   = figures of that flag's rationale, with that rationale's own references removed
+candidate(line) = checked with citations=[that flag's rationale]
 ```
 
-It needs no new list: the rationale is already both the source of figures and
-the source of citations. It reuses `_strip_supplied_citations` and
-`_CITATION_REFERENCE` unchanged. Instrument years (decision 1) extend what that
-function recognises.
+A reference in the reply is removed before figure extraction **only if** it is
+in citation position (`Section|Schedule|Rule|Form|Sl. No.` plus a designator)
+**and** the same (keyword, designator) pair occurs in **this flag's** rationale.
+A reference that was never supplied is not removed, and its digits are checked
+as figures.
 
-**It can never accept a line that `1dc895c` rejects.** Proof:
-- A token is stripped from the candidate only if it is a reference found in a
-  supplied rationale. Every digit in such a reference was extracted from that
-  rationale, so it is already in today's `allowed`.
-- Every number that is *not* stripped is checked against the new `allowed`,
-  which is a subset of today's.
-- So every accepted line was also accepted on `1dc895c`.
+**Two precisions about "grounding", so this is not read as more than it is:**
 
-The change can only remove false acceptances. Any new rejection is a
-fail-closed quality cost, and §5 lists the ones that were measured.
+1. **For these call sites, the grounding is the flag's rationale string, not a
+   structured field.** The rationale is deterministic: `compliance_rules.py` for
+   rules, f-strings in `ai_layer.py` for guardrail checks. The model cannot
+   write to it, and it is the exact text served as the fallback. The guardrail
+   checks have no structured provision record at all. Where rules do have one,
+   it can disagree with the rationale (R1). Checking a rationale's citation
+   against structured data is citation correctness, which is the CA packet's
+   job, not the guard's.
+2. **The first version's prototype A scoped "supplied" to the batch.** R5's
+   citations were therefore exempt in R1's line. Measured in §5.1: R1's line
+   citing *"Section 17(1)(h)"* was served under A, and rejected under per-line
+   scoping.
 
-For a citation form the grammar does not recognise, the digits stay in both
-`allowed` and the candidate. That is exactly today's behaviour, so an
-unrecognised form means a leak that isn't closed, never a new false rejection.
-§6 adds a test that makes such forms visible instead of silent.
+**Guarantee: never accepts a line `1dc895c` rejects.** Proof, for per-line
+scope, the membership check (§4.7), and no year mechanism or the "agree" year
+mechanism (§4.6):
+- A token is removed from a line only if it is a reference in that flag's own
+  rationale. Every digit in it was extracted from that rationale, so it is in
+  today's union `allowed`.
+- Every number that is not removed is checked against that flag's own set,
+  which is a subset of today's union.
+- The membership check only adds rejections.
 
-## 5. Measured costs and residuals
+**This guarantee fails for the "structured" year mechanism.** It was measured
+to accept a line `1dc895c` rejects (§4.6).
 
-Prototype A is the citation fix with the text correction and instrument years,
-keeping the union. Prototype B is A plus per-line grounding. Both: **485 OK**.
+### 4.6 Act years: three mechanisms, measured
 
-| case | `1dc895c` | A | B |
+| mechanism | exempts (name, year) when… | R1: *"…Code on Wages 2025 requires"* (pinned legitimate) | R1: *"Rs 2,025 short"* (fabricated) | R1: *"…Code on Wages 2019 requires"* | guarantee §4.5 |
+|---|---|---|---|---|---|
+| `1dc895c` (none) | never | served | **served** | rejected | — |
+| **text** (first version) | the pair occurs in this flag's rationale text | served | rejected | rejected | holds |
+| **structured** (review's safe reading) | the pair matches this rule's `instrument` field | served | **served** | **served** | **fails** |
+| **agree** | the pair occurs in the rationale **and** matches `instrument` | served | **served** | rejected | holds |
+
+- **text** takes the year the prose states and never checks it against the
+  record. That is pattern-matching standing in for verification, as review
+  warned. Not recommended.
+- **structured** is the reading review approved conditionally. Measured, it
+  does two things review did not intend. It **accepts a line `1dc895c`
+  rejects**: "2019" is exempted because a record the model was never shown
+  contains it. And it **does not close the "Rs 2,025" leak**, because 2025 is
+  not in the record, so it is never stripped from R1's rationale and stays in
+  `allowed`.
+- **agree** keeps the guarantee, but **exempts nothing today**. The only
+  instrument year in any rationale is R1's, and R1's text and record disagree.
+
+**Recommendation (revised from "yes"): build no year mechanism now.** The only
+safe form is a no-op until the CA rules on packet question R1. Under per-line
+scope, the "Rs 2,025" leak is confined to R1's own line. It is recorded in §9
+and tied to that question. If R1's text is corrected to agree with its record,
+**agree** becomes the mechanism to build.
+
+### 4.7 Added in revision 2: a supplied-citation check
+
+Stripping supplied references stops correct citations being rejected. It does
+nothing about a **fabricated** citation whose digits happen to be grounded.
+*"Section 50"* in R1's line survives because 50 is R1's real floor, and
+*"Section 14"* in the NPS line survives because 14% is the real cap. A figure
+check cannot catch these by construction: the digits are genuinely grounded.
+What is false is the citation.
+
+**The check:** reject a line if it contains any reference, in the same grammar,
+that is not among that flag's supplied references. It reuses
+`_CITATION_REFERENCE` and `_citation_key`.
+
+It enforces what each prompt already demands:
+- `QUERY_EXPLAIN_SYSTEM_PROMPT`: *"Do not cite any section not present in that list"*.
+- `GUARDRAIL_SYSTEM_PROMPT`: no *"section number that is not already present in
+  the rationale"*.
+- `COMPLIANCE_SYSTEM_PROMPT`: *"do not add numbers"*, *"do not give legal advice
+  beyond what's in the rationale"*.
+
+It also closes the gap `QUERY_GUARD_CITATION_DESIGN.md` §7 left open:
+unsupplied citations below 100 in `answer_query`.
+
+**Limit:** a reference the grammar does not parse ("s. 17(1)(h)", "Sec. 124",
+plurals) is not membership-checked, and falls back to the figure check. That
+fails open only when its digits are grounded, which is the same residual as
+today, now confined to unparsed forms.
+
+## 5. Measured
+
+### 5.1 The distinguishing test: fabricated citations never supplied
+
+Driven through the real `flag_compliance` / `evaluate_band_guardrail`, with the
+model client mocked. Modes:
+
+- **A**: first version, batch scope, text years.
+- **B**: per-line scope, text years.
+- **Bs**: per-line, structured years.
+- **Bsr**: Bs plus the membership check.
+- **Bar**: per-line, agree years, membership check.
+
+**A first run of this table was invalid and was discarded.** zsh did not
+word-split the mode variable, every prototype apply failed silently, and all
+columns measured unpatched code. The re-run confirms each apply by diff size
+before measuring.
+
+| case | `1dc895c` | A | B | Bs | Bsr | Bar |
+|---|---|---|---|---|---|---|
+| **controls** | | | | | | |
+| R5 correct citation (supplied) | served | served | served | served | served | served |
+| `80ccd2_cap` correct citation, corrected text | served | served | served | served | served | served |
+| R1 pinned legitimate *"Code on Wages 2025 requires"* | served | served | served | served | served | served |
+| **fabricated / unsupplied citations** | | | | | | |
+| R5: *"Section 999"* | rejected | rejected | rejected | rejected | rejected | rejected |
+| R5: unsupplied *"Section 17(1)(i)"* | **served** | rejected | rejected | rejected | rejected | rejected |
+| R5: unsupplied *"Section 17(2)(viia)"* | **served** | rejected | rejected | rejected | rejected | rejected |
+| R1 + R5: R1's line cites **R5's** *"Section 17(1)(h)"* | **served** | **served** | rejected | rejected | rejected | rejected |
+| R1: *"Section 50"* (digits = R1's own real 50) | **served** | **served** | **served** | **served** | rejected | rejected |
+| `80ccd2_cap`: *"Section 80CCD(3)"* | rejected | rejected | rejected | rejected | rejected | rejected |
+| `80ccd2_cap`: *"Section 125"* | rejected | rejected | rejected | rejected | rejected | rejected |
+| `80ccd2_cap`: *"Section 14"* (digits = real 14%) | **served** | **served** | **served** | **served** | rejected | rejected |
+| `epfo_ceiling`: unsupplied *"Section 17(1)(i)"* | **served** | rejected | rejected | rejected | rejected | rejected |
+| **years** | | | | | | |
+| R1: *"Rs 2,025 short"* | **served** | rejected | rejected | **served** | **served** | **served** |
+| R1: *"Code on Wages 2019"* | rejected | rejected | rejected | **served** | **served** | rejected |
+| R1: *"Code on Wages 2031"* | rejected | rejected | rejected | rejected | rejected | rejected |
+| **cross-flag (severity 1, 2)** | | | | | | |
+| R1 + R4: R4's line *"50% of CTC"* (real 10%) | **served** | **served** | rejected | rejected | rejected | rejected |
+| R1 + R4: lines swapped | **served** | **served** | rejected | rejected | rejected | rejected |
+
+**The answer to the distinguishing question.** The mechanism is (b), never (a),
+and *"Section 999"* is rejected everywhere. But a figure-based guard **also**
+serves a fabricated section whose digits are grounded, in every mode without
+the membership check, `1dc895c` included. A fix that stopped at citation
+stripping, even correctly scoped, would have left that gap and passed the
+review test as first posed. Only **Bar**'s choices (per-line scope, agree
+years, membership check) reject every fabrication in the table while keeping
+the §4.5 guarantee. The only thing it still serves is "Rs 2,025" (§4.6).
+
+### 5.2 The other two citing call sites, with the membership check
+
+| call site | reply | `1dc895c` | per-line + membership + `negotiate` wiring |
 |---|---|---|---|
-| R5: "1 lakh", "2 lakh", "17 thousand rupees" (fabricated) | served | rejected | rejected |
-| R1: "Rs 2,025 short of the floor" (fabricated) | served | rejected | rejected |
-| R1: *"…the 50% floor the Code on Wages 2025 requires"* (pinned as legitimate by `test_finos` and `test_output_boundary`) | served | served | served |
-| R1: "below 35% of CTC" (existing test) | rejected | rejected | rejected |
-| cross-flag and reordered lines (§2.3 item 4) | served | **served** | rejected |
-| `80ccd2_cap`: model drops the keyword, "(formerly 80CCD(2))", after the text fix | served | **rejected** | **rejected** |
+| `answer_query` | *"…under Section 392 (formerly Section 192)."* (supplied) | served | served |
+| `answer_query` | *"You can also claim Section 80C for your PF."* (unsupplied) | **served** | rejected |
+| `answer_query` | *"…falls under Section 16."* (unsupplied) | **served** | rejected |
+| `negotiate` | names the lever *"NPS enrollment (Section 124, formerly 80CCD2)"* | **rejected** | served |
+| `negotiate` | *"…ask HR about Section 80C investments…"* (unsupplied) | **served** | rejected |
 
-**Residual costs, all fail-closed:**
+### 5.3 Full suite on the recommended combination
 
-- **A citation copied without its keyword** is rejected, as in the last row.
-  The model is given the corrected text, so copying it exactly passes.
-- **The check id `80ccd2_cap` is sent to the model** inside the JSON. If the
-  model repeats "80ccd2", 80 and 2 are checked and the line is rejected. Today
-  that passes. Not measured on live output.
+Per-line scope, membership check at all four citing call sites, `negotiate`
+passing `citations=`, the `80ccd2_cap` text correction, no year mechanism.
+Applied at `0e57895`: **491 OK**, the same count and the same result as that
+commit. Every changed behaviour in §5.1 and §5.2 is invisible to the existing
+suite.
+
+### 5.4 Residual costs, all fail-closed unless marked
+
+- **A citation copied without its keyword** ("(formerly 80CCD(2))" after the
+  text fix) is rejected.
+- **The check id `80ccd2_cap` is sent to the model.** If the model repeats
+  "80ccd2", the line is rejected. Not measured on live output.
+- **A true but unsupplied citation is rejected** by the membership check, for
+  example a correct "Section 16" added by the model in `answer_query`. The
+  prompts already forbid this.
 - **Reordering is caught only when figures differ.** Two figure-free rules (R3
-  and R6) swapped still go through under B.
-- The residuals from `QUERY_GUARD_CITATION_DESIGN.md` §4 still apply: plural
-  and abbreviated forms of a reference are not recognised.
+  and R6) swapped still get through. *Fails open.*
+- **Unparsed reference forms** ("s. 17(1)(h)", plurals) whose digits are
+  grounded still get through. *Fails open.*
+- **"Rs 2,025" in R1's line** still gets through (§4.6). *Fails open.*
 
 ## 6. Tests required
 
-Both directions for every case, per the project's standing pattern:
+Every row in §5.1 and §5.2 becomes a test at its real call site, asserting the
+**Bar** column, or the right-hand column of §5.2. In addition:
 
-1. **One test per leak** in §2.2: a fabricated figure equal to a citation digit
-   is rejected, and the correct citation next to it is served. Covers R5,
-   `epfo_ceiling`, `80ccd2_cap` and R1's year. The two guardrail rationales get
-   their first coverage of any kind (§4.4.3).
-2. **Pin the corrected text:** `80ccd2_cap`'s rationale contains
+1. **Pin the corrected text:** `80ccd2_cap`'s rationale contains
    "(formerly Section 80CCD(2))".
-3. **A data-driven coverage test** over every active rule rationale and every
-   rendered guardrail rationale. No parenthesised designator (the
-   `80CCD(2)` / `17(1)(h)` shape) may sit outside a recognised reference. This
-   is the test that would have caught §2.3 item 2. Because it walks
-   `active_rules()`, it covers a new rule automatically, the same way
-   `ai_backed` works for the boundary check.
-4. **The subset property of §4.5**, asserted over the same inputs: the new
-   `allowed` is a subset of the old.
-5. **If decision 2 is yes:** the cross-flag case and the reordered-lines case,
-   each rejected.
-6. **If decision 3 is yes:** `negotiate` serves a reply that names the NPS lever.
-7. **The existing pinned legitimate rephrasing** (*"Code on Wages 2025
-   requires"*) must stay green without being edited.
+2. **A data-driven coverage test** over every active rule rationale and every
+   rendered guardrail rationale: no parenthesised designator (the `80CCD(2)` /
+   `17(1)(h)` shape) may sit outside a recognised reference. It walks
+   `active_rules()`, so a new rule is covered automatically.
+3. **The §4.5 guarantee as a property:** for each flag, the per-line `allowed`
+   is a subset of the old union.
+4. **The existing pinned legitimate rephrasing** (*"Code on Wages 2025
+   requires"*) stays green without being edited.
+5. **The two guardrail rationales** get their first coverage of any kind
+   (§4.4.3).
 
-**Sabotage, one run per claim, predicted before running:**
+**Sabotage, one run per claim, failures predicted before running:**
 
 | sabotage | should fail |
 |---|---|
-| build `allowed` from unstripped rationales | tests in item 1 (fabricated figures) |
-| drop `citations=` at either call site | tests in item 1 (correct citations), at that call site |
-| revert the `80ccd2_cap` text | items 2 and 3 |
-| go back to the union | item 5 |
-| unwire `negotiate` | item 6 |
+| go back to the batch-wide union | the cross-flag and swapped-lines tests, and the R1-cites-R5's-citation test |
+| build `allowed` from unstripped rationales | the citation-digit leak tests ("1 lakh", "2%", "Rs 124") |
+| drop `citations=` at a rationale site | the correct-citation controls at that site |
+| remove the membership check | the "Section 50", "Section 14", "Section 80C" and "Section 16" tests |
+| make stripping ignore the supplied set (option (a)) | the unsupplied "17(1)(i)" and "17(2)(viia)" tests |
+| revert the `80ccd2_cap` text | the pin and the coverage test |
+| unwire `negotiate` | the `negotiate` lever test |
 
-## 7. Open decisions
+## 7. Decisions
 
-1. **Instrument years:** strip "Code on Wages 2025"-style references too?
-   **Recommendation: yes.** Instrument names would come from the rules'
-   `instrument` fields (currently `Code on Wages`, `Income-tax Act`), not a
-   hand-written list. Prototype A does this and stays at 485 OK. Leaving it out
-   would make this fix knowingly partial, which is the mistake `1dc895c` had to
-   record. **This is not an endorsement of the year.** The R1 rationale's 2025
-   against its `instrument` field's 2019 goes to the legal-claim inventory and
-   the CA packet, not here.
-2. **Per-line grounding:** include it in this series? **Recommendation: yes, as
-   its own behavioural commit after the citation fix.** It is a different cause
-   (real figures, not citations) in the same two loops. Its strongest
-   justification is the reordered-lines case, which is a correctness defect in
-   routing reasons, not just a looser guard. Prototype B passes the suite.
-3. **`negotiate`:** include the one-line `citations=changed_levers` in this
-   series? **Recommendation: yes, as its own commit.** It is the §4.4.1 defect
-   again, found by this inventory. Leaving a known instance for a third pass is
-   how the last one happened.
+Recorded 2026-09-14 from review of `54e139f`:
+
+1. **Per-line grounding: approved.** It closes severity 1 and 2 at their source,
+   whatever happens with citation logic.
+2. **Include `negotiate`: approved.** The flaw is structural, so it is fixed at
+   every call site that has it, found by inventory rather than by report.
+3. **Act years: approved on the condition that the mechanism uses the structured
+   instrument data.** Revision 2 measured that mechanism (§4.6): it breaks the
+   §4.5 guarantee and does not close R1's leak. **Needs a decision again.**
+   Recommendation: build no year mechanism now, and revisit when the CA rules
+   on packet question R1.
+4. **New: the supplied-citation check (§4.7), at all four citing call sites.**
+   **Needs a decision.** Recommendation: yes. Without it, every figure-based
+   design serves a fabricated citation whose digits are grounded. At
+   `answer_query` it changes behaviour shipped at `f6a3394`, so it gets its own
+   commit there.
 
 ## 8. Sequencing
 
-Separate commits, in order. The baseline is re-measured when implementation
-starts: `485` now, and the concurrent R5 step 6 may change it.
+Ordered by severity. Each commit leaves the suite green. The baseline is
+re-measured at the start (491 at `0e57895`; the concurrent R5 steps 7a/7b may
+have changed it).
 
-1. **This document.**
-2. **Structural:** a `_grounded_figures(rationales)` helper, and instrument-year
-   references in `_strip_supplied_citations` (decision 1). No call site changes.
-   `answer_query` is unaffected because its supplied list contains no instrument
-   names, so the stripping is a no-op there; a test pins that. Unit tests for
-   both.
-3. **Behavioural, emitted text:** `80ccd2_cap` → "(formerly Section 80CCD(2))",
-   plus tests 2 and 3.
-4. **Behavioural:** both call sites build `allowed` with `_grounded_figures` and
-   pass `citations=`. Tests 1, 4 and 7.
-5. **Behavioural** (decision 2): per-line grounding. Test 5.
-6. **Behavioural** (decision 3): `negotiate` passes `citations=`. Test 6.
-7. **Documentation:** a back-pointer in R5 §4.4.2. **Written only after the
-   concurrent step-6 commit lands**, as agreed with that session, since both
-   write that file.
+1. **This document**, revision 1 (`54e139f`) and revision 2.
+2. **Structural:** helpers for per-flag grounded figures and the membership
+   check. No call site changes; unit tests only.
+3. **Behavioural, severity 1–2:** per-line scope at `flag_compliance` and
+   `evaluate_band_guardrail`. On its own this closes the cross-flag pool and
+   swapped lines. Citation digits still leak within a flag at this step.
+4. **Behavioural, emitted text:** `80ccd2_cap` → "(formerly Section
+   80CCD(2))", plus the pin and the coverage test.
+5. **Behavioural, severity 3:** per-flag citation stripping at both rationale
+   sites.
+6. **Behavioural, severity 4** (decision 4): the membership check at both
+   rationale sites.
+7. **Behavioural, severity 5:** `negotiate` passes `citations=`, plus the
+   membership check if decision 4 is yes.
+8. **Behavioural** (decision 4): the membership check at `answer_query`.
+9. **Documentation:** correct R5 §4.4.2's pointer (`0e57895`), which folds the
+   cross-flag pool into "the leak is wider". Coordinated with the concurrent
+   session, which owns edits to that file.
 
 Full suite after every step, deltas named test by test, `python3 -B` with the
-cache cleared. Suite runs happen in a worktree, and each one is announced to the
-concurrent session first because the Postgres database is shared.
+cache cleared. Runs happen in a worktree, gated by a "request run" / "go"
+exchange with the concurrent session over the shared Postgres.
 
 ## 9. What this does not settle
 
-- **The R1 year conflict** (§2.3 item 3). A citation-correctness question.
+- **The R1 year.** Its text/record conflict is CA packet question R1
+  (`docs/CA_REVIEW_PACKET.md` L100). Until that is ruled on, "Rs 2,025" in R1's
+  own line still gets through (§4.6).
 - **The output-boundary layer has the same shared-namespace problem.**
   `output_boundary.figures()` strips identifier tokens, not references.
   `test_a_legitimate_rephrasing_passes_both_layers` passes only because its
   payload adds `"metrics": {"year": 2025}`, which grounds the citation's year by
-  hand. That is made-up grounding inside a test of the grounding checker.
-  Recorded, not fixed.
+  hand: made-up grounding inside a test of the grounding checker.
 - **Citations inside rationale text** (§4.3): the root fix, deferred.
-- **Reordering figure-free flags** (§5): still undetected.
+- **Figure-free reordering and unparsed reference forms** (§5.4).
