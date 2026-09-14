@@ -402,16 +402,16 @@ Recorded 2026-09-14 from review of `54e139f`:
    whatever happens with citation logic.
 2. **Include `negotiate`: approved.** The flaw is structural, so it is fixed at
    every call site that has it, found by inventory rather than by report.
-3. **Act years: approved on the condition that the mechanism uses the structured
-   instrument data.** Revision 2 measured that mechanism (§4.6): it breaks the
-   §4.5 guarantee and does not close R1's leak. **Needs a decision again.**
-   Recommendation: build no year mechanism now, and revisit when the CA rules
-   on packet question R1.
-4. **New: the supplied-citation check (§4.7), at all four citing call sites.**
-   **Needs a decision.** Recommendation: yes. Without it, every figure-based
-   design serves a fabricated citation whose digits are grounded. At
-   `answer_query` it changes behaviour shipped at `f6a3394`, so it gets its own
-   commit there.
+3. **Act years: deferred** (decided 2026-09-14, after revision 2). Approved
+   first on the condition that the mechanism uses the structured instrument
+   data. Revision 2 measured that mechanism (§4.6): it breaks the §4.5
+   guarantee and does not close R1's leak. No year mechanism is built. Revisit
+   when the CA rules on packet question R1; if R1's text and record then agree,
+   **agree** is the mechanism to build. Until then, "Rs 2,025" in R1's own line
+   still gets through (§9, and the gap table in `docs/PROJECT_STATUS.md`).
+4. **The supplied-citation check (§4.7), at all four citing call sites:
+   approved** (2026-09-14). At `answer_query` it changes behaviour shipped at
+   `f6a3394`, so it gets its own commit there.
 
 ## 8. Sequencing
 
@@ -419,24 +419,34 @@ Ordered by severity. Each commit leaves the suite green. The baseline is
 re-measured at the start (491 at `0e57895`; the concurrent R5 steps 7a/7b may
 have changed it).
 
-1. **This document**, revision 1 (`54e139f`) and revision 2.
-2. **Structural:** helpers for per-flag grounded figures and the membership
-   check. No call site changes; unit tests only.
+**Corrected 2026-09-14, before implementation started.** Revision 2 put a
+structural helper commit (step 2) ahead of per-line scoping. Per-line scoping
+needs no helper: it only narrows two existing expressions from the batch union
+to each line's own rationale. A helper with no caller at that point would be
+surface nobody uses. The helpers now come immediately before the steps that
+use them, and step 3 is next after this document. The year mechanism is
+removed from the plan (decision 3).
+
+1. **This document**: revision 1 (`54e139f`), revision 2 (`3b1ab62`), and this
+   decision record.
+2. ~~Structural helpers~~: moved to 4a and 6a.
 3. **Behavioural, severity 1–2:** per-line scope at `flag_compliance` and
    `evaluate_band_guardrail`. On its own this closes the cross-flag pool and
    swapped lines. Citation digits still leak within a flag at this step.
-4. **Behavioural, emitted text:** `80ccd2_cap` → "(formerly Section
+4. **Structural (4a):** a per-flag grounded-figures helper that strips that
+   flag's own references, with unit tests and the §6 item 3 subset property.
+   No call site changes.
+   **Behavioural, emitted text (4b):** `80ccd2_cap` → "(formerly Section
    80CCD(2))", plus the pin and the coverage test.
 5. **Behavioural, severity 3:** per-flag citation stripping at both rationale
    sites.
-6. **Behavioural, severity 4** (decision 4): the membership check at both
-   rationale sites.
+6. **Structural (6a):** the membership-check helper, with unit tests.
+   **Behavioural, severity 4 (6b):** the membership check at both rationale
+   sites.
 7. **Behavioural, severity 5:** `negotiate` passes `citations=`, plus the
-   membership check if decision 4 is yes.
-8. **Behavioural** (decision 4): the membership check at `answer_query`.
-9. **Documentation:** correct R5 §4.4.2's pointer (`0e57895`), which folds the
-   cross-flag pool into "the leak is wider". Coordinated with the concurrent
-   session, which owns edits to that file.
+   membership check.
+8. **Behavioural:** the membership check at `answer_query`.
+9. ~~Documentation: correct R5 §4.4.2's pointer~~: done in `dec893f`.
 
 Full suite after every step, deltas named test by test, `python3 -B` with the
 cache cleared. Runs happen in a worktree, gated by a "request run" / "go"
