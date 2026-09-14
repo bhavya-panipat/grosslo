@@ -358,5 +358,63 @@ class TestAFabricatedCitationIsRejectedEvenWhenItsDigitsAreReal(_Guards, unittes
             "The excess over Rs 7.5L is a taxable perquisite under section 17(1)(h)."))
 
 
+class TestNegotiateTreatsItsLeverNamesAsCitations(unittest.TestCase):
+    """
+    Step 7, severity 5 (design §2.3 item 5). negotiate()'s prompt says to name
+    the levers, and the NPS lever's name carries "Section 124". With the default
+    skip_below=100, that 124 was an ungrounded figure: every point naming the
+    lever was rejected (fail-closed, the §4.4.1 defect again). The levers are now
+    its supplied citations, and a point may cite nothing they do not.
+    """
+
+    # Low basic, no NPS: the recommendation changes basic, HRA and NPS.
+    CURRENT = SalaryStructure(ctc=1_800_000, basic=720_000, hra=288_000, lta=0,
+                              special_allowance=705_600, employer_pf=86_400,
+                              employer_nps=0, nps_opted=False)
+    NPS_LEVER = "NPS enrollment (Section 124, formerly 80CCD2)"
+
+    def _negotiate(self, text=None):
+        from optimizer import best_regime_for_given_structure, optimize
+        recommended = optimize(ctc=1_800_000, rent_paid=400_000, city="metro", nps_opted=True)["recommended"]
+        current_best = best_regime_for_given_structure(self.CURRENT, 400_000, "metro")
+        client = None
+        if text is not None:
+            response = Mock()
+            response.content = [Mock(text=text)]
+            client = Mock(messages=Mock(create=Mock(return_value=response)))
+        with patch("ai_layer._client", client):
+            return ai_layer.negotiate(self.CURRENT, current_best, recommended.structure,
+                                      recommended.regime, recommended.tax_breakdown, 1_800_000)
+
+    def test_the_fixture_changes_the_nps_lever_and_saves_money(self):
+        baseline = self._negotiate()
+        self.assertIn(self.NPS_LEVER, baseline["changed_levers"])
+        self.assertGreater(baseline["total_annual_saving"], 0)
+
+    def _saving(self):
+        return f"{self._negotiate()['total_annual_saving']:,.0f}"
+
+    def test_a_point_naming_the_nps_lever_is_served(self):
+        text = (f"You could ask HR to restructure your {self.NPS_LEVER}, part of how "
+                f"this recommendation reaches Rs {self._saving()} in annual savings.")
+        result = self._negotiate(text)
+        self.assertFalse(result["guard_triggered"])
+        self.assertTrue(result["ai_backed"])
+        self.assertEqual(result["points"], text)
+
+    def test_a_point_citing_a_section_no_lever_supplied_is_rejected(self):
+        result = self._negotiate(
+            f"You could ask HR about Section 80C investments, part of how this "
+            f"recommendation reaches Rs {self._saving()} in annual savings.")
+        self.assertTrue(result["guard_triggered"])
+        self.assertFalse(result["ai_backed"])
+
+    def test_control_an_invented_rupee_figure_is_still_rejected(self):
+        result = self._negotiate(
+            f"Restructuring your {self.NPS_LEVER} alone would save Rs 41,000 a year.")
+        self.assertTrue(result["guard_triggered"])
+        self.assertFalse(result["ai_backed"])
+
+
 if __name__ == "__main__":
     unittest.main()

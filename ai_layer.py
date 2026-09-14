@@ -992,7 +992,16 @@ def negotiate(current_structure: SalaryStructure, current_best: dict,
                 messages=[{"role": "user", "content": json.dumps(payload)}],
             )
             candidate = response.content[0].text.strip()
-            guard_triggered = _numbers_ungrounded(candidate, allowed_numbers)
+            # The prompt says to name levers, and one lever's name carries a
+            # citation: "NPS enrollment (Section 124, formerly 80CCD2)". Read
+            # as a figure, that 124 rejected every point naming the lever
+            # (RATIONALE_GUARD_CITATION_DESIGN.md §2.3 item 5, the §4.4.1
+            # defect again). So the levers are the supplied citations, and a
+            # point may cite nothing they do not.
+            guard_triggered = (
+                _numbers_ungrounded(candidate, allowed_numbers, citations=changed_levers)
+                or _citations_unsupplied(candidate, changed_levers)
+            )
             if not guard_triggered:
                 points = candidate
                 ai_backed = True
