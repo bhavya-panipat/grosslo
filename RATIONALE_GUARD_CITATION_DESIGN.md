@@ -498,3 +498,53 @@ tests and fail R's.
 **Still open after step 3, as planned:** citation digits leak *within* a flag
 (severity 3, step 5); fabricated citations with grounded digits (severity 4,
 step 6b); `negotiate` (step 7); the membership check at `answer_query` (step 8).
+
+### Step 4a: `_grounded_figures()` helper (`c987f50`)
+
+Structural: no call site uses it yet. It returns a rationale's figures with that
+rationale's own references removed.
+
+| run | result |
+|---|---|
+| `a98e83f` (previous step) | 501 OK |
+| `c987f50` | **510 OK**: +9, all in `tests/test_rationale_guard_citations.py` by test-ID diff |
+
+| sabotage | predicted to fail | failed |
+|---|---|---|
+| **S1.** The helper stops stripping (`set(_extract_numbers(rationale))`) | 4: `test_R5_keeps_its_ceiling_and_drops_its_section_digits`, `test_the_epfo_guardrail_keeps_its_amounts_and_drops_the_same_citation`, `test_a_keyworded_former_citation_is_dropped`, `test_a_figure_sharing_a_citations_digits_is_kept` | **5: the predicted 4, plus `test_a_former_citation_without_its_keyword_keeps_its_digits`** |
+| **S2.** The helper returns an empty set | 9 failures across 7 tests (two are subtests of `test_rules_without_citations_are_unchanged`, for R2 and R4); `test_every_rationale_grounds_a_subset_of_its_raw_numbers` **passes** | exactly as predicted |
+
+**S1's prediction was wrong by one, and the reason is worth keeping.** The
+keywordless-"formerly" test's text also contains the keyworded "Section 124".
+So it asserts two things: the unkeyworded 80CCD(2) keeps its digits, *and*
+Section 124 loses its digits. With stripping switched off, the second claim
+fails. The test is correct. The prediction read the test's name instead of
+its input.
+
+**S2 is why the keep-figure tests exist.** An empty set is a subset of
+everything, so the §6 item 3 property passed under a helper that grounded
+nothing. The property is necessary but not sufficient.
+
+### Step 4b: NPS cap rationale cites its former section with a keyword (`5060498`)
+
+Behavioural, emitted text: both `80ccd2_cap` branches now say "(formerly
+Section 80CCD(2))". The label and the rates are unchanged. Guard behaviour is
+unchanged until step 5.
+
+| run | result |
+|---|---|
+| `5060498` | **513 OK**: +3 by test-ID diff |
+
+| sabotage | predicted to fail | failed |
+|---|---|---|
+| **T1.** Revert both branches' text | 6: both branch subtests of `test_both_branches_use_the_keyworded_form`, `test_both_branches_ground_only_their_amounts_and_rate`, and `test_no_rationale_carries_a_designator_the_grammar_cannot_see` | exactly those 6 |
+| **T2.** Revert the passing branch only | the 3 passing-branch subtests | exactly those 3 |
+
+T2 shows each branch is pinned independently. A test that rendered only the
+failing branch, which is what the guard sees, would have missed a regression in
+the passing branch's text. That text is shown to users as the check's message.
+
+**Found while making the change, not fixed (out of scope):**
+`execution_trace.py` L58 still emits *"… Section 124 NPS cap (formerly
+80CCD(2))"* in a pipeline trace message. It is user-visible text in the old
+form, but it is not a rationale the guard grounds against.
