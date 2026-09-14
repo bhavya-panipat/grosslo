@@ -269,6 +269,25 @@ def _strip_supplied_citations(text: str, citations) -> str:
     )
 
 
+def _grounded_figures(rationale: str) -> set:
+    """
+    The figures a rephrasing of `rationale` may restate: its numbers, with its
+    own citation references removed first (RATIONALE_GUARD_CITATION_DESIGN.md
+    §4.5).
+
+    Built straight from R5's rationale, the allowed set was {7.5, 17, 1, 2}.
+    The last three are section digits from "Section 17(1)(h)", and they let an
+    invented "exceed the limit by 1 lakh" through. Only references are
+    removed. A figure that happens to share a citation's digits ("Rs 17 under
+    Section 17(1)(h)") keeps its 17.
+
+    Always a subset of set(_extract_numbers(rationale)), so grounding with this
+    can only reject more than before, never less. A citation form the grammar
+    does not recognise keeps its digits, which is exactly the old behaviour.
+    """
+    return set(_extract_numbers(_strip_supplied_citations(rationale, [rationale])))
+
+
 def _numbers_ungrounded(text: str, allowed_numbers: set, skip_below: float = 100,
                         citations=()) -> bool:
     """
