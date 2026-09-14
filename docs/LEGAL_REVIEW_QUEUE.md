@@ -43,21 +43,21 @@ A statutory claim nobody can check, because there is nothing to check against. U
 ### TE1 — New-regime income tax slab boundaries and rates: nil to Rs 4L, then 5/10/15/20/25% bands, 30% above Rs 24L.
 
 - **Where:** `tax_engine.NEW_REGIME_SLABS`
-- **Instrument:** Income-tax Act, 2025 (Act 30 of 2025) (in_force)
+- **Instrument:** Income-tax Act, 2025 (in_force)
 - **Provision:** _none recorded_
 - **Citation state:** _never attempted_
 
 ### TE2 — Old-regime income tax slab boundaries and rates: nil to Rs 2.5L, 5% to Rs 5L, 20% to Rs 10L, 30% above.
 
 - **Where:** `tax_engine.OLD_REGIME_SLABS`
-- **Instrument:** Income-tax Act, 2025 (Act 30 of 2025) (in_force)
+- **Instrument:** Income-tax Act, 2025 (in_force)
 - **Provision:** _none recorded_
 - **Citation state:** _never attempted_
 
 ### TE3 — Flat standard deduction from salary income: Rs 75,000 under the new regime, Rs 50,000 under the old.
 
 - **Where:** `tax_engine.STANDARD_DEDUCTION`
-- **Instrument:** Income-tax Act, 2025 (Act 30 of 2025) (in_force)
+- **Instrument:** Income-tax Act, 2025 (in_force)
 - **Provision:** _none recorded_
 - **Citation state:** _never attempted_
 
@@ -96,7 +96,7 @@ Someone tried and could not. Distinct from never having tried, and worse: it mea
 ### PE4 — Interest on TDS deducted but not deposited: 1.5% per month. The deducted-but-not-deposited case, not the failure-to-deduct case (which is 1%/month and is not what this module models).
 
 - **Where:** `penalty_exposure.TDS_201_1A_MONTHLY_RATE`
-- **Instrument:** Income-tax Act, 2025 (Act 30 of 2025) (in_force)
+- **Instrument:** Income-tax Act, 2025 (in_force)
 - **Provision:** s. 398(3) (formerly s. 201(1A) of the Income-tax Act, 1961) -- interest for failure to deposit tax already deducted.
 - **Citation state:** unresolved: penalty_exposure.py records that every rate was "independently verified against current sources" and names NONE of them. Note the wording against payroll_breakdown.py's, which says "re-verified live ... against a PRIMARY source" and names the document -- this file claims only "current sources", which does not assert a primary source and gives no trail to follow. Under the standing rule (INVENTORY_EXPANSION_DESIGN.md 5.1) that is evidence a check occurred, not something an independent party can redo. The instrument and provision below are recorded as the file itself states them. NOT backdated: nothing was looked up today and credited to the earlier check.
 
@@ -127,13 +127,6 @@ Someone tried and could not. Distinct from never having tried, and worse: it mea
 - **Instrument:** Code on Wages, 2019 (Act 29 of 2019) (in_force)
 - **Provision:** Code on Wages, 2019 (Act 29 of 2019), s. 2(y) — definition of "wages": all remuneration, including basic pay, dearness allowance and retaining allowance, excluding clauses (a) to (k). First proviso: if payments under clauses (a) to (i) exceed one-half, or such other per cent. as the Central Government may notify, of all remuneration, the excess is deemed remuneration and added to wages. COMMENCEMENT OF s. 2 IS NOT RECORDED HERE because it is not verified (see citation_checked_on). TO REDO THIS CHECK: open the source_url (India Code), choose Sections, open Section 2 "Definitions", and read clause (y) and its first proviso.
 - **Citation state:** unresolved: attempted 2026-09-14 against the primary source, India Code (indiacode.gov.in). VERIFIED: Act Number 29, enacted 08-08-2019; the text of s. 2(y) and its first proviso. NOT VERIFIED: the commencement of s. 2. India Code lists only a notification of 18 Dec 2020 (S.O. 4604(E)), which commenced parts of ss. 42, 67 and 69, not s. 2. So the Act is in force in part, and that is what instrument_status records -- it is an Act-level fact and does NOT establish that the provision this rule cites is in force (checking at Act granularity and reporting at provision granularity; R5_CITATION_PROPAGATION_DESIGN.md SS1.1). Also not checked: whether any other percentage was notified. Replaces the 2026-09-09 record, whose reason -- no primary source reachable -- is no longer true; see docs/PRIMARY_SOURCE_LOOKUP_TASK.md.
-
-### TE4 — Employer NPS contribution deductible as a percentage of basic: 14% under the new regime, 10% under the old.
-
-- **Where:** `tax_engine.NPS_80CCD2_CAP_PCT`
-- **Instrument:** Income-tax Act, 2025 (Act 30 of 2025) (in_force)
-- **Provision:** Income-tax Act, 2025, s. 124(1)(b), read with s. 124(2) and s. 124(13)(b) -- the employer's contribution to the notified pension scheme is deductible in computing total income up to 10% of salary (14% where the employer is the Central or a State Government, s. 124(1)(a)); under s. 202(1), the new tax regime, the 10% is read as 14% (s. 124(2)); 'salary' includes dearness allowance where the terms of employment so provide (s. 124(13)(b)). Formerly s. 80CCD(2) of the Income-tax Act, 1961. TO REDO THIS CHECK: open the source_url, search the section list for 124, press Compare, and add Income-tax Act, 1961 section 80CCD.
-- **Citation state:** unresolved: attempted 2026-09-10 and NOT resolved to a primary source. What the repository records is a 2026-09-01 README pass and a 2026-09-02 sweep in tax_engine.py's docstring, both against SECONDARY sources, which this project's own standard refuses to treat as verification (COMPLIANCE_BREADTH_DESIGN.md §3.1 step 2). Those record the SECTION renumbering 80CCD(2) -> 124; the README additionally states the 10%/14% split is unchanged. Primary sources remain unreachable from this environment -- see docs/PRIMARY_SOURCE_LOOKUP_TASK.md. Recorded as attempted-and-unresolved rather than verified.
 
 ## 4. No human has signed off
 
@@ -194,6 +187,13 @@ The one assertion no automated check can produce. Everything else in this queue 
 - **Instrument:** _none recorded_ (unknown)
 - **Provision:** _none recorded_
 - **Citation state:** _never attempted_
+
+### TE4 — Employer NPS contribution deductible as a percentage of basic: 14% under the new regime, 10% under the old.
+
+- **Where:** `tax_engine.NPS_80CCD2_CAP_PCT`
+- **Instrument:** Income-tax Act, 2025 (in_force)
+- **Provision:** Income-tax Act, 2025, s. 124(1)(b), read with s. 124(2) and s. 124(13)(b) -- the employer's contribution to the notified pension scheme is deductible in computing total income up to 10% of salary (14% where the employer is the Central or a State Government, s. 124(1)(a)); under s. 202(1), the new tax regime, the 10% is read as 14% (s. 124(2)); 'salary' includes dearness allowance where the terms of employment so provide (s. 124(13)(b)). Formerly s. 80CCD(2) of the Income-tax Act, 1961. TO REDO THIS CHECK: open the source_url, search the section list for 124, press Compare, and add Income-tax Act, 1961 section 80CCD.
+- **Citation state:** checked 2026-09-14
 
 ---
 

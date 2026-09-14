@@ -308,7 +308,14 @@ CLAIMS: tuple = (
                         (1_600_000, 0.15), (2_000_000, 0.20), (2_400_000, 0.25),
                         (float("inf"), 0.30)],
         claim_type=STATUTORY,
-        instrument="Income-tax Act, 2025 (Act 30 of 2025)",
+        # "(Act 30 of 2025)" REMOVED 2026-09-14 from TE1-TE4 and PE4 together
+        # (R1_TE4_RECORD_UPDATE_DESIGN.md D2 = B). The act number was never
+        # verified; R5 already omitted it for that reason. The Gazette check
+        # could not settle it in one session -- its listing does not carry act
+        # numbers, so verifying needs the Gazette PDF -- and removing an
+        # unverified assertion needs no new evidence. The short title and the
+        # 1 April 2026 commencement ARE verified (s. 1, read 2026-09-13).
+        instrument="Income-tax Act, 2025",
         instrument_status=IN_FORCE,
         threshold_origin="STATUTORY, and that is the whole point of the claim: "
                          "these are not thresholds this tool chose but figures "
@@ -328,7 +335,7 @@ CLAIMS: tuple = (
         asserted_value=[(250_000, 0.00), (500_000, 0.05), (1_000_000, 0.20),
                         (float("inf"), 0.30)],
         claim_type=STATUTORY,
-        instrument="Income-tax Act, 2025 (Act 30 of 2025)",
+        instrument="Income-tax Act, 2025",
         instrument_status=IN_FORCE,
         threshold_origin="STATUTORY -- set by the Act, not chosen here. See TE1.",
         citation_checked_on="",
@@ -339,7 +346,7 @@ CLAIMS: tuple = (
                   "new regime, Rs 50,000 under the old.",
         asserted_value={"new": 75_000, "old": 50_000},
         claim_type=STATUTORY,
-        instrument="Income-tax Act, 2025 (Act 30 of 2025)",
+        instrument="Income-tax Act, 2025",
         instrument_status=IN_FORCE,
         threshold_origin="STATUTORY -- set by the Act, not chosen here. See TE1.",
         citation_checked_on="",
@@ -370,7 +377,7 @@ CLAIMS: tuple = (
                   "Income-tax Act, 1961 section 80CCD.",
         # The old /pages/acts/income-tax-act.aspx redirects to the homepage.
         source_url="https://www.incometaxindia.gov.in/income-tax-act-2025",
-        instrument="Income-tax Act, 2025 (Act 30 of 2025)",
+        instrument="Income-tax Act, 2025",
         instrument_status=IN_FORCE,
         # "See TE1" pointed at a claim with no verified provision.
         threshold_origin="STATUTORY -- s. 124(1)(b) sets 10%, s. 124(2) reads it as "
@@ -399,18 +406,12 @@ CLAIMS: tuple = (
             "employer as non-government and every salary as DA-free is acceptable for this "
             "tool's purpose."
         ),
-        citation_checked_on="unresolved: attempted 2026-09-10 and NOT resolved to a "
-                            "primary source. What the repository records is a "
-                            "2026-09-01 README pass and a 2026-09-02 sweep in "
-                            "tax_engine.py's docstring, both against SECONDARY "
-                            "sources, which this project's own standard refuses to "
-                            "treat as verification (COMPLIANCE_BREADTH_DESIGN.md "
-                            "§3.1 step 2). Those record the SECTION renumbering "
-                            "80CCD(2) -> 124; the README additionally states the "
-                            "10%/14% split is unchanged. Primary sources remain "
-                            "unreachable from this environment -- see "
-                            "docs/PRIMARY_SOURCE_LOOKUP_TASK.md. Recorded as "
-                            "attempted-and-unresolved rather than verified.",
+        # VERIFIED 2026-09-14 from the primary source: s. 124 read on
+        # incometaxindia.gov.in and compared against 1961 s. 80CCD; s. 202 headed
+        # "New tax regime". Replaces an "unresolved" record whose reason --
+        # "primary sources remain unreachable" -- was never true of a browser.
+        # Verified is NOT reviewed, and the known_divergence above still stands.
+        citation_checked_on="2026-09-14",
     ),
 
     # -----------------------------------------------------------------------
@@ -567,7 +568,7 @@ CLAIMS: tuple = (
                   "(which is 1%/month and is not what this module models).",
         asserted_value=0.015,
         claim_type=STATUTORY,
-        instrument="Income-tax Act, 2025 (Act 30 of 2025)",
+        instrument="Income-tax Act, 2025",
         instrument_kind=KIND_ACT,
         instrument_status=IN_FORCE,
         provision="s. 398(3) (formerly s. 201(1A) of the Income-tax Act, 1961) -- "

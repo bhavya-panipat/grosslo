@@ -203,21 +203,24 @@ class TestTheFirstBatchIsTheFourTaxEngineFigures(unittest.TestCase):
         # silenced instead of trusted.
         self.assertEqual(legal_claims.drift_findings(), [])
 
-    def test_all_four_are_unverified_and_that_is_the_batch_working(self):
-        # Recorded as the expected outcome, not defensively. The visible truth
-        # is that four of the most load-bearing numbers in this system rest on
-        # nothing recorded, and making that visible IS the deliverable.
+    def test_none_of_the_four_is_reviewed_and_only_TE4_is_citation_checked(self):
+        # WAS test_all_four_are_unverified_and_that_is_the_batch_working. Its own
+        # comment predicted this: "a test asserting everything here is unverified
+        # was always going to break the moment something was verified". On
+        # 2026-09-14 TE4's citation was verified from the primary source, and it
+        # broke -- SIXTH instance of INVENTORY_EXPANSION_DESIGN.md SS7.
         #
-        # FIFTH instance of §7's shape, and it failed for the best possible
-        # reason: it iterated the WHOLE inventory, and Stage C1 produced the
-        # first genuinely VERIFIED claims. A test asserting "everything here is
-        # unverified" was always going to break the moment something was
-        # verified — which is the outcome the project wants.
-        for claim in [c for c in legal_claims.CLAIMS if c.module == "tax_engine"]:
+        # What the batch still shows is unchanged and worth keeping: no human has
+        # signed off on any of these load-bearing numbers, and every one is a live
+        # risk. Citation-checked is a different fact from reviewed, so the two
+        # are asserted separately rather than folded into "unverified".
+        tax_engine_claims = [c for c in legal_claims.CLAIMS if c.module == "tax_engine"]
+        self.assertEqual([c.id for c in tax_engine_claims], ["TE1", "TE2", "TE3", "TE4"])
+        for claim in tax_engine_claims:
             with self.subTest(claim=claim.id):
-                self.assertFalse(claim.citation_is_checked)
                 self.assertFalse(claim.implementation_is_reviewed)
-                self.assertTrue(claim.is_live, "an unverified claim is a LIVE risk")
+                self.assertTrue(claim.is_live, "an unreviewed claim is a LIVE risk")
+        self.assertEqual([c.id for c in tax_engine_claims if c.citation_is_checked], ["TE4"])
 
     def test_the_evidence_report_names_every_claim(self):
         findings = legal_claims.evidence_findings()
@@ -226,15 +229,36 @@ class TestTheFirstBatchIsTheFourTaxEngineFigures(unittest.TestCase):
                 self.assertTrue(any(claim.id in f for f in findings),
                                 "a claim with no verification went unreported")
 
-    def test_the_two_citation_states_are_kept_apart(self):
-        # "Nobody tried" and "tried and could not" are different facts, and the
-        # second is worse. TE1-TE3's values were never attempted; TE4's were,
-        # against secondary sources this project will not treat as verification.
+    def test_the_citation_states_are_kept_apart(self):
+        # "Nobody tried", "tried and could not" and "checked" are different facts.
+        # WAS test_the_two_citation_states_are_kept_apart, which used TE4 as the
+        # "tried and could not" carrier. TE4 was verified from the primary source
+        # on 2026-09-14, so that carrier is gone; PE4 -- still genuinely
+        # unresolved -- carries that state now, and TE4 carries the third. All
+        # three shown in real data, so none can pass by being vacuous.
         for cid in ("TE1", "TE2", "TE3"):
-            with self.subTest(claim=cid):
+            with self.subTest(claim=cid, state="never attempted"):
                 self.assertEqual(self._claim(cid).citation_checked_on, "")
                 self.assertFalse(self._claim(cid).citation_attempt_unresolved)
-        self.assertTrue(self._claim("TE4").citation_attempt_unresolved)
+                self.assertFalse(self._claim(cid).citation_is_checked)
+        with self.subTest(claim="PE4", state="attempted, unresolved"):
+            self.assertTrue(self._claim("PE4").citation_attempt_unresolved)
+            self.assertFalse(self._claim("PE4").citation_is_checked)
+        with self.subTest(claim="TE4", state="checked"):
+            self.assertTrue(self._claim("TE4").citation_is_checked)
+            self.assertFalse(self._claim("TE4").citation_attempt_unresolved)
+
+    def test_no_income_tax_record_carries_the_unverified_act_number(self):
+        # D2 = B. "(Act 30 of 2025)" was never verified and was removed from all
+        # five records together, matching R5. EXACT equality, not containment:
+        # assertIn("2025") would pass with the number re-appended, which is the
+        # thing being guarded (INVENTORY_EXPANSION_DESIGN.md SS8).
+        for cid in ("TE1", "TE2", "TE3", "TE4", "PE4"):
+            with self.subTest(claim=cid):
+                self.assertEqual(self._claim(cid).instrument, "Income-tax Act, 2025")
+        r5 = next(r for r in compliance_rules.RULES if r.id == "R5")
+        self.assertEqual(r5.instrument, "Income-tax Act, 2025",
+                         "R5 and the claims spell the same instrument differently again")
 
     def test_no_successor_provision_was_invented(self):
         # Only TE4 carries a provision, and only because the repository already
@@ -847,9 +871,15 @@ class TestStageC1ProfessionalTaxClaims(unittest.TestCase):
 
     # ---- the first verified claims in this inventory ----------------------
 
-    def test_karnataka_and_tamil_nadu_are_the_first_verified_citations(self):
+    def test_the_verified_citations_are_exactly_these(self):
+        # WAS test_karnataka_and_tamil_nadu_are_the_first_verified_citations,
+        # asserting the verified set was exactly PT1 and PT4. They were the
+        # FIRST, and still are verified. TE4 became the third on 2026-09-14,
+        # read from s. 124 on the primary source. Renamed rather than left
+        # asserting "first" over a set that has grown: a name should describe
+        # what the assertion checks (R5_CITATION_PROPAGATION_DESIGN.md SS2.3).
         verified = [c.id for c in legal_claims.CLAIMS if c.citation_is_checked]
-        self.assertEqual(verified, ["PT1", "PT4"])
+        self.assertEqual(verified, ["TE4", "PT1", "PT4"])
 
     def test_they_are_verified_on_a_named_instrument_not_a_captured_url(self):
         # §5.1: a named instrument a reader can look up IS the trail. PT1
