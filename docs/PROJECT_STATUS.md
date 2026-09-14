@@ -8,7 +8,9 @@ Its purpose is to be the single place someone can read to know where a
 multi-phase effort with real human dependencies actually stands, without
 reconstructing it from separate closing reports.
 
-_Last updated: 2026-09-13, at the close of Phase 2.4b._
+_Last updated: 2026-09-14, after the R5 citation propagation
+(`R5_CITATION_PROPAGATION_DESIGN.md`) and the gap-owner table below. Previously
+2026-09-13, at the close of Phase 2.4b._
 
 ---
 
@@ -21,7 +23,7 @@ _Last updated: 2026-09-13, at the close of Phase 2.4b._
 | **2.1** Pipeline orchestration | Declared `STAGES` sequence, `stages_run` in the API response, characterization baseline | 1 frontend file uncompiled (`api-types.ts`) |
 | **2.2** Compliance rule breadth | Rule set as data with one source of truth, candidate-rule protocol with six steps, generated rules table, `compliance_pct` reports its denominator | **CA review packet** — 2 candidate rules + 5 questions on live rules. 1 frontend file uncompiled (`ring-metric.tsx`) |
 | **2.4** Legal claim inventory | `provenance.py` evidence model, `Claim` record with no inert state, 4 `tax_engine` claims, drift check, ranked review queue over both carriers | — superseded by 2.4b below |
-| **2.4b** Inventory expansion | **17 claims across five files**, including `optimizer.py`'s `BASIC_PCT_MIN`. `instrument_kind`, value-less claims, key paths, `known_divergence`, the §5.1 verified rule | **15 unverified claims**; **browser lookup** for R5; no human has signed off on anything |
+| **2.4b** Inventory expansion | **17 claims across five files**, including `optimizer.py`'s `BASIC_PCT_MIN`. `instrument_kind`, value-less claims, key paths, `known_divergence`, the §5.1 verified rule | **15 unverified claims**; no human has signed off on anything. *(The browser lookup for R5 that was listed here is done — 2026-09-13.)* |
 
 ## The honest state of the compliance work
 
@@ -51,10 +53,10 @@ Every remaining step needs a person, not more code.
 
 | Date | What | Status |
 |---|---|---|
-| **2026-09-13** | Primary-source browser lookup (`docs/PRIMARY_SOURCE_LOOKUP_TASK.md`) — two lookups, one session, 15–30 min | **Not started.** Highest priority despite being smallest: R5 is ACTIVE and fires on real structures citing the repealed Income-tax Act, 1961 |
+| **2026-09-13** | Primary-source browser lookup (`docs/PRIMARY_SOURCE_LOOKUP_TASK.md`) — two lookups, one session, 15–30 min | **Done 2026-09-13, from the primary source.** R5: 1961 s. 17(2)(vii) → 2025 **s. 17(1)(h)**, ceiling and fund composition unchanged; R5 has cited the in-force Act since `ca170d4`. HRA candidate: Schedule III, Table Sl. No. 11, percentages in Rules 2026 r. 279 — unblocked, not yet drafted. *(This row previously read "Not started", with R5 active on the repealed 1961 Act.)* |
 | **2026-10-10** | CA packet escalation trigger — if no reviewer engaged, escalate finding one | Not started |
 | **2026-11-09** | Check-in on the build-block date, 30 days out | Pending |
-| **2026-12-09** | An unverified claim becomes build-blocking | **15 claims pointed at it.** Two are now verified, so a path exists — but it ran through a file that had already done the work, not through anything repeatable yet |
+| **2026-12-09** | An unverified claim becomes build-blocking | **15 claims pointed at it.** Two are verified, but through a file that had already done the work. **A repeatable method now exists and has worked:** one person with a browser, using CBDT's section browser and its parallel-reading Compare, resolved two lookups in one session on 2026-09-13. **No claim on this list has been cleared by it yet** — the path is proven, not travelled. |
 
 ## Open gaps: owner and next action
 
