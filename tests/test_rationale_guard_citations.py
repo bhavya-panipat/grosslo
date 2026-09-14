@@ -13,6 +13,7 @@ returned an empty set would satisfy every "drops the citation" assertion.
 """
 
 import os
+import re
 import sys
 import unittest
 from unittest.mock import patch
@@ -95,6 +96,50 @@ class TestGroundedFiguresKeepRealFigures(unittest.TestCase):
         rationale = _guardrail_rationales()["band_cost_neutrality/fail"]
         self.assertEqual(_grounded_figures(rationale), set(_extract_numbers(rationale)))
         self.assertTrue(_grounded_figures(rationale))
+
+
+class TestTheNpsCapRationaleCitesItsFormerSectionWithAKeyword(unittest.TestCase):
+    """
+    Step 4b (design §4.2). The rationale said "(formerly 80CCD(2))". Without a
+    keyword no grammar can recognise it, so 80 and 2 stayed grounded, and a
+    fabricated "cap of 2% of basic" passed. Adding "formerly" as a keyword was
+    measured to also parse "(formerly 10% ...)" and exempt a real figure. So
+    the TEXT changed to the form every other citation here already uses.
+    """
+
+    BRANCHES = ("80ccd2_cap/pass", "80ccd2_cap/fail")
+
+    def test_both_branches_use_the_keyworded_form(self):
+        rationales = _guardrail_rationales()
+        for branch in self.BRANCHES:
+            with self.subTest(branch=branch):
+                self.assertIn("(formerly Section 80CCD(2))", rationales[branch])
+                self.assertNotIn("(formerly 80CCD(2))", rationales[branch])
+
+    def test_both_branches_ground_only_their_amounts_and_rate(self):
+        # Rendered from the fixtures in _guardrail_rationales(): basic Rs 10L,
+        # a 14% new-regime cap of Rs 1.4L, employer NPS Rs 1L (pass) and
+        # Rs 5L (fail). No 124, 80 or 2.
+        rationales = _guardrail_rationales()
+        for branch, nps in (("80ccd2_cap/pass", 100_000.0), ("80ccd2_cap/fail", 500_000.0)):
+            with self.subTest(branch=branch):
+                self.assertEqual(_grounded_figures(rationales[branch]), {nps, 14.0, 140_000.0})
+
+    def test_no_rationale_carries_a_designator_the_grammar_cannot_see(self):
+        # Data-driven (design §6 item 2), so a new rule is covered without
+        # anyone remembering to add it. Walks every rule, candidates included,
+        # so a bare designator is caught before a candidate can be activated.
+        # Shape: digits, optional letters, one or more parenthesised parts,
+        # e.g. 80CCD(2), 17(1)(h), 10(13A).
+        designator = re.compile(r"\b\d+[A-Za-z]*(?:\([0-9A-Za-z]+\))+")
+        rationales = {f"rule {r.id}": r.rationale for r in compliance_rules.RULES}
+        rationales.update({f"guardrail {k}": v for k, v in _guardrail_rationales().items()})
+        for name, text in rationales.items():
+            with self.subTest(source=name):
+                outside = ai_layer._CITATION_REFERENCE.sub(" ", text)
+                self.assertEqual(designator.findall(outside), [],
+                                 f"a citation the grammar does not recognise keeps its "
+                                 f"digits grounded as figures: {text!r}")
 
 
 class TestGroundingCanOnlyNarrow(unittest.TestCase):

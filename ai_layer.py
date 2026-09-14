@@ -737,11 +737,11 @@ def evaluate_band_guardrail(structure: SalaryStructure, regime: str,
         "passed": nps_ok,
         "rationale": (
             f"Employer NPS of Rs {structure.employer_nps:,.0f} is within the "
-            f"Section 124 cap (formerly 80CCD(2)) of {cap_pct:.0%} of basic (Rs {nps_cap:,.0f}) "
+            f"Section 124 cap (formerly Section 80CCD(2)) of {cap_pct:.0%} of basic (Rs {nps_cap:,.0f}) "
             f"for the {regime} regime."
             if nps_ok else
             f"Employer NPS of Rs {structure.employer_nps:,.0f} exceeds the "
-            f"Section 124 cap (formerly 80CCD(2)) of {cap_pct:.0%} of basic "
+            f"Section 124 cap (formerly Section 80CCD(2)) of {cap_pct:.0%} of basic "
             f"(Rs {nps_cap:,.0f}) for the {regime} regime."
         ),
     })
