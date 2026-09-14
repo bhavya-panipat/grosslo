@@ -373,10 +373,12 @@ the direction already recorded for §4.4.1, analogous to `output_boundary.py`'s
 task; **this finding belongs in its scope**, because a fix for §4.4.1 alone
 could be written that leaves §4.4.2 standing.
 
-**Designed in `RATIONALE_GUARD_CITATION_DESIGN.md` (`54e139f`). Not yet
-implemented. Three decisions are open (its §7).** The §4.4.1 fix did turn out
-to leave this standing (see the correction under §4.4.1). Two statements above
-are overtaken by that design:
+**Designed in `RATIONALE_GUARD_CITATION_DESIGN.md` (`54e139f`, revised
+`3b1ab62`). Not yet implemented.** Per-line grounding and the `negotiate` fix
+are approved. Two decisions are still open (its §7): Act years, and a check
+that every cited reference was supplied. The §4.4.1 fix did turn out to leave
+this standing (see the correction under §4.4.1). Two statements above are
+overtaken by that design:
 
 - *"That work is running as a separate task"* no longer holds. It ended
   without this, and this now has its own design.
@@ -384,12 +386,27 @@ are overtaken by that design:
   unstripped text. If references are stripped from the rationale **and** from
   the rephrasing, both of the rows above come out right: the correct citation
   passes and the fabricated "1 lakh" is rejected. That was measured on a
-  prototype in the design's §5, not merely argued.
+  prototype in the design's §5, not merely argued. The stripping is scoped to
+  each flag's own rationale, never to anything citation-shaped. Even then, a
+  fabricated section whose digits are grounded still passes without the
+  supplied-citation check (design §4.7).
 
-The design's inventory also found this is wider than `flag_compliance`.
-`evaluate_band_guardrail` has the same leak (`epfo_ceiling`, `80ccd2_cap`),
-and the union across flags lets one flag's figures ground another's text,
-including lines returned in swapped order. See its §2.3.
+**The design's inventory found a worse defect than this one.** `allowed` is the
+union across every triggered flag. So a **fabricated** figure in one flag's
+rephrasing passes whenever it equals a **real** figure of a different flag
+(measured: R1 + R4, *"LTA exceeds 50% of CTC"*, where the real figure is 10%).
+Lines returned in swapped order also pass, which attaches real figures to the
+wrong flag. Both **fail open**, and both are the failure the numeric guard
+exists to prevent, reopened by the check's scope rather than by a missing
+check. The design ranks them above this section's leak (its §1.1).
+`evaluate_band_guardrail` has both defects as well as this leak (`epfo_ceiling`,
+`80ccd2_cap`).
+
+*Correction to this pointer, made 2026-09-14.* Its first version (`0e57895`)
+said the inventory found this was "wider than `flag_compliance`", and listed
+the cross-flag pool as part of that. The pool is a different defect, not a
+wider copy of this one: it fails open through scope, not through citation
+digits.
 
 #### 4.4.3 Two user-facing citations with no coverage of any kind
 
