@@ -154,6 +154,57 @@ class TestGroundingCanOnlyNarrow(unittest.TestCase):
                 self.assertLessEqual(_grounded_figures(text), set(_extract_numbers(text)))
 
 
+class TestCitationsUnsuppliedHelper(unittest.TestCase):
+    """
+    Step 6a (design §4.7): the membership check, as a unit. It is structural at
+    this step, with no call site yet. Every "unsupplied" case has a "supplied"
+    partner, because a helper returning True for any citation would pass the
+    first half alone.
+    """
+
+    R1 = _rule_rationale("R1")
+    R5 = _rule_rationale("R5")
+
+    def test_a_supplied_reference_is_not_flagged(self):
+        for text in ("It is a perquisite under Section 17(1)(h).",
+                     "It is a perquisite under Section 17(1)(h) (formerly Section 17(2)(vii)).",
+                     "It is a perquisite under section 17(1)(h)."):
+            with self.subTest(text=text):
+                self.assertFalse(ai_layer._citations_unsupplied(text, [self.R5]))
+
+    def test_a_reference_never_supplied_is_flagged(self):
+        for text in ("It is a perquisite under Section 17(1)(i).",
+                     "It is a perquisite under Section 999."):
+            with self.subTest(text=text):
+                self.assertTrue(ai_layer._citations_unsupplied(text, [self.R5]))
+
+    def test_a_citation_made_of_a_real_figures_digits_is_flagged(self):
+        # The case the figure check cannot see: 50 is R1's real floor, so
+        # "Section 50" passes the figure check. R1 supplies no reference at all.
+        self.assertTrue(ai_layer._citations_unsupplied(
+            "Basic salary is below the 50% floor set by Section 50.", [self.R1]))
+        self.assertFalse(ai_layer._numbers_ungrounded(
+            "Basic salary is below the 50% floor set by Section 50.",
+            _grounded_figures(self.R1), skip_below=0, citations=[self.R1]))
+
+    def test_text_with_no_reference_is_not_flagged(self):
+        self.assertFalse(ai_layer._citations_unsupplied(
+            "Your contributions exceed the limit by 1 lakh.", [self.R5]))
+
+    def test_nothing_supplied_flags_any_reference(self):
+        self.assertTrue(ai_layer._citations_unsupplied("Under Section 17(1)(h).", []))
+        self.assertFalse(ai_layer._citations_unsupplied("No citation here.", []))
+
+    def test_an_unparsed_form_is_outside_this_check(self):
+        # Design §4.7 limit, pinned so a widened grammar is a visible decision.
+        self.assertFalse(ai_layer._citations_unsupplied(
+            "It is a perquisite under s. 17(1)(i).", [self.R5]))
+
+    def test_a_bare_string_is_rejected_rather_than_silently_supplying_nothing(self):
+        with self.assertRaises(TypeError):
+            ai_layer._citations_unsupplied("Under Section 17(1)(h).", self.R5)
+
+
 def _reply(*lines):
     response = Mock()
     response.content = [Mock(text="\n".join(lines))]

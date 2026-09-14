@@ -246,6 +246,20 @@ def _citation_key(match) -> tuple:
     return re.sub(r"\s+", "", match.group(1)).lower(), match.group(2).upper()
 
 
+def _supplied_references(citations) -> set:
+    """
+    The (keyword, designator) keys of every reference in `citations`. It is
+    shared by stripping and by the membership check, so the two can never
+    disagree about what was supplied.
+    """
+    if isinstance(citations, str):
+        # Iterating a bare string would parse it character by character, find
+        # nothing, and silently exempt nothing — a quiet version of the exact
+        # defect this exists to fix. Rejected rather than coerced.
+        raise TypeError("citations must be a collection of strings, not a str")
+    return {_citation_key(m) for c in citations for m in _CITATION_REFERENCE.finditer(c)}
+
+
 def _strip_supplied_citations(text: str, citations) -> str:
     """
     `text` with every reference that ALSO appears in `citations` blanked out.
@@ -258,15 +272,30 @@ def _strip_supplied_citations(text: str, citations) -> str:
     So the keyword list only controls which SUPPLIED references can be
     recognised; it can never widen the exemption past what was supplied.
     """
-    if isinstance(citations, str):
-        # Iterating a bare string would parse it character by character, find
-        # nothing, and silently exempt nothing — a quiet version of the exact
-        # defect this exists to fix. Rejected rather than coerced.
-        raise TypeError("citations must be a collection of strings, not a str")
-    supplied = {_citation_key(m) for c in citations for m in _CITATION_REFERENCE.finditer(c)}
+    supplied = _supplied_references(citations)
     return _CITATION_REFERENCE.sub(
         lambda m: " " if _citation_key(m) in supplied else m.group(0), text
     )
+
+
+def _citations_unsupplied(text: str, citations) -> bool:
+    """
+    True if `text` cites any reference that is not among `citations`
+    (RATIONALE_GUARD_CITATION_DESIGN.md §4.7).
+
+    The figure check cannot see a fabricated citation whose digits happen to be
+    grounded. "Section 50" in R1's line survives it because 50 is R1's real
+    floor, and "Section 14" on the NPS cap survives because 14% is the real
+    cap. The digits are genuinely grounded; the citation is what is false. This
+    check rejects the citation itself. It enforces what every citing prompt
+    already says: cite only what you were given.
+
+    Limit: it sees only references the grammar parses. "s. 17(1)(h)" or
+    "Sections 392 and 192" are not checked here, and fall back to the figure
+    check.
+    """
+    supplied = _supplied_references(citations)
+    return any(_citation_key(m) not in supplied for m in _CITATION_REFERENCE.finditer(text))
 
 
 def _grounded_figures(rationale: str) -> set:
