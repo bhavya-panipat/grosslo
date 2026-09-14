@@ -395,7 +395,11 @@ showed the split **relocated the dishonesty risk rather than removing it.** A
 convention rule whose threshold is really a statutory figure ships a statutory
 number with no citation, wearing convention clothing — and "typical market
 practice" turns out to need the same verification rigour as a citation, against
-sources that are equally unreachable.
+sources that are equally unreachable. *(Corrected 2026-09-14: the statutory
+sources were unreachable to automated requests only; they load in an ordinary
+browser, which resolved both outstanding lookups on 2026-09-13 —
+`docs/PRIMARY_SOURCE_LOOKUP_TASK.md`. The point about convention rules needing
+equal rigour is unaffected.)*
 
 **The resolution is a process gate, not a code gate, and the distinction is
 exact.** `protocol_violations()` now requires every post-protocol rule to carry
@@ -430,7 +434,12 @@ catch:
   statutory threshold travelling without a citation, wearing convention
   clothing.
 - Labelled STATUTORY, it needs a provision and a source — and those are exactly
-  what is unreachable from this environment (§3.5, R1, R5).
+  what is unreachable from this environment (§3.5, R1, R5). *(Corrected
+  2026-09-14: unreachable to automated requests, not to a person with a
+  browser. The HRA candidate's provision was found that way on 2026-09-13 —
+  Schedule III, Table Sl. No. 11, percentages in Rules 2026 r. 279 — so this
+  bullet's blocker is removed for it, though the rule is not yet drafted. R5's
+  citation was resolved the same day.)*
 
 `protocol_violations()` detects the reverse error — a convention rule that
 *carries* a provision — but nothing detects a statutory number with no
@@ -485,6 +494,23 @@ holds them inert; R5 has no such gate, because it is not a candidate.
 
 The lookup is also fully unblocked: one person, one session, no scheduling and
 no dependency on anyone else's availability.
+
+> **DONE 2026-09-13, on its due date.** Both lookups resolved against the
+> primary source. R5: 1961 s. 17(2)(vii) → 2025 **s. 17(1)(h)**, ceiling and
+> fund composition unchanged. HRA: Schedule III, Table Sl. No. 11, with the
+> 50%/40% split in Rules 2026 r. 279. Outcome in
+> `docs/PRIMARY_SOURCE_LOOKUP_TASK.md`; R5 now cites the in-force Act
+> (`R5_CITATION_PROPAGATION_DESIGN.md`).
+>
+> One correction to the framing this section inherited: the lookup was set up
+> as a separate *human-with-a-browser* task (`docs/PRIMARY_SOURCE_LOOKUP_TASK.md`
+> is titled that way) because automated fetches had failed and the sources were
+> believed blocked. They were blocked to automated requests only. The lookup was
+> done on its due date, so it did not run late — but because it was scheduled
+> as a later human task rather than tried in a browser when the automated
+> attempt first failed on 2026-09-09, R5 stayed active on repealed law for those
+> four days. **"The live rule pointing at dead law" that this section
+> prioritised no longer exists.**
 
 ### 8.2 CA review packet — 30-DAY TRIGGER, set 2026-09-10, fires 2026-10-10
 

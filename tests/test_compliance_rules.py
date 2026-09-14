@@ -125,9 +125,30 @@ class TestActiveAndCandidatePartitionTheRuleSet(unittest.TestCase):
 
     def test_the_first_batch_makes_no_statutory_claim(self):
         # The batch was drafted as CONVENTION rules deliberately: the primary
-        # sources needed to back a statutory claim are unreachable from this
-        # environment (see R1 and R5). A statutory rule appearing here would
-        # mean that constraint was quietly dropped.
+        # sources needed to back a statutory claim were believed unreachable
+        # (see R1 and R5). A statutory rule appearing here would have meant that
+        # constraint was quietly dropped.
+        #
+        # CORRECTED 2026-09-14, AND A TRAP FOR THE NEXT PIECE OF WORK. Two
+        # things changed under this test:
+        #
+        # 1. The premise was wrong. The sources were refused to AUTOMATED
+        #    requests only; they load in an ordinary browser, and on 2026-09-13
+        #    that resolved R5's citation and found the held-back HRA candidate's
+        #    provision (Schedule III Sl. No. 11; Rules 2026 r. 279).
+        #
+        # 2. This test is NAMED for the first batch but ASSERTS OVER EVERY
+        #    candidate — candidate_rules(), not R7/R8. That is the batch-test-
+        #    becomes-collection-test pattern (INVENTORY_EXPANSION_DESIGN.md §7),
+        #    and it has been harmless only because no statutory candidate has
+        #    existed. The HRA candidate is now unblocked and IS statutory. The
+        #    moment it is drafted, this test will fail and this comment would
+        #    have told whoever sees it that a constraint "was quietly dropped" —
+        #    when it was lifted, legitimately, with a verified provision.
+        #
+        #    Deliberately NOT fixed here: the right fix (scope it to the first
+        #    batch's ids, or retire it) depends on how that candidate is
+        #    designed. Recorded in R5_CITATION_PROPAGATION_DESIGN.md §4.7.
         for rule in compliance_rules.candidate_rules():
             with self.subTest(rule=rule.id):
                 self.assertEqual(rule.claim_type, compliance_rules.CONVENTION)

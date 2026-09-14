@@ -44,7 +44,7 @@ The rule set is the *smallest* concentration of legal claims in this codebase.
 | `payroll_breakdown.py` | `PT_MONTHLY_TABLE` — five separate **state** professional-tax statutes, each independently amendable |
 | `penalty_exposure.py` | EPF s. 7Q, s. 14B (plus a 2024 Ministry notification), s. 398(3), and a *reasoned exclusion* of s. 448 |
 | `optimizer.py` | `BASIC_PCT_MIN` — the motivating bug |
-| `ai_layer.py` | Sections 11 + Sch. III, 392, 124, 17(2)(vii) |
+| `ai_layer.py` | Sections 11 + Sch. III, 392, 124, 17(1)(h) (formerly 17(2)(vii)) |
 | `execution_trace.py`, `orchestration.py` | Section 124 |
 | `compliance_rules.py` | R1, R5 — **the only two with structured provenance** |
 | `README.md` | the entire "Regulatory currency" section |
@@ -249,6 +249,23 @@ The fetch half remains available to build the moment primary sources become
 reachable, at which point it would produce something a human could not get
 faster themselves.
 
+> **Correction, 2026-09-14 — the premise was overstated; the decision stands,
+> but its trigger condition needed restating.** "Primary sources return 403"
+> was true of *automated requests* and false of *the sources*: the same pages
+> load in an ordinary browser, which is how both outstanding lookups were
+> resolved on 2026-09-13 (`docs/PRIMARY_SOURCE_LOOKUP_TASK.md`).
+>
+> That matters for the condition above, because read literally it has already
+> fired — the primary sources *are* reachable — and would imply the fetch half
+> should now be built. It should not. Re-tested 2026-09-14: three scripted GETs
+> (default headers, a browser User-Agent, browser Accept headers) all returned
+> 403, so the refusal is not header-based and an ordinary automated monitor would
+> still be refused. Working around bot detection is out of bounds.
+>
+> **Restated trigger:** the fetch half becomes worth building when *automated
+> requests* to the primary sources stop being refused — not when a person can
+> read them, which was always true.
+
 ### 4.7 Type A and Type B findings
 
 - **Type B — "an obligation exists that no rule covers."** This *is* a candidate
@@ -395,7 +412,7 @@ committing to twenty-five). It is not done. Still uninventoried:
 | `payroll_breakdown.py` | `PT_MONTHLY_TABLE` | Five separate **state** statutes, each independently amendable — the largest single block of uninventoried law here, and the most frequently amended. |
 | `penalty_exposure.py` | `EPF_7Q_MONTHLY_RATE`, `EPF_14B_MONTHLY_RATE`, ss. 398(3), and the reasoned exclusion of s. 448 | The 14B rate depends on a 2024 Ministry notification, which is a different kind of instrument from an Act and may need `instrument` to say so. |
 | `tax_engine.py` | `CESS_RATE`, `EMPLOYER_PF_RATE`, `PF_WAGE_CEILING_BASIC`, `REBATE_87A_THRESHOLD`, `REBATE_87A_MAX` | Same file as the first batch, deferred only to keep that batch small. |
-| `ai_layer.py`, `execution_trace.py`, `orchestration.py` | Sections 11 + Sch. III, 392, 124, 17(2)(vii) | Citations shown to users, not values. May need a claim kind that asserts a *citation* rather than a *number*. |
+| `ai_layer.py`, `execution_trace.py`, `orchestration.py` | Sections 11 + Sch. III, 392, 124, 17(1)(h) (formerly 17(2)(vii)) | Citations shown to users, not values. May need a claim kind that asserts a *citation* rather than a *number*. |
 
 **`optimizer.py:BASIC_PCT_MIN` leads that list, explicitly and by priority
 rather than by position.** Two things are known to be true of it:
@@ -416,7 +433,11 @@ comparison against the other 21 would be a confident assertion about territory
 nobody has examined — and this project has already been bitten by exactly that:
 R5's superseded citation was not visible until someone looked closely, and
 `tax_engine.py`'s docstring still asserts the disputed 17(2)(vii) mapping as
-settled fact. Something in `payroll_breakdown.py`'s five state PT tables or
+settled fact. *(Resolved 2026-09-14: the docstring's claim was wrong — s.
+17(2)(vii) moved to 2025 s. 17(1)(h) — and is corrected in place, with the wrong
+claim quoted and the failure diagnosed; `R5_CITATION_PROPAGATION_DESIGN.md`
+§1.1, commit `79becce`. The point this paragraph makes stands, and the outcome
+is its example: the confident assertion was the wrong one.)* Something in `payroll_breakdown.py`'s five state PT tables or
 `penalty_exposure.py`'s sections may well turn out to have its own history of
 being wrong once the research happens.
 
@@ -444,6 +465,16 @@ it is outside the agreed batch and changing it is not backfill. **On the list fo
 the next inventory batch**, and the browser lookup (§8.1 of
 `COMPLIANCE_BREADTH_DESIGN.md`) resolves both at once.
 
+> **Resolved 2026-09-13/14, exactly as predicted — the lookup resolved both at
+> once, and the settled-fact register was the wrong one.** 1961 s. 17(2)(vii) is
+> 2025 **s. 17(1)(h)**, read side by side in CBDT's parallel-reading comparison.
+> The docstring's "confirmed retained" was false; R5's "unresolved" was the
+> honest register. Both now cite s. 17(1)(h). The docstring's error is diagnosed
+> rather than just fixed: the 2026-09-02 sweep *checked at section granularity
+> and reported at sub-clause granularity* — Section 17 is still "Perquisite",
+> but every sub-clause under it moved (`R5_CITATION_PROPAGATION_DESIGN.md`
+> §1.1).
+
 ### 10.3 Check the 2026-12-09 build-block on 2026-11-09
 
 On 2026-12-09 an unverified claim becomes build-blocking (§6). **Today that date
@@ -460,3 +491,19 @@ act rather than to react.** What to check: whether any of TE1–TE4 has a real
 verified citation. If none does, the decision is whether to move the date, narrow
 what blocks, or escalate the lookup — but it must be a decision made with a
 month's notice, not a build failure discovered on the morning of 2026-12-09.
+
+> **Changed materially on 2026-09-13 — for whoever runs the 2026-11-09 check.**
+> The paragraph above says this deadline had *"no verified path to clearing any
+> of them — primary sources are unreachable and the browser lookup has not been
+> run."* **Both halves are now false.** The browser lookup has been run and
+> resolved both of its targets from the primary source, and the sources were
+> never unreachable to a person with a browser — only to automated requests.
+>
+> So this is no longer a forcing function with nothing moving toward it. **A
+> verified path to clearing TE1–TE4 now exists and is known to work:** the same
+> method — CBDT's section browser and its parallel-reading Compare — one person,
+> one session. What the 2026-11-09 check should ask is therefore not "is there
+> any way through" but "has anyone done it yet".
+>
+> Do not overcorrect in the other direction: no TE claim was verified on
+> 2026-09-13. The lookup covered R5 and the HRA candidate only.

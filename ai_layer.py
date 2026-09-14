@@ -1121,14 +1121,29 @@ def answer_query(question: str, context: dict, ctc: float, rent_paid: float,
         grounding["tax_difference"] = round(
             old_best.tax_breakdown["total_tax"] - new_best.tax_breakdown["total_tax"], 2
         )
-        # Citations verified against the Income-tax Act 2025 (effective
-        # 1 April 2026) via live research, not recalled from training data —
-        # the 1961-Act numbers are kept alongside the new ones since they're
-        # still the recognizable, searched-for terms. Section 17(2)(vii)
-        # elsewhere in this codebase (the >Rs 7.5L perquisite rule) is NOT
-        # included in that verification: no confirmed 2025-Act mapping was
-        # found for it, so it's left as the 1961-Act citation with the gap
-        # noted, not silently treated as equally current.
+        # Citations for the Income-tax Act 2025 (effective 1 April 2026). The
+        # 1961-Act numbers are kept alongside the new ones since they are
+        # still the recognizable, searched-for terms.
+        #
+        # CORRECTED 2026-09-14. This comment used to say all three below were
+        # "verified … via live research". That research was a 2026-09-02 sweep
+        # against SECONDARY sources, and the same sweep (a) filed the HRA
+        # exemption under Schedule II when it is Schedule III, and (b) called
+        # s. 17(2)(vii) "retained" when it moved to 17(1)(h). So the per-item
+        # status is stated here rather than a blanket "verified":
+        #   - Section 11 / Schedule III, Table Sl. No. 11 — PRIMARY: CBDT's
+        #     rules utility maps Rule 2A -> Rule 279, whose official title names
+        #     Schedule III Sl. No. 11 (2026-09-13). Corrected from Schedule II.
+        #   - Section 124 (formerly 80CCD(2)) — PRIMARY, corroborated: the 2025
+        #     Act's s. 17(1)(h) refers to "the scheme referred to in section
+        #     124(1)" (2026-09-13).
+        #   - Section 392 (formerly 192) — NOT re-checked against a primary
+        #     source. Carried from the 2026-09-02 sweep; not asserted verified.
+        #
+        # This comment also used to say s. 17(2)(vii) had "no confirmed 2025-Act
+        # mapping". It has one: s. 17(1)(h), read from the primary source on
+        # 2026-09-13, and it is now what R5 and the epfo_ceiling guardrail cite.
+        # See docs/PRIMARY_SOURCE_LOOKUP_TASK.md.
         applicable_sections = []
         if old_best.structure.hra > 0 or new_best.structure.hra > 0:
             applicable_sections.append("Section 11, read with Schedule III, Table Sl. No. 11 (formerly Section 10(13A))")

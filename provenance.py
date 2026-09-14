@@ -24,8 +24,12 @@ from __future__ import annotations
 # evidence the rule needs, and demanding the wrong kind is actively harmful.
 #
 # STATUTORY — "the law requires this". Needs a provision and a source that can
-#   be fetched and read. R1 (Code on Wages 2025) and R5 (Section 17(2)(vii))
-#   are the only two of the original six that make this claim.
+#   be fetched and read. R1 (Code on Wages, 2019) and R5 (Income-tax Act,
+#   2025, s. 17(1)(h), formerly 1961 s. 17(2)(vii)) are the only two of the
+#   original six that make this claim. (This comment used to name R1's Act by
+#   its 2025 commencement year, repeating R1's own emitted-text error, and R5
+#   by its repealed 1961 section. R1's EMITTED text is still left as-is for a
+#   CA to rule on; a comment is not emitted, so it is simply corrected.)
 # CONVENTION — "this is unusual, or outside typical policy, and worth
 #   confirming". Needs a stated basis, NOT a statute. R2, R3, R4 and R6 are
 #   these. Demanding a citation from a convention rule does not make it more

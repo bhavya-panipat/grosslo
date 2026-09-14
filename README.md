@@ -446,9 +446,13 @@ guess at what the new number would be.
 - **Surcharge** (income above ₹50L) is not modeled. Scoped for the salaried
   CTC ranges typical of early-to-mid career hires.
 - **Aggregate employer PF + NPS above ₹7.5L/year** is a taxable perquisite
-  under Section 17(2)(vii) that the tax engine does not compute into the tax
-  figure itself — the guardrail's EPFO ceiling check exists specifically so
-  this is flagged rather than silently absent.
+  under Section 17(1)(h) of the Income-tax Act, 2025 (formerly Section
+  17(2)(vii)) that the tax engine does not compute into the tax figure itself
+  — the guardrail's EPFO ceiling check exists specifically so this is flagged
+  rather than silently absent. **Also:** the statute aggregates *three* funds
+  (recognised PF, the notified pension scheme, and an approved superannuation
+  fund); this tool sums two and models no superannuation component, so the
+  check is exact only for structures with none.
 - **LTA exemption** is modeled at a conservative assumed 70% utilization
   rather than the full claimed amount, since real LTA exemption depends on
   actual travel, valid bills, and a twice-per-4-year block limit this tool

@@ -1,6 +1,11 @@
 # R5 citation propagation — design
 
-**Status:** design, not implemented. Nothing in this document has been built.
+**Status: all seven steps implemented, 2026-09-14.** This line used to read
+*"design, not implemented. Nothing in this document has been built."* Left
+unchanged, it would be the last stale claim in a document about removing stale
+claims. The design is kept as written, with the corrections found while
+executing it recorded in §4.5–§4.7 rather than folded silently into the plan.
+Open items that remain are in §4.7.5.
 
 The primary-source lookup (`docs/PRIMARY_SOURCE_LOOKUP_TASK.md`, outcome
 recorded 2026-09-13, commit `d6cfd90`) resolved both open provisions. This
@@ -582,6 +587,93 @@ normal ~175s. The other session's overlapping run failed identically.
 confirming no `unittest` process was alive, a clean re-run gave **491 OK in
 178s**. The two sessions now use an explicit request/go handshake before any
 suite run.
+
+## 4.7 What step 7 found
+
+### 4.7.1 The correction was checked against the decision it justified
+
+The stale claim in both generators was not just a false sentence. It was the
+stated reason for a real design choice: the queue *"does not fetch anything, on
+purpose"*, because *"primary sources return HTTP 403"*. If the sources are
+reachable after all, does an automated monitor become buildable? That had to be
+measured rather than assumed in either direction.
+
+Re-tested 2026-09-14, three scripted GETs to `incometaxindia.gov.in`:
+
+| request | result |
+|---|---|
+| default headers | HTTP 403 |
+| browser User-Agent | HTTP 403 |
+| browser User-Agent + browser Accept headers | HTTP 403 |
+
+The refusal is not header-based, so an ordinary automated monitor would still be
+refused. Going further would be circumventing bot detection, which was not
+attempted and is not something this tool does. **The decision stands; only its
+reason was wrong.** A person can read the sources; an automated request cannot.
+
+That also forced a correction elsewhere. `LEGAL_CLAIM_INVENTORY_DESIGN.md` §4.6
+tied the fetch half to *"the moment primary sources become reachable"* — a
+condition that, read literally, **had already fired** and would have implied
+building the monitor now. It is restated there as *automated requests stop being
+refused*.
+
+### 4.7.2 The test that pinned the false claim guarded nothing
+
+`test_the_queue_says_why_it_does_not_fetch` asserted `assertIn("403", queue)`.
+The corrected text still contains "403", because the requests really are
+refused. **So the assertion passed on the false version and the true version
+alike.** A test that cannot tell a false claim from its correction is not
+checking the claim.
+
+Replaced with the distinction that matters plus an `assertNotIn` on the exact old
+sentence. Two sabotages, because the first did not isolate both assertions:
+
+- **F** — old sentence spliced in: `"403"` appears 3 times, so the old
+  assertion would have passed; the new test failed. But it failed at its *first*
+  assertion, because the splice clipped new text.
+- **G** — every new sentence intact *and* the old one re-added: failed on the
+  regression guard alone — *"the false claim that the SOURCES are unreachable is
+  back"*.
+
+### 4.7.3 A code comment claimed blanket verification
+
+`ai_layer.py`'s `answer_query` comment said all three `applicable_sections`
+citations were *"verified … via live research"*. That research was the
+2026-09-02 secondary-source sweep — the one that filed HRA under Schedule II and
+called 17(2)(vii) retained. The comment now states status per citation: Schedule
+III Sl. No. 11 and Section 124 primary-verified; **Section 392 not re-checked**.
+
+### 4.7.4 A sixth instance of batch-test-becomes-collection-test
+
+`test_the_first_batch_makes_no_statutory_claim` is named for the first batch
+but asserts over **every** candidate (`candidate_rules()`), justified by the
+now-false "sources are unreachable". It has been harmless only because no
+statutory candidate existed. **The HRA candidate is now unblocked and is
+statutory.** The moment it is drafted this test fails — with a comment saying a
+constraint "was quietly dropped", when it was lifted legitimately.
+
+This is `INVENTORY_EXPANSION_DESIGN.md` §7's pattern again. The comment is
+corrected to make the trap visible; the assertion is **not** changed, because the
+right fix (scope to R7/R8, or retire) depends on how that candidate is designed.
+
+### 4.7.5 Open after this propagation — none resolved here
+
+1. **The queue contradicts itself through data.** Its header now says sources
+   load in a browser; R1's and TE4's `citation_checked_on`, rendered in the same
+   queue, still say they are unreachable. Both are correctly *unresolved*. The
+   honest fix is not rewording them but doing R1's and TE4's lookups in a
+   browser, which would resolve them outright.
+2. **`(Act 30 of 2025)` on TE1–TE4 and PE4** — the unverified act number
+   deliberately not written into R5 (§4.6.6).
+3. **Superannuation as a `known_divergence` on R5** — now asked of a CA in the
+   packet, not recorded.
+4. **The DA assumption in `hra_exemption()`** — now asked of a CA in the packet.
+5. **The first-batch test trap** (§4.7.4) — decide when the HRA candidate is
+   designed.
+6. **§4.4.2, the rationale guard** — designed by the other session in
+   `RATIONALE_GUARD_CITATION_DESIGN.md`, not implemented.
+7. **Section 392 and Schedule XV** — carried from the 2026-09-02 sweep, not
+   re-checked against a primary source.
 
 ---
 

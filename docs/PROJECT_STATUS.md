@@ -99,9 +99,14 @@ claims at all, or something else, is open.
   frontend files across three phases are uncompiled and unverified — one
   limitation with three instances, tracked in README's *Known unverified
   surfaces* table.
-- **Primary legal sources return HTTP 403** from this environment. Confirmed
-  independently by two people. Third-party concordance resources are reachable;
-  see `docs/PRIMARY_SOURCE_LOOKUP_TASK.md`.
+- **Automated requests to primary legal sources are refused (HTTP 403)** —
+  re-tested 2026-09-14 with default and browser headers alike. **The sources
+  themselves are readable in an ordinary browser**, which is how both
+  outstanding lookups were resolved on 2026-09-13. This entry used to say the
+  sources return 403, full stop; that read two automated failures as a fact
+  about the source and stood for four days. Practical consequence: legal
+  lookups are a person-with-a-browser task, not blocked — see
+  `docs/PRIMARY_SOURCE_LOOKUP_TASK.md`.
 - **Verification runs `python3 -B`** with `~/Library/Caches/com.apple.python`
   cleared if anything looks inconsistent — see
   `LEGAL_CLAIM_INVENTORY_DESIGN.md` §9 for why this is standing rather than a
