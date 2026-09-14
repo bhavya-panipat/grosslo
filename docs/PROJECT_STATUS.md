@@ -56,6 +56,26 @@ Every remaining step needs a person, not more code.
 | **2026-11-09** | Check-in on the build-block date, 30 days out | Pending |
 | **2026-12-09** | An unverified claim becomes build-blocking | **15 claims pointed at it.** Two are now verified, so a path exists — but it ran through a file that had already done the work, not through anything repeatable yet |
 
+## Open gaps: owner and next action
+
+_Added 2026-09-14. The table above lists dates; this lists gaps that were found
+while working on something else. Each row names who holds it, so that "checked
+that it doesn't affect my change" never becomes the last anyone hears of it._
+
+Owners are records and roles, not sessions. Sessions end; records don't.
+
+| Gap | Severity | Owner | Next action | Deadline |
+|---|---|---|---|---|
+| **The rationale guard fails open.** In `flag_compliance` and `evaluate_band_guardrail`, a fabricated figure in an AI rephrasing can pass when it equals a citation digit or **another flag's real figure**. The text is served as `ai_backed` and quoted as a routing reason by `orchestration.py`. A fabricated section whose digits are grounded also passes. | **Guard failure, live** whenever the AI layer is configured and a flag fires. | Numeric guard, `ai_layer.py`. Decisions: project owner. | Decide questions 3 (Act years) and 4 (a check that every cited reference was supplied) in `RATIONALE_GUARD_CITATION_DESIGN.md` §7, then implement §8. Per-line scoping goes first. | None formal. It is live now. |
+| **`(Act 30 of 2025)` is unverified but recorded as fact** on TE1, TE2, TE3, TE4 and PE4. R5 deliberately omits the same number because it was never verified. | An unverified figure stated as settled, in five records. | Legal-claim inventory: `legal_claims.py` and R5 in `compliance_rules.py`. All six are fixed together, because fixing them separately makes the inconsistency worse. | A person with a browser checks the Act number against a primary source (India Code, or the Gazette notification if India Code's search fails). Verified: add it to R5 as well. Not verified: remove it from all five. | 2026-12-09: all five claims are unverified, so they are build-blocking from that date. |
+| **R1's and TE4's `citation_checked_on` say primary sources are "unreachable"**, but the review queue that renders them says those sources load in a browser. | The queue contradicts itself through its data. | Legal-claim inventory. | Do the R1 and TE4 lookups in a browser, which resolves both outright. Don't reword the records. | 2026-12-09 |
+| **R1's emitted text says "Code on Wages 2025"; its `instrument` says 2019.** | A wrong year in user-facing text, pending a CA ruling. It also keeps one guard leak open (`RATIONALE_GUARD_CITATION_DESIGN.md` §4.6). | CA reviewer. Already tracked as packet question R1 (`docs/CA_REVIEW_PACKET.md`) and deliberately not restated here. | The CA rules on the packet question. | 2026-10-10 escalation trigger |
+
+The full list of items the R5 propagation left open, including CA questions
+already in the packet, is `R5_CITATION_PROPAGATION_DESIGN.md` §4.7.5. This table
+covers only the rows above that have no other owner, plus the guard failure,
+which is the most severe open item in the repository.
+
 ## The inventory — `BASIC_PCT_MIN` is DONE; what is left
 
 **DISCHARGED 2026-09-13.** `BASIC_PCT_MIN` was named the specific priority for
