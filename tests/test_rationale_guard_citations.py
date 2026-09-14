@@ -16,7 +16,7 @@ import os
 import re
 import sys
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -152,6 +152,124 @@ class TestGroundingCanOnlyNarrow(unittest.TestCase):
         for name, text in rationales.items():
             with self.subTest(source=name):
                 self.assertLessEqual(_grounded_figures(text), set(_extract_numbers(text)))
+
+
+def _reply(*lines):
+    response = Mock()
+    response.content = [Mock(text="\n".join(lines))]
+    return patch("ai_layer._client", Mock(messages=Mock(create=Mock(return_value=response))))
+
+
+class _Guards:
+    """Single-flag fixtures, so any rejection is about citation digits and
+    never about the cross-flag scope fixed in step 3."""
+
+    # PF + NPS Rs 8.4L trips R5 alone: basic 60%, LTA 0, PF present, special > 0.
+    R5_ONLY = SalaryStructure(ctc=4_000_000, basic=2_400_000, hra=0, lta=0,
+                              special_allowance=760_000, employer_pf=240_000,
+                              employer_nps=600_000, nps_opted=True)
+    # PF + NPS Rs 8.4L fails epfo_ceiling alone; NPS within 14% of Rs 36L basic.
+    EPFO_ONLY = SalaryStructure(ctc=6_000_000, basic=3_600_000, hra=0, lta=0,
+                                special_allowance=1_560_000, employer_pf=340_000,
+                                employer_nps=500_000, nps_opted=True)
+    # Employer NPS Rs 2.5L over the Rs 1.4L cap fails 80ccd2_cap alone.
+    NPS_ONLY = SalaryStructure(ctc=2_000_000, basic=1_000_000, hra=0, lta=0,
+                               special_allowance=630_000, employer_pf=120_000,
+                               employer_nps=250_000, nps_opted=True)
+    BAND = ("new", 1_000_000, 9_000_000)
+
+    R5_OK = "The excess over Rs 7.5L is a taxable perquisite under Section 17(1)(h)."
+    EPFO_OK = ("Aggregate employer PF + NPS of Rs 840,000 exceeds the Rs 750,000/year "
+               "ceiling; the excess is taxable under Section 17(1)(h).")
+    NPS_OK = ("Employer NPS of Rs 250,000 exceeds the Section 124 cap (formerly "
+              "Section 80CCD(2)) of 14% of basic (Rs 140,000).")
+
+    def compliance(self, line):
+        with _reply(line):
+            return ai_layer.flag_compliance(self.R5_ONLY, rent_paid=0)
+
+    def guardrail(self, structure, line):
+        with _reply(line):
+            return ai_layer.evaluate_band_guardrail(structure, *self.BAND)
+
+    def assertServed(self, result):
+        self.assertFalse(result["guard_triggered"])
+        self.assertTrue(result["ai_backed"])
+
+    def assertRejected(self, result):
+        self.assertTrue(result["guard_triggered"])
+        self.assertFalse(result["ai_backed"])
+
+
+class TestTheGuardsNoLongerGroundFiguresInCitationDigits(_Guards, unittest.TestCase):
+    """Step 5, severity 3 (design §1.1): each guard grounds a line in
+    _grounded_figures(its rationale) and exempts that rationale's references."""
+
+    def test_the_fixtures_fail_exactly_one_flag_each(self):
+        self.assertEqual([f["rule_id"] for f in ai_layer._check_rules(self.R5_ONLY, 0)], ["R5"])
+        with patch("ai_layer._client", None):
+            for structure, check_id in ((self.EPFO_ONLY, "epfo_ceiling"), (self.NPS_ONLY, "80ccd2_cap")):
+                checks = ai_layer.evaluate_band_guardrail(structure, *self.BAND)["checks"]
+                self.assertEqual([c["id"] for c in checks if not c["passed"]], [check_id])
+
+    def test_R5_quoting_its_citation_is_served(self):
+        self.assertServed(self.compliance(self.R5_OK))
+
+    def test_R5_quoting_its_citation_and_the_former_one_is_served(self):
+        self.assertServed(self.compliance(
+            "The excess over Rs 7.5L is a taxable perquisite under Section 17(1)(h) "
+            "(formerly Section 17(2)(vii))."))
+
+    def test_R5_figures_made_of_its_section_digits_are_rejected(self):
+        for line in ("Your contributions exceed the limit by 1 lakh.",
+                     "Your contributions exceed the limit by 2 lakh.",
+                     "You are 17 thousand rupees over the ceiling."):
+            with self.subTest(line=line):
+                self.assertRejected(self.compliance(line))
+
+    def test_epfo_quoting_its_citation_is_served(self):
+        self.assertServed(self.guardrail(self.EPFO_ONLY, self.EPFO_OK))
+
+    def test_epfo_figure_made_of_its_section_digits_is_rejected(self):
+        self.assertRejected(self.guardrail(
+            self.EPFO_ONLY, "Aggregate employer PF + NPS exceeds the ceiling by 1 lakh."))
+
+    def test_nps_cap_quoting_its_citations_is_served(self):
+        self.assertServed(self.guardrail(self.NPS_ONLY, self.NPS_OK))
+
+    def test_nps_cap_figures_made_of_its_section_digits_are_rejected(self):
+        for line in ("Employer NPS of Rs 250,000 exceeds the cap of 2% of basic.",
+                     "Employer NPS is Rs 124 over the cap."):
+            with self.subTest(line=line):
+                self.assertRejected(self.guardrail(self.NPS_ONLY, line))
+
+
+class TestSectionsNeverSuppliedAreStillChecked(_Guards, unittest.TestCase):
+    """
+    The distinguishing test from review (design §4.5, §5.1). The exemption is
+    for references present in THIS flag's rationale, never for anything shaped
+    like a citation. An unconditional strip would pass every line here.
+    """
+
+    def test_R5_sections_it_never_supplied_are_rejected(self):
+        for section in ("Section 17(1)(i)", "Section 17(2)(viia)", "Section 999"):
+            with self.subTest(section=section):
+                self.assertRejected(self.compliance(
+                    f"The excess over Rs 7.5L is a taxable perquisite under {section}."))
+
+    def test_epfo_section_it_never_supplied_is_rejected(self):
+        self.assertRejected(self.guardrail(
+            self.EPFO_ONLY,
+            "Aggregate employer PF + NPS of Rs 840,000 exceeds the Rs 750,000/year "
+            "ceiling; the excess is taxable under Section 17(1)(i)."))
+
+    def test_an_abbreviated_citation_the_grammar_cannot_parse_fails_closed(self):
+        # Design §5.4, a cost accepted on purpose: "s. 17(1)(h)" is not a
+        # recognised reference, so its 17 and 1 are checked, and they are no
+        # longer grounded. If this starts passing, the grammar widened; that
+        # should be a decision, not a side effect.
+        self.assertRejected(self.compliance(
+            "The excess over Rs 7.5L is a taxable perquisite under s. 17(1)(h)."))
 
 
 if __name__ == "__main__":

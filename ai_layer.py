@@ -628,8 +628,17 @@ def flag_compliance(structure, rent_paid: float, skip_ai: bool = False) -> dict:
                 # an invented "LTA exceeds 50% of CTC" passed because 50 was
                 # R1's real figure, and lines returned in swapped order passed
                 # with each flag carrying the other's reason.
+                #
+                # And the rationale's own citation digits are not figures
+                # (§4.5). _grounded_figures() drops them from the allowed set,
+                # so R5's "Section 17(1)(h)" no longer grounds an invented
+                # "1 lakh". citations= drops the same references from the line,
+                # so quoting that citation still passes. Only this flag's
+                # references are exempt; a section it never supplied keeps its
+                # digits and is checked as a figure.
                 guard_triggered = any(
-                    _numbers_ungrounded(line, set(_extract_numbers(flag["rationale"])), skip_below=0)
+                    _numbers_ungrounded(line, _grounded_figures(flag["rationale"]), skip_below=0,
+                                        citations=[flag["rationale"]])
                     or _phrasing_flips_polarity(line, _COMPLIANCE_SOFT_PEDAL_MARKERS)
                     for flag, line in zip(triggered, phrased)
                 )
@@ -776,9 +785,11 @@ def evaluate_band_guardrail(structure: SalaryStructure, regime: str,
                 #
                 # Grounded per check, as in flag_compliance(): a message may
                 # only restate numbers from the rationale of the check it
-                # becomes the message for, never from another failing check's.
+                # becomes the message for, never from another failing check's,
+                # and never that rationale's own citation digits.
                 guard_triggered = any(
-                    _numbers_ungrounded(message, set(_extract_numbers(check["rationale"])), skip_below=0)
+                    _numbers_ungrounded(message, _grounded_figures(check["rationale"]), skip_below=0,
+                                        citations=[check["rationale"]])
                     or _phrasing_flips_polarity(message, [_GUARDRAIL_PASS_MARKER])
                     for check, message in zip(failing, phrased)
                 )
