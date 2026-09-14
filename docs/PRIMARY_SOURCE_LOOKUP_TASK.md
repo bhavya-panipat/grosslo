@@ -235,3 +235,171 @@ lookup.
 exists and says what is quoted. Neither judges that R5's predicate or the HRA
 candidate's threshold correctly implements it. That is protocol step 5 and it
 still requires the CA.
+
+---
+
+# SECOND LOOKUP — R1 and TE4, done 2026-09-14
+
+Requested because both records say primary sources are "unreachable", while the
+review queue that renders them says those sources load in a browser
+(`docs/PROJECT_STATUS.md`, Open gaps). Both lookups reached the primary source.
+**Neither resolves its record outright**, and the reasons are more useful than a
+clean "verified" would have been.
+
+Success criteria were set before searching, as for the first lookup, so that
+finding a number could not be mistaken for confirming a claim.
+
+## A second access finding: India Code moved
+
+R1's recorded `source_url`,
+`https://www.indiacode.nic.in/handle/123456789/15793`, returns a server-error
+page **in an ordinary browser**. This is not the automated-request block.
+**India Code has migrated** from `indiacode.nic.in` to **`indiacode.gov.in`**
+(the redirect briefly shows a "Site Migration" page title), and the old
+`/handle/…` URLs did not survive the move. That is almost certainly also why
+India Code "served errors on the browse and search paths tried" on 2026-09-13.
+
+So there are now two distinct ways a source looked unreachable while it was not,
+and neither was about the law being unavailable: automated requests are refused
+by `incometaxindia.gov.in`, and India Code's old URL scheme is dead. **Record
+which of the two happened, not just that something failed.**
+
+Relevant to the open `(Act 30 of 2025)` item: India Code's home page directs
+income-tax legislation to `incometaxindia.gov.in`, so India Code was never going
+to verify that act number. The Gazette is the better next place.
+
+## R1 — Code on Wages, 2019, s. 2(y)
+
+**Source:** India Code, `indiacode.gov.in`, *The Code on Wages, 2019* →
+Sections → Section 2 "Definitions"; and its Act Details page. Checked 2026-09-14.
+
+**Verified from the primary source:**
+
+- **Act Number 29, enacted 08-08-2019.** "(Act 29 of 2019)" in R1's
+  `instrument` is correct. The Act's PDF is published as `a2019-29.pdf`.
+- **s. 2(y)** — *"wages" means all remuneration … and **includes** (i) basic pay;
+  (ii) dearness allowance; and (iii) retaining allowance, if any, but **does not
+  include** (a)–(k)* — bonus, house-accommodation and amenities, employer PF and
+  pension contributions, conveyance, special expenses, **house rent allowance**,
+  award remuneration, overtime, commission, gratuity, retrenchment compensation.
+- **The first proviso, verbatim:**
+  > Provided that, for calculating the wages under this clause, if payments made
+  > by the employer to the employee under clauses (a) to (i) exceeds one-half,
+  > or such other per cent. as may be notified by the Central Government, of the
+  > all remuneration calculated under this clause, the amount which exceeds such
+  > one-half, or the per cent. so notified, shall be deemed as remuneration and
+  > shall be accordingly added in wages under this clause:
+
+**NOT verified, and not asserted:**
+
+- **Commencement on 21 November 2025.** Section 1 leaves commencement to
+  notification. India Code's Act Details lists only the notification of
+  **18 December 2020**, and that brought in parts of ss. 42, 67 and 69, not
+  s. 2. "Last Modified 25-11-2025" is consistent with a late-November 2025
+  commencement and is not evidence of one.
+- **Whether "one-half" is still the operative figure.** The proviso lets the
+  Central Government notify another percentage. No such notification was looked
+  for or found.
+
+### What the text says about R1, as findings rather than rulings
+
+**1. It is a deeming rule, not a requirement.** R1's rationale says basic below
+50% is *"violating the Code on Wages … requirement that Basic + DA be at least
+50%"*. The proviso prohibits and requires nothing: excluded payments above
+one-half are **deemed remuneration and added to wages**. R1's *second* sentence
+— *"This triggers automatic reclassification of the excess allowances as
+'wages' for PF and gratuity purposes"* — describes the mechanism the text
+actually states. The first sentence does not.
+
+**2. R1's predicate and the statute's test are different tests.** R1 flags
+**basic < 50% of CTC**. The proviso asks whether **payments under clauses (a)–(i)
+exceed one-half of all remuneration**. Three places they can diverge:
+
+- **Allowances outside (a)–(k).** "Wages" is *all remuneration*, including
+  allowances, less the listed exclusions. An allowance not on that list — for
+  example a special allowance — may therefore count as wages rather than as an
+  excluded payment. If it does, a structure with basic under 50% but a large
+  special allowance triggers no deeming at all, and R1 over-flags it.
+  **Whether it does is statutory interpretation** — whether the (i)–(iii)
+  inclusion list is exhaustive — and practitioner summaries differ. That is
+  protocol step 5, for a CA, and it is not decided here.
+- **(j) and (k) are excluded from wages but outside the proviso's count.**
+  Gratuity and retrenchment compensation never trigger the deeming.
+- **CTC is not "all remuneration".** CTC includes employer PF, which is itself
+  exclusion (c).
+
+**3. DA is inside "wages".** Consistent with R1's note that the tool has no DA
+field — the same unstated DA-is-zero assumption found in `hra_exemption()` and,
+below, in TE4.
+
+**Outcome for R1's record:** the citation text and act number are verified; the
+commencement is not, so **R1 should stay `unresolved`**, with its reason changed
+from "sources unreachable" to "commencement not verified". The predicate question
+belongs in the CA packet next to the existing R1 question.
+
+## TE4 — Income-tax Act, 2025, s. 124
+
+**Source:** `incometaxindia.gov.in/income-tax-act-2025` → Section 124 → Compare
+against Income-tax Act, 1961 s. 80CCD (CBDT parallel reading); and Section 202's
+official heading. Checked 2026-09-14.
+
+**Verified from the primary source:**
+
+- **s. 124 is headed** *"Deduction in respect of employer and assessee
+  contribution to pension scheme of Central Government"*.
+- **s. 124(1):** the employer's contribution is deductible *"in the computation
+  of his total income"* up to **(a) 14%, where the employer is the Central
+  Government or a State Government**, and **(b) 10%, for any other employer**,
+  *"of his salary in the tax year"*.
+- **s. 124(2):** where total income is chargeable to tax under **s. 202(1)**, the
+  10% in (b) is read as **14%**.
+- **s. 202's official heading** is *"New tax regime for individuals, Hindu
+  undivided family and others"*.
+- **s. 124(13)(b):** *"salary" includes dearness allowance, if the terms of
+  employment so provide, but excludes all other allowances and perquisites.*
+- **Old-Act pairing confirmed.** 1961 s. 80CCD(2) has the same 14%/10% split and
+  a proviso substituting 14% where income is chargeable under s. 115BAC(1A) —
+  the old Act's new regime — in the identical position s. 124(2) now occupies.
+
+### What the text says about TE4
+
+TE4 asserts `{new: 14%, old: 10%}` as the employer-NPS cap, "as a percentage of
+basic", citing "Section 124, read with Schedule XV".
+
+**1. The value is right for non-government employers only.** For a Central or
+State Government employer the cap is **14% under both regimes**; TE4's 10% for
+the old regime is wrong for them. The tool models no employer type, so this is
+correct under an unstated assumption: a private-sector employer. That is a
+`known_divergence`, not a wrong value.
+
+**2. The base is salary including DA, not basic.** Same assumption as
+`hra_exemption()` and R1. Exact when DA is zero.
+
+**3. "Read with Schedule XV" is not where the cap lives.** The rates, the regime
+substitution and the definition of salary all sit inside s. 124 itself. Schedule
+XV appears in s. 124 only in sub-sections (6) and (11), which tax amounts
+withdrawn from the account. What Schedule XV itself contains was not read, so
+nothing is claimed about it beyond that. The accurate citation for the cap is
+**s. 124(1)(b), read with s. 124(2) and s. 124(13)(b)**.
+
+**4. It is a deduction from total income,** not "from salary income" as TE4's
+provision text puts it.
+
+**Not verified:** `(Act 30 of 2025)` in TE4's `instrument` — unchanged, and
+tracked in `docs/PROJECT_STATUS.md`.
+
+**Outcome for TE4's record:** the provision is verified and the value holds for
+the case the tool models. But **three fields are imprecise** — the Schedule XV
+pairing, "of basic", and "from salary income" — plus an unrecorded divergence
+and an unverified act number. Marking TE4 checked without correcting those would
+put a verified date on a record whose provision text is partly wrong.
+
+## What this lookup does NOT do
+
+**No data record was changed.** R1, TE4 and the review queue are exactly as they
+were. Both outcomes need decisions first — the R1 predicate question needs a CA,
+TE4 needs its provision text corrected and a divergence recorded — so the
+records are not edited ahead of those decisions.
+
+`reviewed_by` is unchanged for both, as with every lookup: confirming what a
+provision says is not judging that the implementation is right.
