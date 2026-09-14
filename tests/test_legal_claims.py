@@ -908,9 +908,19 @@ class TestStageC2KnownDivergence(unittest.TestCase):
     def _claim(self, cid):
         return next(c for c in legal_claims.CLAIMS if c.id == cid)
 
-    def test_exactly_the_two_documented_divergences_are_recorded(self):
+    def test_exactly_the_documented_divergences_are_recorded(self):
+        # WAS test_exactly_the_two_documented_divergences_are_recorded. TE4 was
+        # added on 2026-09-14 (R1_TE4_RECORD_UPDATE_DESIGN.md SS3.4). This pin is
+        # ABOUT the inventory's contents, so moving it deliberately is its job:
+        # a divergence added or dropped without anyone meaning to still fails.
         recorded = [c.id for c in legal_claims.CLAIMS if c.known_divergence.strip()]
-        self.assertEqual(recorded, ["PT2", "PT4"])
+        self.assertEqual(recorded, ["TE4", "PT2", "PT4"])
+
+    def _divergent(self):
+        found = [c for c in legal_claims.CLAIMS if c.known_divergence.strip()]
+        # A convention test over an empty collection passes vacuously.
+        self.assertTrue(found, "no recorded divergence to check the convention against")
+        return found
 
     def test_empty_means_intended_to_match_not_unexamined(self):
         # Asserted structurally: every other claim declares the field and
@@ -931,10 +941,14 @@ class TestStageC2KnownDivergence(unittest.TestCase):
         # The point of recording it. A reviewer is not being asked whether the
         # table matches the Act — it does — but whether the departure is
         # acceptable for this tool's purpose, which is a different question.
-        for cid in ("PT2", "PT4"):
-            with self.subTest(claim=cid):
+        # D6: EVERY recorded divergence, not a hardcoded PT2/PT4. As hardcoded, this
+        # stayed green while a newly added divergence ignored the convention --
+        # INVENTORY_EXPANSION_DESIGN.md SS7, a batch test standing in for a
+        # collection rule.
+        for claim in self._divergent():
+            with self.subTest(claim=claim.id):
                 self.assertIn("WHAT A REVIEWER IS ACCEPTING",
-                              self._claim(cid).known_divergence.upper())
+                              claim.known_divergence.upper())
 
     def test_maharashtras_divergence_records_its_direction(self):
         # Which way it errs is the part that decides whether it is safe. This
@@ -947,12 +961,26 @@ class TestStageC2KnownDivergence(unittest.TestCase):
     def test_an_unreviewed_divergence_is_its_own_finding(self):
         # CHECK 7. The existing reviewer check does not express this: a claim
         # could satisfy that while the divergence itself was never put to anyone.
+        # D6: every UNREVIEWED divergence, not a hardcoded PT2/PT4.
         findings = legal_claims.evidence_findings()
-        for cid in ("PT2", "PT4"):
-            with self.subTest(claim=cid):
+        for claim in self._divergent():
+            if claim.implementation_is_reviewed:
+                continue
+            with self.subTest(claim=claim.id):
                 self.assertTrue(
-                    any(f.startswith(cid) and "diverges" in f for f in findings),
+                    any(f.startswith(claim.id) and "diverges" in f for f in findings),
                     "a deliberate departure from the law went unreported")
+
+    def test_TE4s_tax_direction_is_marked_pending_not_guessed(self):
+        # PT2 records "OVER-states, never under-states" -- the direction is what
+        # decides whether a divergence is safe. TE4's cannot be stated while the
+        # engine double-counts employer NPS (TAX_ENGINE_EMPLOYER_NPS_DESIGN.md).
+        # This pins that it says so, so a direction cannot be written in quietly
+        # before D1 is implemented and the direction measured.
+        te4 = self._claim("TE4").known_divergence
+        self.assertIn("PENDING D1", te4)
+        self.assertNotIn("OVER-states", te4)
+        self.assertNotIn("UNDER-states", te4)
 
     def test_a_reviewed_divergence_stops_flagging(self):
         # Both directions. A check asserted only in its failing state might be
