@@ -97,7 +97,9 @@ These are not candidates. They are live rules, firing today, with problems this 
 
 *Severity High, statutory, currently ACTIVE.*
 
-The rule's emitted text says "Code on Wages 2025". The Act is the Code on Wages, **2019** (Act 29 of 2019); 21 November 2025 is when it came into force, not its year. The text is deliberately left byte-identical — changing emitted text is a behaviour change, not provenance backfill. Should it be corrected, and does the underlying claim (Basic + DA at least 50% of remuneration, with no DA field in this private-sector-scoped tool) hold as stated?
+(1) The rule's emitted text says "Code on Wages 2025". The Act is the Code on Wages, **2019** (Act 29 of 2019 — verified on India Code). The 2025 is believed to be when s. 2 came into force, but that commencement was **not** verified from the primary source, so it is not asserted here. The text is deliberately left byte-identical — changing emitted text is a behaviour change, not provenance backfill. Should it be corrected, and does the underlying claim (Basic + DA at least 50% of remuneration, with no DA field in this private-sector-scoped tool) hold as stated?
+
+(2) The primary text of s. 2(y) makes this a **deeming rule**, not a requirement: payments under clauses (a) to (i) above one-half of all remuneration are *"deemed as remuneration and … added in wages"*. The rule's text calls a breach *"violating"* a requirement, and its predicate flags **basic below 50% of CTC**. Those are the same test only if every allowance outside the (a)–(k) exclusion list — a special allowance, for example — is itself an excluded payment. If such allowances count as wages, the rule flags structures on which no deeming occurs. Which reading applies?
 
 ### R3 — HRA claimed but rent_paid = 0 or not provided
 
