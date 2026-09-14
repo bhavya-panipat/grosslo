@@ -589,10 +589,6 @@ def flag_compliance(structure, rent_paid: float, skip_ai: bool = False) -> dict:
             flag["message"] = flag["rationale"]
         return {"flags": triggered, "ai_backed": False, "guard_triggered": False}
 
-    allowed_numbers = set()
-    for flag in triggered:
-        allowed_numbers.update(_extract_numbers(flag["rationale"]))
-
     guard_triggered = False
     if _client is not None:
         try:
@@ -605,10 +601,18 @@ def flag_compliance(structure, rent_paid: float, skip_ai: bool = False) -> dict:
             phrased = response.content[0].text.strip().split("\n")
             phrased = [p.strip("- ").strip() for p in phrased if p.strip()]
             if len(phrased) == len(triggered):
+                # EACH LINE IS GROUNDED IN ITS OWN FLAG'S RATIONALE ONLY
+                # (RATIONALE_GUARD_CITATION_DESIGN.md §1.1). Line i becomes
+                # triggered[i]'s message below, so that is the only rationale
+                # that can support its numbers. This used to be one set pooled
+                # across every triggered flag, which failed OPEN two ways:
+                # an invented "LTA exceeds 50% of CTC" passed because 50 was
+                # R1's real figure, and lines returned in swapped order passed
+                # with each flag carrying the other's reason.
                 guard_triggered = any(
-                    _numbers_ungrounded(line, allowed_numbers, skip_below=0)
+                    _numbers_ungrounded(line, set(_extract_numbers(flag["rationale"])), skip_below=0)
                     or _phrasing_flips_polarity(line, _COMPLIANCE_SOFT_PEDAL_MARKERS)
-                    for line in phrased
+                    for flag, line in zip(triggered, phrased)
                 )
                 if not guard_triggered:
                     for i, flag in enumerate(triggered):
@@ -731,10 +735,6 @@ def evaluate_band_guardrail(structure: SalaryStructure, regime: str,
             c["message"] = c["rationale"]
         return {"verdict": verdict, "checks": checks, "ai_backed": False, "guard_triggered": False}
 
-    allowed_numbers = set()
-    for c in failing:
-        allowed_numbers.update(_extract_numbers(c["rationale"]))
-
     ai_backed = False
     guard_triggered = False
     if _client is not None:
@@ -754,10 +754,14 @@ def evaluate_band_guardrail(structure: SalaryStructure, regime: str,
                 # own "is within" language, is rejected for the whole
                 # batch rather than trusted — this is the guard behind
                 # orchestration.py's classify_row() reading this text.
+                #
+                # Grounded per check, as in flag_compliance(): a message may
+                # only restate numbers from the rationale of the check it
+                # becomes the message for, never from another failing check's.
                 guard_triggered = any(
-                    _numbers_ungrounded(message, allowed_numbers, skip_below=0)
+                    _numbers_ungrounded(message, set(_extract_numbers(check["rationale"])), skip_below=0)
                     or _phrasing_flips_polarity(message, [_GUARDRAIL_PASS_MARKER])
-                    for message in phrased
+                    for check, message in zip(failing, phrased)
                 )
                 if not guard_triggered:
                     for flag, message in zip(failing, phrased):
