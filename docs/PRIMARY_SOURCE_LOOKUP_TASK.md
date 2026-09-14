@@ -145,6 +145,16 @@ citation (80CCD(1) → s. 124(1)) but not substance: s. 124 is headed *Deduction
 in respect of contribution to pension scheme of Central Government or State
 Government* and s. 124(1) is the employer-contribution sub-section.
 
+> **Correction, 2026-09-14 — that heading was quoted from a secondary source.**
+> The wording above came from `itact2025.org`, not from CBDT, and it was
+> recorded in a section whose whole point is that everything was read from the
+> primary source. The official heading, read on `incometaxindia.gov.in` during
+> the second lookup, is *"Deduction in respect of employer and assessee
+> contribution to pension scheme of Central Government"*. The conclusion is
+> unaffected: s. 124(1) is the employer-contribution sub-section, confirmed
+> from the primary text itself. What was wrong was the attribution of a quote.
+> §5.1's point applies to this file too.
+
 The companion provision moved with it: the annual-accretion charge is
 **1961 s. 17(2)(viia) → 2025 s. 17(1)(i)**. Independently corroborated by the
 Income-tax Rules, 2026, whose Rule 16 is titled *"Annual accretion referred to
