@@ -323,5 +323,40 @@ class TestSectionsNeverSuppliedAreStillChecked(_Guards, unittest.TestCase):
             "The excess over Rs 7.5L is a taxable perquisite under s. 17(1)(h)."))
 
 
+class TestAFabricatedCitationIsRejectedEvenWhenItsDigitsAreReal(_Guards, unittest.TestCase):
+    """
+    Step 6b, severity 4 (design §1.1, §4.7). Both guards now also reject a line
+    that cites a reference its own rationale does not. On a743339 each line
+    below was served: its digits are real figures of the same flag, so the
+    figure check alone could not see the fabrication.
+    """
+
+    # Basic 45% of CTC trips R1 alone (rent is supplied, so R3 does not fire).
+    R1_ONLY = SalaryStructure(ctc=2_000_000, basic=900_000, hra=400_000, lta=0,
+                              special_allowance=592_000, employer_pf=108_000,
+                              employer_nps=0, nps_opted=False)
+
+    def r1(self, line):
+        with _reply(line):
+            return ai_layer.flag_compliance(self.R1_ONLY, rent_paid=300_000)
+
+    def test_the_R1_fixture_triggers_R1_alone(self):
+        self.assertEqual([f["rule_id"] for f in ai_layer._check_rules(self.R1_ONLY, 300_000)], ["R1"])
+
+    def test_R1_citing_a_section_built_from_its_own_floor_is_rejected(self):
+        self.assertRejected(self.r1("Basic salary is below the 50% floor set by Section 50."))
+
+    def test_control_R1_restating_its_floor_without_a_citation_is_served(self):
+        self.assertServed(self.r1("This structure sets Basic below the 50% floor the Code on Wages 2025 requires."))
+
+    def test_nps_cap_citing_a_section_built_from_its_own_rate_is_rejected(self):
+        self.assertRejected(self.guardrail(
+            self.NPS_ONLY, "Employer NPS of Rs 250,000 exceeds the Section 14 cap of 14% of basic."))
+
+    def test_control_a_supplied_citation_in_other_case_is_served(self):
+        self.assertServed(self.compliance(
+            "The excess over Rs 7.5L is a taxable perquisite under section 17(1)(h)."))
+
+
 if __name__ == "__main__":
     unittest.main()

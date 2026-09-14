@@ -665,9 +665,15 @@ def flag_compliance(structure, rent_paid: float, skip_ai: bool = False) -> dict:
                 # so quoting that citation still passes. Only this flag's
                 # references are exempt; a section it never supplied keeps its
                 # digits and is checked as a figure.
+                #
+                # That still passes a fabricated section whose digits happen to
+                # be real figures: "Section 50" in R1's line, where 50 is R1's
+                # floor. So a line may also cite nothing its own rationale
+                # does not (§4.7).
                 guard_triggered = any(
                     _numbers_ungrounded(line, _grounded_figures(flag["rationale"]), skip_below=0,
                                         citations=[flag["rationale"]])
+                    or _citations_unsupplied(line, [flag["rationale"]])
                     or _phrasing_flips_polarity(line, _COMPLIANCE_SOFT_PEDAL_MARKERS)
                     for flag, line in zip(triggered, phrased)
                 )
@@ -815,10 +821,13 @@ def evaluate_band_guardrail(structure: SalaryStructure, regime: str,
                 # Grounded per check, as in flag_compliance(): a message may
                 # only restate numbers from the rationale of the check it
                 # becomes the message for, never from another failing check's,
-                # and never that rationale's own citation digits.
+                # and never that rationale's own citation digits. Nor may it
+                # cite a section that rationale does not ("Section 14" passes
+                # the figure check, because 14% is the real cap).
                 guard_triggered = any(
                     _numbers_ungrounded(message, _grounded_figures(check["rationale"]), skip_below=0,
                                         citations=[check["rationale"]])
+                    or _citations_unsupplied(message, [check["rationale"]])
                     or _phrasing_flips_polarity(message, [_GUARDRAIL_PASS_MARKER])
                     for check, message in zip(failing, phrased)
                 )
