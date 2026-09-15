@@ -126,7 +126,8 @@ PF_WAGE_CEILING_BASIC = 15_000  # monthly; statutory mandatory PF base ceiling
 # SAME commit as any change to how a stored tax figure is computed; a row
 # stored under the old value is then identifiable as computed before it.
 TAX_BASIS_PRE_NPS_FIX = "pre-nps-fix"
-TAX_BASIS = TAX_BASIS_PRE_NPS_FIX
+TAX_BASIS_NPS_AS_SALARY_CAPPED = "nps-as-salary-capped"
+TAX_BASIS = TAX_BASIS_NPS_AS_SALARY_CAPPED
 
 
 def _slab_tax(taxable_income: float, slabs: list[tuple[float, float]]) -> float:
@@ -279,13 +280,28 @@ def build_structure(ctc: float, basic_pct: float, hra_pct_of_remaining: float,
 def taxable_income_for_structure(structure: SalaryStructure, regime: Regime,
                                   rent_paid: float, city: CityTier) -> float:
     """
-    Gross salary income (excluding employer PF, which is not part of taxable
-    salary; employer NPS beyond the Section 124 (formerly 80CCD(2)) cap would
-    be taxable but we assume contribution == cap, so fully exempt) minus
-    applicable exemptions/deductions.
+    Gross salary income minus applicable exemptions/deductions.
+
+    Employer PF is not part of taxable salary here. Employer NPS is, following
+    the Income-tax Act, 2025's two-step treatment (TAX_ENGINE_EMPLOYER_NPS_DESIGN.md):
+    s. 16(k) includes the employer's contribution in salary, and s. 124
+    (formerly 80CCD(2)) deducts it up to the cap. Within the cap the two cancel;
+    above it, the excess stays taxable.
+
+    Before this was fixed, the contribution was left out of gross salary and
+    still subtracted, uncapped, so every structure with employer NPS had its
+    taxable income under-stated by the whole contribution (more above the cap).
+    TAX_BASIS changed with the fix so rows stored before it stay identifiable.
+
+    The cap is applied to basic at the non-government rate. The statute's base
+    is salary including DA, and a government employer's old-regime rate is
+    14%: both are TE4's recorded divergences, not modelled here.
     """
-    gross_salary = structure.basic + structure.hra + structure.lta + structure.special_allowance
-    # employer NPS under Section 124 (formerly 80CCD(2)) is deductible from gross total income (both regimes)
+    # s. 16(k): the employer's NPS contribution is salary.
+    gross_salary = (structure.basic + structure.hra + structure.lta
+                    + structure.special_allowance + structure.employer_nps)
+    # s. 124(1)-(2): deductible up to the cap, in both regimes.
+    nps_deduction = min(structure.employer_nps, NPS_80CCD2_CAP_PCT[regime] * structure.basic)
     # LTA exemption (old regime only) is capped to a conservative assumed
     # utilization fraction — see LTA_ASSUMED_UTILIZATION_PCT_DEFAULT above.
     std_deduction = STANDARD_DEDUCTION[regime]
@@ -294,9 +310,9 @@ def taxable_income_for_structure(structure: SalaryStructure, regime: Regime,
         hra_exempt = hra_exemption(structure.basic, structure.hra, rent_paid, city)
         lta_exempt = structure.lta * LTA_ASSUMED_UTILIZATION_PCT_DEFAULT
         taxable = (gross_salary - hra_exempt - lta_exempt - std_deduction
-                   - structure.employer_nps)
+                   - nps_deduction)
     else:
         # new regime: no HRA/LTA exemption at all
-        taxable = gross_salary - std_deduction - structure.employer_nps
+        taxable = gross_salary - std_deduction - nps_deduction
 
     return max(0.0, taxable)

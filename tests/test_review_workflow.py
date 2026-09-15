@@ -268,10 +268,12 @@ class TestTaxBasisIsRecordedOnTheRow(ReviewQueueTestCase):
         row = review_queue.get_submission(self.tenant_id, submission_id)["rows"][0]
         self.assertEqual(row["tax_basis"], tax_engine.TAX_BASIS)
 
-    def test_the_basis_is_still_the_pre_fix_one(self):
-        # Pins the state before the engine fix lands. The fix must change
-        # TAX_BASIS in the same commit (design §8.5), and this test with it.
-        self.assertEqual(tax_engine.TAX_BASIS, tax_engine.TAX_BASIS_PRE_NPS_FIX)
+    def test_the_basis_moved_off_the_pre_fix_value_with_the_fix(self):
+        # Was test_the_basis_is_still_the_pre_fix_one, pinning step 0. The
+        # employer-NPS fix changed TAX_BASIS in the same commit (design §8.5),
+        # so a row computed by the fixed engine is never stored as pre-fix.
+        self.assertNotEqual(tax_engine.TAX_BASIS, tax_engine.TAX_BASIS_PRE_NPS_FIX)
+        self.assertEqual(tax_engine.TAX_BASIS, tax_engine.TAX_BASIS_NPS_AS_SALARY_CAPPED)
 
     def test_a_row_stored_without_a_basis_reads_back_as_none_not_as_current(self):
         # A row from before the column existed, or copied in from the legacy
