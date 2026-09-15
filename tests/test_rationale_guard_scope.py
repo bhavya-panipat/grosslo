@@ -22,6 +22,7 @@ Only the model client is mocked. Rule matching, the guard and the fallback are
 real.
 """
 
+import json
 import os
 import sys
 import unittest
@@ -39,7 +40,24 @@ def _reply(*lines):
     return patch("ai_layer._client", Mock(messages=Mock(create=Mock(return_value=response))))
 
 
+def _replies(*texts):
+    """One mocked reply per model call, in call order. Returns (patch, create)
+    so a test can read back exactly what each call was sent."""
+    responses = []
+    for text in texts:
+        response = Mock()
+        response.content = [Mock(text=text)]
+        responses.append(response)
+    create = Mock(side_effect=responses)
+    return patch("ai_layer._client", Mock(messages=Mock(create=create))), create
+
+
 class TestComplianceLinesAreGroundedInTheirOwnFlag(unittest.TestCase):
+    """
+    Since REPHRASING_ALIGNMENT_DESIGN.md step 2, flag_compliance() makes one
+    model call per flag, so each test below supplies one reply per call in flag
+    order. The assertions are unchanged from the batch version.
+    """
 
     # Basic 40% of CTC trips R1 (50% floor); LTA 15% of CTC trips R4 (10%).
     R1_R4 = SalaryStructure(ctc=2_000_000, basic=800_000, hra=0, lta=300_000,
@@ -51,7 +69,8 @@ class TestComplianceLinesAreGroundedInTheirOwnFlag(unittest.TestCase):
                             employer_nps=600_000, nps_opted=True)
 
     def _run(self, structure, *lines):
-        with _reply(*lines):
+        patcher, _ = _replies(*lines)
+        with patcher:
             return ai_layer.flag_compliance(structure, rent_paid=0)
 
     def _messages(self, result):
@@ -83,6 +102,8 @@ class TestComplianceLinesAreGroundedInTheirOwnFlag(unittest.TestCase):
             f["rationale"] for f in ai_layer._check_rules(self.R1_R4, 0) if f["rule_id"] == "R4"))
 
     def test_lines_returned_in_swapped_order_are_rejected(self):
+        # Under one call per flag this means R1's call came back with R4's
+        # sentence, and R4's with R1's. The figures still give it away.
         result = self._run(self.R1_R4, "LTA exceeds 10% of CTC.",
                            "Basic salary is below 50% of CTC.")
         self.assertTrue(result["guard_triggered"])
@@ -104,6 +125,49 @@ class TestComplianceLinesAreGroundedInTheirOwnFlag(unittest.TestCase):
                            "The excess over Rs 7.5L is a taxable perquisite under Section 17(1)(h).")
         self.assertTrue(result["ai_backed"])
         self.assertFalse(result["guard_triggered"])
+
+
+class TestComplianceMakesOneCallPerFlag(unittest.TestCase):
+    """
+    REPHRASING_ALIGNMENT_DESIGN.md §3.1, step 2. With every flag in one call,
+    two FIGURE-FREE lines returned in swapped order passed every check (measured:
+    R1 served with R4's reason). No figure check can see that. So the pairing is
+    now structural: each call is sent one rationale, and its one-line reply
+    becomes that flag's message.
+    """
+
+    R1_R4 = TestComplianceLinesAreGroundedInTheirOwnFlag.R1_R4
+
+    def test_each_call_is_sent_exactly_one_rationale_in_flag_order(self):
+        patcher, create = _replies("Basic salary is too low for this CTC.",
+                                   "LTA is higher than company policy usually allows.")
+        with patcher:
+            ai_layer.flag_compliance(self.R1_R4, rent_paid=0)
+        sent = [json.loads(call.kwargs["messages"][0]["content"]) for call in create.call_args_list]
+        self.assertEqual([[flag["rule_id"] for flag in payload] for payload in sent], [["R1"], ["R4"]])
+
+    def test_figure_free_lines_land_on_the_flag_whose_call_produced_them(self):
+        patcher, _ = _replies("Basic salary is too low for this CTC.",
+                              "LTA is higher than company policy usually allows.")
+        with patcher:
+            result = ai_layer.flag_compliance(self.R1_R4, rent_paid=0)
+        self.assertTrue(result["ai_backed"])
+        self.assertEqual({f["rule_id"]: f["message"] for f in result["flags"]}, {
+            "R1": "Basic salary is too low for this CTC.",
+            "R4": "LTA is higher than company policy usually allows.",
+        })
+
+    def test_a_reply_that_is_not_exactly_one_line_falls_back_for_every_flag(self):
+        # All-or-nothing, as before (design §5 decision 3): R1's call returns two
+        # lines, so no message is assigned and no further call is made.
+        patcher, create = _replies("Basic salary is too low.\nLTA is too high.",
+                                   "LTA is higher than company policy usually allows.")
+        with patcher:
+            result = ai_layer.flag_compliance(self.R1_R4, rent_paid=0)
+        self.assertFalse(result["ai_backed"])
+        self.assertEqual(create.call_count, 1)
+        for flag in result["flags"]:
+            self.assertEqual(flag["message"], flag["rationale"])
 
 
 class TestGuardrailMessagesAreGroundedInTheirOwnCheck(unittest.TestCase):

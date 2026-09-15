@@ -640,14 +640,26 @@ def flag_compliance(structure, rent_paid: float, skip_ai: bool = False) -> dict:
     guard_triggered = False
     if _client is not None:
         try:
-            response = _create(
-                model=MODEL,
-                max_tokens=400,
-                system=COMPLIANCE_SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": json.dumps(triggered)}],
-            )
-            phrased = response.content[0].text.strip().split("\n")
-            phrased = [p.strip("- ").strip() for p in phrased if p.strip()]
+            # ONE CALL PER FLAG (REPHRASING_ALIGNMENT_DESIGN.md §3.1). With all
+            # flags in one call, reply line i was assigned to flag i, and two
+            # lines with no figures in them could come back swapped and still
+            # pass every check below: R1 served with R4's reason, quoted as a
+            # routing reason. Now the code decides the pairing. Each call is
+            # sent exactly one rationale, and a reply that is not exactly one
+            # line falls back like any other rejection (all-or-nothing, as
+            # before).
+            phrased = []
+            for flag in triggered:
+                response = _create(
+                    model=MODEL,
+                    max_tokens=400,
+                    system=COMPLIANCE_SYSTEM_PROMPT,
+                    messages=[{"role": "user", "content": json.dumps([flag])}],
+                )
+                lines = [p.strip("- ").strip() for p in response.content[0].text.strip().split("\n") if p.strip()]
+                if len(lines) != 1:
+                    break
+                phrased.append(lines[0])
             if len(phrased) == len(triggered):
                 # EACH LINE IS GROUNDED IN ITS OWN FLAG'S RATIONALE ONLY
                 # (RATIONALE_GUARD_CITATION_DESIGN.md §1.1). Line i becomes
