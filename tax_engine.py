@@ -116,6 +116,18 @@ LTA_ASSUMED_UTILIZATION_PCT_DEFAULT = 0.70
 EMPLOYER_PF_RATE = 0.12
 PF_WAGE_CEILING_BASIC = 15_000  # monthly; statutory mandatory PF base ceiling
 
+# The computation basis a stored figure was produced under. Written onto every
+# stored submission row (review_queue.create_submission), so a row says what it
+# was computed with, on the row, rather than being inferred from a date
+# (TAX_ENGINE_EMPLOYER_NPS_DESIGN.md, decision D1-5).
+#
+# TAX_BASIS_PRE_NPS_FIX names the engine that leaves employer NPS out of gross
+# salary and subtracts it anyway, uncapped (§1.2). TAX_BASIS must change in the
+# SAME commit as any change to how a stored tax figure is computed; a row
+# stored under the old value is then identifiable as computed before it.
+TAX_BASIS_PRE_NPS_FIX = "pre-nps-fix"
+TAX_BASIS = TAX_BASIS_PRE_NPS_FIX
+
 
 def _slab_tax(taxable_income: float, slabs: list[tuple[float, float]]) -> float:
     """Progressive slab tax, no rebate/cess applied."""

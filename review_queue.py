@@ -68,6 +68,7 @@ from psycopg import sql
 from psycopg.rows import dict_row
 
 import secret_store
+import tax_engine
 
 # Local dev default targets the Homebrew postgresql@16 cluster over the unix
 # socket AS grosslo_app, not as the developer's own OS role. That is not a
@@ -382,6 +383,13 @@ def _ensure_schema(conn: psycopg.Connection) -> None:
          "ALTER TABLE tenant_settings ADD COLUMN codes_disabled_at TIMESTAMPTZ"),
         ("submission_rows", "decided_by_user_id",
          "ALTER TABLE submission_rows ADD COLUMN decided_by_user_id INTEGER REFERENCES users(id)"),
+        # tax_basis records which tax computation a row's stored figures came
+        # from (TAX_ENGINE_EMPLOYER_NPS_DESIGN.md D1-5). Added WITHOUT a default
+        # or backfill: a row stored before this column existed, or copied in by
+        # scripts/migrate_sqlite_to_postgres.py, reads NULL, and NULL must be
+        # treated as the pre-fix basis, never as current (§8.4).
+        ("submission_rows", "tax_basis",
+         "ALTER TABLE submission_rows ADD COLUMN tax_basis TEXT"),
     ]:
         present = conn.execute(
             "SELECT 1 FROM information_schema.columns "
@@ -1066,14 +1074,19 @@ def create_submission(tenant_id: int, source: str, rows: list[dict],
             row_id = conn.execute(
                 """INSERT INTO submission_rows
                    (tenant_id, submission_id, row_index, employee_name, ctc, dedupe_hash,
-                    input_json, computed_json, orchestration_json, route, severity, status)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'pending')
+                    input_json, computed_json, orchestration_json, route, severity, status,
+                    tax_basis)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'pending', %s)
                    RETURNING id""",
                 (tenant_id, submission_id, i, name, ctc, dedupe_hash,
                  json.dumps(row["input"]), json.dumps(row["computed"]),
                  json.dumps(orchestration) if orchestration else None,
                  orchestration.get("route") if orchestration else None,
-                 orchestration.get("severity") if orchestration else None),
+                 orchestration.get("severity") if orchestration else None,
+                 # From the engine module, never from the caller: the basis
+                 # describes the code that computed `computed`, and a caller
+                 # cannot know that any better than the engine does.
+                 tax_engine.TAX_BASIS),
             ).fetchone()["id"]
             inserted.append(row_id)
 

@@ -20,6 +20,7 @@ from io import BytesIO
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import review_queue
+import tax_engine
 
 # Overridden before `import app` so app.py's module-level review_queue.init_db()
 # call (which runs at import time) creates tables in the test schema, not the
@@ -235,6 +236,62 @@ class TestMakerChecker(ReviewQueueTestCase):
         decision = review_queue.decide_row(self.tenant_id, result["submission_id"], 0, "approve", None)
         self.assertFalse(decision["already_decided"])
         self.assertEqual(decision["row"]["status"], "approved")
+
+
+class TestTaxBasisIsRecordedOnTheRow(ReviewQueueTestCase):
+    """
+    TAX_ENGINE_EMPLOYER_NPS_DESIGN.md D1-5: a stored row records the tax
+    computation it was produced under, so a row computed before the employer-NPS
+    fix can be identified from the row itself, not inferred from a date.
+    """
+
+    def _submit(self, name="Tara"):
+        computed = _optimize_response_for(ctc=1_800_000)
+        result = review_queue.create_submission(self.tenant_id, "single", [{
+            "employee_name": name, "ctc": 1_800_000,
+            "input": {"ctc": 1_800_000, "rent_paid": 0, "city": "metro", "nps_opted": False, "current_structure": None},
+            "computed": computed,
+        }])
+        return result["submission_id"]
+
+    def _column_present(self):
+        with review_queue._conn(self.tenant_id) as conn:
+            return conn.execute(
+                "SELECT 1 FROM information_schema.columns WHERE table_schema = %s "
+                "AND table_name = 'submission_rows' AND column_name = 'tax_basis'",
+                (TEST_SCHEMA,),
+            ).fetchone() is not None
+
+    def test_every_insert_records_the_engines_basis(self):
+        submission_id = self._submit()
+        row = review_queue.get_submission(self.tenant_id, submission_id)["rows"][0]
+        self.assertEqual(row["tax_basis"], tax_engine.TAX_BASIS)
+
+    def test_the_basis_is_still_the_pre_fix_one(self):
+        # Pins the state before the engine fix lands. The fix must change
+        # TAX_BASIS in the same commit (design §8.5), and this test with it.
+        self.assertEqual(tax_engine.TAX_BASIS, tax_engine.TAX_BASIS_PRE_NPS_FIX)
+
+    def test_a_row_stored_without_a_basis_reads_back_as_none_not_as_current(self):
+        # A row from before the column existed, or copied in from the legacy
+        # SQLite store, has no basis. It must read as absent, never be filled
+        # in with today's value on the way out.
+        submission_id = self._submit()
+        with review_queue._conn(self.tenant_id) as conn:
+            conn.execute("UPDATE submission_rows SET tax_basis = NULL WHERE tenant_id = %s",
+                         (self.tenant_id,))
+        row = review_queue.get_submission(self.tenant_id, submission_id)["rows"][0]
+        self.assertIsNone(row["tax_basis"])
+
+    def test_init_db_adds_the_column_to_an_existing_table_without_backfilling(self):
+        submission_id = self._submit()
+        with review_queue._conn(self.tenant_id) as conn:
+            conn.execute("ALTER TABLE submission_rows DROP COLUMN tax_basis")
+        self.assertFalse(self._column_present())
+        review_queue.init_db()
+        self.assertTrue(self._column_present())
+        row = review_queue.get_submission(self.tenant_id, submission_id)["rows"][0]
+        self.assertIsNone(row["tax_basis"], "an existing row must not be given a basis it was not computed under")
 
 
 class TestReject(ReviewQueueTestCase):
