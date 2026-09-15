@@ -358,8 +358,20 @@ suite.
 - **A true but unsupplied citation is rejected** by the membership check, for
   example a correct "Section 16" added by the model in `answer_query`. The
   prompts already forbid this.
-- **Reordering is caught only when figures differ.** Two figure-free rules (R3
-  and R6) swapped still get through. *Fails open.*
+- **Reordering is caught only when the swapped lines contain differing
+  figures.** *Fails open.* **Corrected 2026-09-16:** this bullet first said
+  "two figure-free rules (R3 and R6) swapped still get through". That was too
+  narrow. What matters is whether the model's *lines* contain figures, not
+  whether the flags' *rationales* do. Measured after step 8 (`ef98fc2`):
+  - R1 + R4, whose rationales both have figures, rephrased as "Basic salary is
+    too low for this CTC." / "LTA is higher than company policy usually
+    allows." and returned swapped: **served**, R1 carrying the LTA reason.
+  - `evaluate_band_guardrail`, band + NPS cap failing, "CTC is outside the
+    approved band." / "Employer NPS is over its cap." swapped: **served**.
+  - R3 + R6 swapped: served.
+  - Mixed (one line with a figure) swapped: rejected.
+
+  Designed separately in `REPHRASING_ALIGNMENT_DESIGN.md`.
 - **Unparsed reference forms** ("s. 17(1)(h)", plurals) whose digits are
   grounded still get through. *Fails open.*
 - **"Rs 2,025" in R1's line** still gets through (§4.6). *Fails open.*
