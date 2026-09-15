@@ -4,9 +4,12 @@
 approval asked for a blast-radius check on the payroll-liability and treasury
 figures. That check is §8. It found more affected figures than §2 listed, one
 claim in §2 that is wrong, and three new decisions for how D1-4 is carried out
-(D1-5 to D1-7). **Implementation waits on D1-5 to D1-7**, because D1-5 fixes
-what has to land in the same commit as the engine change. `tax_engine.py` is
-not changed.
+(D1-5 to D1-7). *Updated the same day:* D1-5 and D1-6 are approved. The owner
+asked whether the error reaches routing, which §8.7 answers: it does, through the
+regime, and only toward escalation. §8.7 also found that the recommended
+structure changes in 111 of 1,140 cases, contrary to §1.3. That undoes the
+reasoning given for approving D1-7, so **D1-7 is reopened (§8.6), and
+implementation waits on it.** `tax_engine.py` is not changed.
 Decision D1 of `R1_TE4_RECORD_UPDATE_DESIGN.md` approved *opening* this design
 ahead of the record updates; the standing rule that a design is approved before
 implementation applies here with more force than anywhere else, because this is
@@ -76,6 +79,10 @@ What the sweep establishes:
 - **No recommendation changes** — not the structure (same basic, same NPS) and
   not the regime, in any of the 36 cases. The fix corrects the *figure*, not the
   *advice*.
+  **Corrected 2026-09-15 (§8.7): false beyond these 36 cases.** A 1,140-case
+  sweep changes the recommended regime or structure in 111 cases. The 36 grid
+  points happened to sit where nothing moves. This is the granularity trap
+  again: a sample checked at a coarser level than the claim.
 - At ₹6L and ₹12L the effect is masked by the rebate, not absent.
 
 **At mid-range CTCs the tool currently shows roughly 15–24% less tax than is
@@ -305,12 +312,14 @@ values.
 | **`optimization_value_pct`** (ring metric) | every optimize response | **Over-stated, by roughly half** with NPS on (rent ₹2.4L, metro): 40.1% → 21.7% at ₹18L; 38.9% → 22.5% at ₹24L; 33.9% → 18.1% at ₹36L; 27.9% → 14.9% at ₹50L. Same cause as §2's naive-baseline point. |
 | **`annual_saving`** (regime comparison) | optimize response; `MATH_SOLVER` trace message | **Wrong in both directions**, because the old- and new-regime caps differ: ₹47,861 → ₹62,837 at ₹12L (under-stated); ₹2,17,402 → ₹1,90,445 at ₹36L and ₹2,15,280 → ₹1,77,840 at ₹50L (over-stated). The recommended regime does not change. |
 | **Batch `unclaimed_savings`** → "Discovered Annual Tax Inefficiency" | Executive Summary card | **Wrong in both directions.** NPS at the cap: over-stated (₹22,464 → ₹12,917 at ₹18L). NPS above the cap: **reported as ₹0 when it is not** (₹0 → ₹7,301 at ₹18L; ₹0 → ₹29,203 at ₹36L). The uncapped deduction makes an over-cap offer look optimal. |
-| **Batch `clean_count` / `flagged_count`** | batch summary | Above-cap rows with no EPFO excess count as **clean when they are not** (18L and 36L, 20% rows: `clean` true → false). The Executive Summary's *Compliance Clean Rate* reads `orchestration.route`, which uses no tax figure, and **does not move**. |
+| **Batch `clean_count` / `flagged_count`** | batch summary | Above-cap rows with no EPFO excess count as **clean when they are not** (18L and 36L, 20% rows: `clean` true → false). The Executive Summary's *Compliance Clean Rate* reads `orchestration.route`, and route does not read `unclaimed_savings` or `clean`. *(Corrected 2026-09-15, §8.7: "does not move" was measured on 15 rows only. Route **does** read a tax-derived value, the regime, and changes on a wider sweep.)* |
 | **Salary Revision export row selection** | who gets exported | Selection includes unclaimed-savings rows, so an above-cap employee can be left out. The file's contents are optimizer output and inherit the fix. |
 
 **Measured as unchanged:** the guardrail verdict and failing checks (15/15), the
 current regime (15/15), `regime_mismatch` (15/15), the recommended structure and
 regime (36/36), and every figure on a structure with no employer NPS.
+*(Corrected 2026-09-15: every "unchanged" in that sentence except the last was a
+small sample. §8.7 re-measures them wider, and three of them do move.)*
 
 **R7's case behaves like the opted-in case.** An NPS-at-14%, not-opted row moves
 by the same ₹19,656 at ₹18L as the opted row. The engine never reads
@@ -363,6 +372,20 @@ Each needs its own design, and none is proposed here.
 - **This machine's data:** the `public` schema holds 0 submission rows today.
   Nothing here says what any other deployment holds, so the mechanism is built for
   the general case.
+- *(Added 2026-09-15.)* **Where else stored rows could be.**
+  - **No other deployment is evidenced in the repository.** It has no deploy
+    configuration: no Dockerfile, Procfile, or fly/render/vercel/railway file.
+    `.env` sets no `DATABASE_URL`, so the app uses `DEFAULT_DSN` on this machine.
+    The only Postgres databases here are `postgres` and `grosslo`. That is
+    evidence about this repository and this machine, not proof that nobody ever
+    ran a copy elsewhere, which the code cannot know.
+  - **One real store was found, not in Postgres.** The pre-port SQLite file
+    `review_queue.db` (git-ignored, last written 2026-09-07) still holds 5
+    submission rows, 2 of them with employer NPS (₹1,44,000 and ₹1,83,000). The
+    app no longer reads it. `scripts/migrate_sqlite_to_postgres.py` copies it
+    verbatim, so if it is ever run, those rows arrive with no `tax_basis`.
+  - **Consequence for D1-5:** a missing or NULL `tax_basis` must read as **pre-fix**,
+    never as current. Pinned by a test in the flag-on-read step.
 - **Out of reach:** anything already exported (Salary Revision XLSX files) is
   outside the system and cannot be flagged. Recorded as a limit.
 
@@ -370,6 +393,84 @@ Each needs its own design, and none is proposed here.
 **and** any structure in it has `employer_nps > 0`: `current`,
 `old_regime_best`, `new_regime_best`, or the recommended one. §8.2 measured that
 rows with no employer NPS anywhere do not move, so flagging them would be noise.
+
+### 8.7 Does the error reach routing? (added 2026-09-15)
+
+The owner's question: does an above-cap offer that reads ₹0 and "clean" also get
+routed `auto_pass_candidate`, and so become eligible for bulk-approve? If it
+does, that is a routing failure, and it jumps the sequence.
+
+**Answer: `clean` and `unclaimed_savings` do not reach routing. The error does
+reach routing by a second path, the regime. In every case measured it errs
+toward escalation, never toward auto-pass.**
+
+**How route is built.** `orchestration.classify_row()` takes exactly two inputs.
+
+- **Compliance flags:** every rule predicate reads only the structure and rent,
+  with no tax figure (`compliance_rules.py`, all eight predicates).
+- **The guardrail:** band, EPFO ceiling, and the Section 124 cap. The cap check
+  uses `NPS_80CCD2_CAP_PCT[regime]`, and **the regime is chosen by tax**, so it
+  is tax-derived. It reaches route in two ways:
+  - **Batch audit:** the guardrail receives `current_best["regime"]`.
+  - **`/api/submissions`:** the guardrail receives the *recommended* structure and
+    regime, both outputs of the tax search.
+
+`unclaimed_savings` and the batch `clean` flag feed only the batch summary
+counts and the "Tax Inefficiency" figure. **That half of the finding is display
+only.**
+
+**Measured, read-only, in-memory Option B:**
+
+| Path | Cases | Route changed | Direction |
+|---|---|---|---|
+| Batch audit, as-offered structures (6 CTCs × 3 basic % × 3 HRA × 2 LTA × 3 rent × 2 cities × 7 NPS % × opted/not) | 8,424 | **52** | all `escalate` → `auto_pass_candidate` |
+| Submissions, recommended structure (CTC ₹4L–₹60L in ₹1L steps × 5 rents × 2 cities × NPS on/off) | 1,140 | **16** | all `escalate` → `auto_pass_candidate` |
+
+**No case went from `auto_pass_candidate` to `escalate` or `needs_review`.** The
+bug has not been letting rows through that the fixed engine would stop. It has
+been stopping rows the fixed engine would let through.
+
+- **Batch mechanism:** under the bug, an old-regime offer with NPS above 10% of
+  basic looks cheapest in the old regime. The guardrail then applies the 10% cap
+  and fails the row. Fixed, the same offer is cheaper in the new regime, the
+  14% cap applies, and it passes. The regime flipped in 236 of the 8,424 cases,
+  always old → new.
+- **Submissions mechanism:** at high CTC and high rent, the bug makes the
+  new-regime structure with 14% NPS look best. Its PF plus NPS exceeds the ₹7.5L
+  EPFO ceiling, so it escalates. Fixed, the old-regime structure with 10% NPS
+  wins and stays under the ceiling. Example: ₹49L CTC, ₹9L rent.
+
+**This is measured, not proved.** Both mechanisms point the same way: the fix
+raises old-regime taxable income by at least as much as new-regime, because the
+old cap is lower. Tax is not linear in taxable income, though, so this is a
+strong expectation over the measured grid, not a theorem. The step-1 test pins
+both directions on named cases.
+
+**Sequencing:** no routing failure toward auto-pass was found, so nothing jumps
+ahead. What does change the plan is the next finding.
+
+**The recommended structure itself changes.** In the 1,140-case sweep, 111
+NPS-on cases change the recommended regime or structure:
+
+| Change | Cases |
+|---|---|
+| new → old, same basic | 44 |
+| new → new, different basic (e.g. ₹15L: 50% → 60% basic) | 20 |
+| new → old, different basic | 19 |
+| old → old, same basic, different HRA | 17 |
+| old → new | 8 |
+| old → old, different basic | 3 |
+
+75 of the 111 are at the ₹9L rent level, which the 36-case grid never sampled.
+§1.3's "no recommendation changes" is corrected above. Consequences:
+
+- **The advice changes, not only the figure.** A pending pre-fix row may
+  recommend a structure the fixed engine would not. Its Salary Revision export
+  carries that structure, and its payout amount is derived from it.
+- **§5 step 3's baseline justification still holds**, checked:
+  `nps_opted_non_metro` (₹24L, ₹2.4L rent, non-metro) is not among the 111. Step 3
+  still has to confirm this on the real `--check`.
+- **D1-7's reasoning has to change** (§8.6).
 
 ### 8.5 Revised implementation plan
 
@@ -415,4 +516,41 @@ each and the request/go handshake.
 |---|---|---|
 | **D1-5** | How is a pre-fix row identified: by `created_at` against a cut-over date, or by a recorded basis? | **A `tax_basis` column written at insert (step 0).** A cut-over date differs per deployment, the code cannot know it, and `created_at` is TEXT from the app clock. A recorded basis says what the row was computed with, on the row. The cut-over commit is still recorded in this document, as D1-4 requires. |
 | **D1-6** | Does the flag show the corrected figure alongside the stored one? | **No. Flag only.** Showing a recomputed figure is a different decision from D1-4's "do not silently recompute", and it puts a second figure on the row. If wanted later, it is its own design. |
-| **D1-7** | Does a flagged row change approve or export? | **No. Informational only.** Blocking approval of a flagged row would change the maker-checker gate, which is a standing hard constraint. If the owner wants flagged rows blocked, that means lifting the constraint for this case, and it is not assumed here. |
+| **D1-7** | Does a flagged row change approve or export? | **No. Informational only.** Blocking approval of a flagged row would change the maker-checker gate, which is a standing hard constraint. If the owner wants flagged rows blocked, that means lifting the constraint for this case, and it is not assumed here. **Approved 2026-09-15 — reopened the same day, see below.** |
+
+**D1-5 and D1-6 approved 2026-09-15 as recommended.** D1-5 adds one requirement
+(§8.4): a missing or NULL `tax_basis` reads as pre-fix.
+
+**D1-7 is reopened: the reasoning given for approving it does not hold.**
+
+- **The reasoning offered at approval:** no *pending* row can sit in pre-fix
+  state at decision time, because every computation after the fix uses corrected
+  logic.
+- **Why it fails:** rows are computed at submission and stored, and `status`
+  stays `pending` until a human decides. A row submitted before the fix and
+  still pending when the fix ships is exactly that: a live, undecided row
+  carrying pre-fix figures. §8.7 adds that it may also carry a different
+  recommended structure. Nothing recomputes it (D1-4).
+
+**What still holds from the original recommendation:**
+
+- The maker-checker constraint.
+- §8.7's measurement that pre-fix routing erred toward escalation, so no pending
+  pre-fix row was fast-tracked by the bug.
+
+**What no longer holds:** "informational only" rested partly on the flag being
+about figures. For a pending row it can be about the structure a human is about
+to approve.
+
+**Options for the owner. These are not decided here.**
+
+- **(a) Informational only.** As originally recommended. The human sees the flag
+  and decides.
+- **(b) Informational, plus the flag reason in `orchestration.reasons`.** It is
+  shown with every other reason, and no route or status changes.
+- **(c) Require resubmission of pending affected rows.** Blocks their approval.
+  That changes the maker-checker gate and needs the constraint lifted for this
+  case.
+
+**Recommendation: (b).** It puts the flag where the approver already reads, and
+it does not touch the gate.
