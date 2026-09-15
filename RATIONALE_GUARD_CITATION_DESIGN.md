@@ -585,3 +585,74 @@ cap (severity 4, step 6). Also `negotiate` (step 7), the membership check at
 A pause interrupted this step: the runs above started after it, under a fresh
 "go". `a743339` was reported to the concurrent session as unverified until
 they finished.
+
+### Steps 6a–8: the supplied-citation check at all four call sites
+
+| step | commit | change | suite (vs parent) |
+|---|---|---|---|
+| 6a | `64dbdb2` | `_citations_unsupplied()` helper, and `_supplied_references()` shared with stripping. Structural. | **531 OK**, +7 |
+| 6b | `929e00a` | Membership check at `flag_compliance` and `evaluate_band_guardrail` | **536 OK**, +5 |
+| 7 | `8e7fab0` | `negotiate`: levers passed as `citations=`, plus the membership check | **540 OK**, +4 |
+| 8 | `ef98fc2` | `answer_query`: membership check against `applicable_sections` | **549 OK**, +8 (six inherited tests re-run under a subclass, plus 2 new) |
+
+Every "+N" was checked by test-ID diff against the commit's parent. The
+concurrent session's commits are interleaved, so the parents are not all mine.
+
+Before each behavioural commit, its new tests were run against the parent code.
+They failed only on the behaviour being changed:
+- **6b:** "Section 50" (R1) and "Section 14" (NPS cap) were both served.
+- **7:** the point naming the NPS lever was rejected, and "Section 80C" was served.
+- **8:** "Section 80C" and "Section 16" were both served.
+
+| sabotage | predicted to fail | failed |
+|---|---|---|
+| 6a-1: helper always returns False | 4: the never-supplied subtests (2), the real-figure-digits test, the nothing-supplied test | exactly those |
+| 6a-2: helper ignores the supplied set | 3: the supplied-reference subtests | exactly those |
+| 6b-1: membership removed at both sites | 2: "Section 50", "Section 14" | exactly those |
+| 6b-2: membership against an empty list | 6 correct-citation controls, including step 3's scope control | exactly those (re-run, see below) |
+| 7-1: `negotiate` `citations=` dropped | 1: the lever-naming test | exactly that (re-run) |
+| 7-2: `negotiate` membership dropped | 1: the "Section 80C" test | exactly that (re-run) |
+| 8-1: `answer_query` membership removed | 2: the low-sections subtests | exactly those |
+| 8-2: `answer_query` membership against an empty list | 5 correct-citation tests across both classes | exactly those |
+
+**Mistake caught before committing step 8.** The first draft of the new test
+asserted `"80C" not in s` as a precondition. "80C" is a substring of the
+supplied "80CCD(2)". The test failed with the change applied, and its pre-step
+check failed on that precondition, not on behaviour. Both results looked like
+evidence and neither was. The test now matches whole references.
+
+**The machine slept during the verification block, and four runs were
+discarded.** The block started at 03:23. The machine slept at 04:28 and woke
+fully only at 16:18 (`pmset -g log`), with brief dark-wakes in between. The
+block process survived and advanced only while awake. What that produced:
+- The 6b-2 run and all three `8e7fab0` runs spanned sleep.
+- Login-throttling tests failed (401 instead of 429). They use a 300-second
+  window, which a clock jump across sleep empties.
+- The `8e7fab0` worktree was left with `scripts/generate_ca_review_packet.py`
+  holding exactly the in-test sabotage from
+  `test_a_mislabelled_worked_example_fails_generation`. That test restores the
+  file in a `finally`, so the process must have died mid-test; the exact
+  mechanism wasn't established. Every later run in that worktree failed three
+  CA-packet tests.
+- The `8e7fab0` step suite reported FAILED (2 throttling tests) for code this
+  plan never touches.
+
+None of those results were used. The four runs were repeated after the full
+wake, with keep-awake held, in fresh worktrees. Each re-run logged pmset
+sleep/wake events during itself (zero every time) and checked the worktree was
+clean before and after. The table above reports the re-runs. The 6a runs,
+the 6b step and 6b-1, and all three step-8 runs had finished before the sleep
+or started after the 16:18 wake, and were kept.
+
+The 6b-2 re-run reported `skipped=2` and took 180 s against the usual 145 s.
+The only conditional skips in the suite are the two network-reachability tests
+in `test_razorpayx_client.py`. That is consistent with network timeouts just
+after wake, and it doesn't touch what that sabotage run proves.
+
+**Plan complete.** Steps 3–8 are implemented and verified. Decision 3 (years)
+stays deferred.
+
+**Still open, as designed:**
+- "Rs 2,025" in R1's own line (§4.6).
+- Figure-free reordering and unparsed reference forms (§5.4).
+- The output-boundary layer's shared namespace (§9).
