@@ -1,6 +1,6 @@
 # Output-boundary grounding: make the second layer check real output — design
 
-**Status: design, not implemented.** Approved to be written by the user on
+**Status: design approved 2026-09-16, being implemented (§5).** Approved to be written by the user on
 2026-09-15, framed as "output_boundary treats citation digits as figures, and
 its test grounds a year by hand". Measuring that turned up a larger problem,
 recorded first.
@@ -179,11 +179,13 @@ ground response-wide only (the 17 coincidence passes); match small values within
 ±1 again (the 0.6 → 1 case passes); drop the membership check at the boundary
 (a fabricated section passes).
 
-## 4. Decisions needed
+## 4. Decisions
+
+**Decided by the user, 2026-09-16:** (b) and (d) + (e). Decision 3 follows the standing OUTPUT_BOUNDARY_DESIGN §5 recommendation: a finding fails the build once the tests run on real output.
 
 1. **How fields declare authorship:** (b) payload `ai_fields` (recommended),
-   (c) a code-side declaration, or (a) a central list.
-2. **Coincidental grounding:** (d) + (e) (recommended), (d) only, or leave it.
+   (c) a code-side declaration, or (a) a central list. **Decided: (b).**
+2. **Coincidental grounding:** (d) + (e) (recommended), (d) only, or leave it. **Decided: (d) + (e).**
 3. **Does a finding fail the build?** Today it fails its own tests only. The
    recommendation stays as OUTPUT_BOUNDARY_DESIGN §5 has it: yes, once the
    tests run on real output.

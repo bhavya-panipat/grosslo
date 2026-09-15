@@ -1,6 +1,6 @@
 # Rephrasing alignment: a line must belong to the flag it is served for — design
 
-**Status: design, not implemented.** Approved to be written by the user on
+**Status: design approved 2026-09-16, being implemented (§7).** Approved to be written by the user on
 2026-09-15. It closes the residual that `RATIONALE_GUARD_CITATION_DESIGN.md`
 §5.4 left open, as corrected in `21c42ee`.
 
@@ -132,17 +132,19 @@ detector would stand in for a structural guarantee. It is offered as an
 **optional second layer** for the one thing (A) leaves open, off-topic
 invention within a flag's own call. Decision 2.
 
-## 5. Decisions needed
+## 5. Decisions
 
-1. **Adopt (A)?** Recommendation: yes. It costs N model calls for an N-flag
+**Decided by the user, 2026-09-16:** (A) adopted at both call sites; (C) not built now; all-or-nothing fallback kept. The recommendations below are kept as written.
+
+1. **Adopt (A)?** Recommendation: yes. **Decided: yes.** It costs N model calls for an N-flag
    interactive row; latency is unmeasured here.
 2. **Add (C) on top, for off-topic lines?** Recommendation: not now. Measure it
    first on real model rephrasings once an API key is available. The
-   self-authored corpus above cannot size its false-rejection cost.
+   self-authored corpus above cannot size its false-rejection cost. **Decided: not now.**
 3. **Keep all-or-nothing fallback under (A)?** Recommendation: yes, unchanged.
    Per-flag fallback (serve the flags whose lines passed) is a separate
    behavioural change with its own trade-off: a batch in which the model got one
-   flag wrong may have got the others subtly wrong too.
+   flag wrong may have got the others subtly wrong too. **Decided: kept.**
 
 ## 6. Tests and sabotage, if (A) is adopted
 
