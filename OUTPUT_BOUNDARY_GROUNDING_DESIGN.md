@@ -5,9 +5,18 @@
 its test grounds a year by hand". Measuring that turned up a larger problem,
 recorded first.
 
-Measurements are on `7c08da4`, driving the real `app._build_optimize_response()`
-with `skip_ai=False` and only the model client mocked, one reply per prompt.
-Nothing was committed from them.
+Measurements drive the real `app._build_optimize_response()` with
+`skip_ai=False` and only the model client mocked, one reply per prompt. Nothing
+was committed from them.
+
+**Correction to this document, made 2026-09-16 just after `93318cd`.** Its first
+version said every measurement was on `7c08da4`. That was false. They ran in
+the shared working tree while the concurrent session had uncommitted
+`tax_engine.py` changes there (since committed as `02d05a8`, employer-NPS
+Option B). Everything was re-measured in clean worktrees at **both** commits.
+The tables below now show what holds at each. The kind of failure is the same
+at both. Which numbers coincide depends on the response's values, which the tax
+fix changes.
 
 ---
 
@@ -33,6 +42,11 @@ hand-built payloads: `test_a_legitimate_rephrasing_passes_both_layers` adds
 | same | `compliance.flags[0].message`: 50, 2025 | 50 and 2025 are stated only in R1's rationale *string*, never as a numeric leaf, so nothing can ground them |
 | R1 + R5 fire | `compliance.flags[1].rationale` and `.message`: 7.5 | same: R5's Rs 7.5L exists only in its rationale text |
 | any row where the NPS lever changes | `negotiation.changed_levers[0]`: 124, 80, 2 | `changed_levers` is computed by `_diff_levers()`, deterministic, and it sits in the `ai_backed` negotiation section; the digits are "Section 124, formerly 80CCD2" |
+| R1 + R5 fire, negotiation AI-backed, point restating the saving (at `7c08da4`) | `negotiation.points`: 49920 | the real saving is `negotiation.total_annual_saving`, a numeric leaf **inside** the `ai_backed` section, so it is excluded from grounding |
+
+All rows reproduce in clean worktrees at both `7c08da4` and `02d05a8`, except
+the last. At `02d05a8` that response's negotiation was not AI-backed, so it was
+not inspected.
 
 `output_boundary.py` already met this once, with `rule_id` "R1", and fixed it
 by stripping identifier tokens. The comment there states the lesson: *"a section
@@ -41,19 +55,22 @@ showed up. It did not address the assumption itself.
 
 ### 1.2 Coincidental passes
 
-In the same R1 + R5 response, R5's message and rationale contain the citation
-digits 17, 1 and 2, and R1's contain 50. **None was flagged.** They were
-grounded by these fields:
+In the R1 + R5 response, R5's message and rationale contain the citation digits
+17, 1 and 2, and R1's contain 50. Whether each was flagged depended on unrelated
+fields that happened to hold the same value:
 
-| number in text | grounded by | relationship to the text |
-|---|---|---|
-| 1 | `old_regime_best.basic_pct`, `new_regime_best.basic_pct` (fractions such as 0.6, within ±1) | none |
-| 2 | `metrics.rules_triggered` | none |
-| 17 | `metrics.optimization_value_pct` | none |
-| 50 | `metrics.ai_coverage_pct` | none: R1's 50 is a statutory floor, this 50 is AI coverage |
+| number in text | grounded by | at `7c08da4` | at `02d05a8` | relationship to the text |
+|---|---|---|---|---|
+| 1 | `old_regime_best.basic_pct`, `new_regime_best.basic_pct` (fractions such as 0.6, within ±1) | grounded | grounded | none |
+| 2 | `metrics.rules_triggered` | grounded | grounded | none |
+| 17 | `metrics.optimization_value_pct` | not equal: **17 flagged** | grounded | none |
+| 50 | `metrics.ai_coverage_pct` | not equal: **50 flagged** | grounded | none: R1's 50 is a statutory floor, this 50 is AI coverage |
 
-So at the boundary, a fabricated "17 thousand rupees over" in R5's message
-would be grounded by an optimization percentage. OUTPUT_BOUNDARY_DESIGN §3.4
+Whether a figure passes the boundary thus depends on an unrelated metric's
+value in that particular response. With `02d05a8`'s numbers, a fabricated
+"17 thousand rupees over" in R5's message would be grounded by an optimization
+percentage. With `7c08da4`'s numbers, the legitimate citation digit 17 is
+flagged. OUTPUT_BOUNDARY_DESIGN §3.4
 removed `skip_below` so that small numbers would be checked. An absolute ±1
 tolerance, matched against response-wide small-valued leaves, gives much of
 that back.
