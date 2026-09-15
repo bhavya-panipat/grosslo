@@ -34,12 +34,6 @@ import ai_layer
 from tax_engine import SalaryStructure
 
 
-def _reply(*lines):
-    response = Mock()
-    response.content = [Mock(text="\n".join(lines))]
-    return patch("ai_layer._client", Mock(messages=Mock(create=Mock(return_value=response))))
-
-
 def _replies(*texts):
     """One mocked reply per model call, in call order. Returns (patch, create)
     so a test can read back exactly what each call was sent."""
@@ -171,6 +165,11 @@ class TestComplianceMakesOneCallPerFlag(unittest.TestCase):
 
 
 class TestGuardrailMessagesAreGroundedInTheirOwnCheck(unittest.TestCase):
+    """
+    Since REPHRASING_ALIGNMENT_DESIGN.md step 3, evaluate_band_guardrail() makes
+    one model call per failing check: one reply per call, in check order.
+    Assertions unchanged.
+    """
 
     # CTC Rs 20L outside a Rs 10L-15L band; employer NPS Rs 2.5L over the 14%
     # new-regime cap on Rs 10L basic (Rs 1.4L). EPFO aggregate Rs 3.7L passes.
@@ -183,7 +182,8 @@ class TestGuardrailMessagesAreGroundedInTheirOwnCheck(unittest.TestCase):
     NPS_LINE = "Employer NPS of Rs 250,000 exceeds the 14% of basic cap of Rs 140,000."
 
     def _run(self, *lines):
-        with _reply(*lines):
+        patcher, _ = _replies(*lines)
+        with patcher:
             return ai_layer.evaluate_band_guardrail(self.STRUCTURE, *self.BAND)
 
     def test_the_fixture_fails_exactly_the_checks_these_tests_assume(self):
@@ -214,6 +214,42 @@ class TestGuardrailMessagesAreGroundedInTheirOwnCheck(unittest.TestCase):
         self.assertFalse(result["ai_backed"])
         band = next(c for c in result["checks"] if c["id"] == "band_cost_neutrality")
         self.assertNotIn("NPS", band["message"])
+
+
+class TestGuardrailMakesOneCallPerFailingCheck(unittest.TestCase):
+    """REPHRASING_ALIGNMENT_DESIGN.md §3.1, step 3: the guardrail counterpart of
+    TestComplianceMakesOneCallPerFlag. Measured before this step: figure-free
+    messages returned swapped were served."""
+
+    STRUCTURE = TestGuardrailMessagesAreGroundedInTheirOwnCheck.STRUCTURE
+    BAND = TestGuardrailMessagesAreGroundedInTheirOwnCheck.BAND
+
+    def test_each_call_is_sent_exactly_one_failing_check_in_order(self):
+        patcher, create = _replies("CTC is outside the approved band.", "Employer NPS is over its cap.")
+        with patcher:
+            ai_layer.evaluate_band_guardrail(self.STRUCTURE, *self.BAND)
+        sent = [json.loads(call.kwargs["messages"][0]["content"]) for call in create.call_args_list]
+        self.assertEqual([[check["id"] for check in payload] for payload in sent],
+                         [["band_cost_neutrality"], ["80ccd2_cap"]])
+
+    def test_figure_free_messages_land_on_the_check_whose_call_produced_them(self):
+        patcher, _ = _replies("CTC is outside the approved band.", "Employer NPS is over its cap.")
+        with patcher:
+            result = ai_layer.evaluate_band_guardrail(self.STRUCTURE, *self.BAND)
+        self.assertTrue(result["ai_backed"])
+        messages = {c["id"]: c["message"] for c in result["checks"] if not c["passed"]}
+        self.assertEqual(messages, {"band_cost_neutrality": "CTC is outside the approved band.",
+                                    "80ccd2_cap": "Employer NPS is over its cap."})
+
+    def test_a_reply_that_is_not_exactly_one_line_falls_back_for_every_check(self):
+        patcher, create = _replies("CTC is outside the band.\nEmployer NPS is over its cap.",
+                                   "Employer NPS is over its cap.")
+        with patcher:
+            result = ai_layer.evaluate_band_guardrail(self.STRUCTURE, *self.BAND)
+        self.assertFalse(result["ai_backed"])
+        self.assertEqual(create.call_count, 1)
+        for check in result["checks"]:
+            self.assertEqual(check["message"], check["rationale"])
 
 
 if __name__ == "__main__":

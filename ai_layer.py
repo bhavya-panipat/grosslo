@@ -814,14 +814,23 @@ def evaluate_band_guardrail(structure: SalaryStructure, regime: str,
     guard_triggered = False
     if _client is not None:
         try:
-            response = _create(
-                model=MODEL,
-                max_tokens=400,
-                system=GUARDRAIL_SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": json.dumps(failing)}],
-            )
-            phrased = response.content[0].text.strip().split("\n")
-            phrased = [p.strip("- ").strip() for p in phrased if p.strip()]
+            # One call per failing check, as in flag_compliance()
+            # (REPHRASING_ALIGNMENT_DESIGN.md §3.1): with all checks in one
+            # call, "Employer NPS is over its cap." / "CTC is outside the
+            # approved band." came back swapped and was served. Each call is
+            # now sent exactly one check, so the pairing is the code's.
+            phrased = []
+            for check in failing:
+                response = _create(
+                    model=MODEL,
+                    max_tokens=400,
+                    system=GUARDRAIL_SYSTEM_PROMPT,
+                    messages=[{"role": "user", "content": json.dumps([check])}],
+                )
+                lines = [p.strip("- ").strip() for p in response.content[0].text.strip().split("\n") if p.strip()]
+                if len(lines) != 1:
+                    break
+                phrased.append(lines[0])
             if len(phrased) == len(failing):
                 # Numeric- and polarity-guarded, same discipline as
                 # flag_compliance(): a rephrasing of a FAILING check that
