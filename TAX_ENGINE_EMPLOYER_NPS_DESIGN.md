@@ -10,6 +10,10 @@ regime, and only toward escalation. §8.7 also found that the recommended
 structure changes in 111 of 1,140 cases, contrary to §1.3. That undoes the
 reasoning given for approving D1-7, so **D1-7 is reopened (§8.6), and
 implementation waits on it.** `tax_engine.py` is not changed.
+*Updated 2026-09-16:* **D1-7 approved as option (b)**, with a requirement on the
+reason's text. Measuring for that text found two things, recorded in §8.8: the
+suggested bound does not hold, and a reason alone is not seen at bulk-approve.
+**Implementation proceeds per §8.5 as amended by §8.8.**
 Decision D1 of `R1_TE4_RECORD_UPDATE_DESIGN.md` approved *opening* this design
 ahead of the record updates; the standing rule that a design is approved before
 implementation applies here with more force than anywhere else, because this is
@@ -554,3 +558,141 @@ to approve.
 
 **Recommendation: (b).** It puts the flag where the approver already reads, and
 it does not touch the gate.
+
+**Approved 2026-09-16: option (b).** The owner's reasoning:
+
+- **(a) is not enough:** a flag the approver does not see where they decide
+  protects nothing.
+- **(c) is the wrong tool:** this is a data-quality problem, and lifting the
+  maker-checker constraint to fix a bug in what the constraint governs is the
+  wrong way round.
+- **(b) informs the human** where the decision is made, without substituting
+  for them or silently blocking them.
+
+**Requirement attached:** the reason must say plainly that the tax figure may be
+wrong and roughly by how much, e.g. *"may be understated by up to ~24% depending
+on structure"*, not merely that a flag exists. §8.8 carries it out, and records
+why the example bound could not be used as written.
+
+### 8.8 The reason text, and where it is seen (added 2026-09-16)
+
+#### 8.8.1 The bound, measured wider than the grid behind it
+
+The ~24% came from §1.3's 36-case grid, the same grid §8.7 showed missed every
+changed recommendation. It was re-measured before any text was written, on a
+systematic sweep:
+
+- **Cases:** 1,950 NPS-on submissions, CTC ₹3L to ₹1Cr in ₹50,000 steps × 5
+  rents × 2 cities.
+- **Method:** for each stored recommended structure and regime, the tax shown
+  (current engine) against the tax owed on the same structure (Option B, in
+  memory, read-only).
+
+| Finding | Measured |
+|---|---|
+| Tax over-stated | **0 cases.** Every difference is an under-statement. |
+| Tax shown as **₹0 while tax is owed** | **100 cases**, CTC ₹6.5L to ₹16.5L, up to **₹82,419** owed |
+| Under-statement, CTC ₹10L to ₹20L (tax shown > 0) | **21–80%** of the tax owed |
+| Under-statement, CTC ₹20L to ₹1Cr | **12–24%**, falling as CTC rises (20.6–23.5% at ₹20–30L; 12.1–12.4% at ₹90L–₹1Cr) |
+| Largest rupee gap | ₹2,62,080 (₹1Cr CTC) |
+
+**"Up to ~24%" is true above ₹20L CTC and false below it.** Near the rebate
+threshold, the bug moves taxable income from above the threshold to below it.
+Tax then drops to ₹0, or marginal relief is lost, so the error can exceed the tax
+on the contribution at the top slab rate. A simple "at most employer NPS × 31.2%"
+bound was also checked and **does not hold** in this region.
+
+**Scope of the measurement:** recommended structures, as the optimizer produces
+them. An as-offered structure with employer NPS above the cap has a larger
+error, because its excess was also deducted. The text says what was measured.
+
+#### 8.8.2 The text
+
+It is one constant, deterministic, and contains no model output. Its figures come
+from §8.8.1, not from the row, so it adds no recomputed figure (D1-6):
+
+> **Computed before the employer-NPS tax fix — the tax figures on this row are
+> too low.** The engine subtracted employer NPS from taxable income without first
+> adding it to salary, so taxable income is under-stated by this row's employer
+> NPS contribution, and by more where it exceeds the NPS cap. Measured on
+> recommended structures: tax under-stated by 12–24% of the tax owed at CTC
+> above ₹20L, by up to 80% between ₹10L and ₹20L, and shown as ₹0 when up to
+> ₹82,419 was owed between ₹6.5L and ₹16.5L. TDS escrow is too low and net
+> take-home too high by the same amount. The recommended structure may differ
+> from what the corrected engine would recommend. Figures are shown as stored,
+> not recomputed.
+
+- **No section number is cited.** A citation in routing text would be a new
+  legal claim, and the text does not need one.
+- **Not model-rephrased:** nothing passes `orchestration.reasons` to the AI layer
+  (`ai_layer.py`, `output_boundary.py` and `pipeline.py` do not read it), so the
+  rationale guard is not involved. The guard's owner is told the exact text and
+  call site before implementation.
+
+#### 8.8.3 Where it is added: on read, not at insert
+
+`orchestration_json` is written once, at submission. The reason is appended **at
+read time**, in `review_queue._row_to_dict()`, the single function all three
+read paths use.
+
+- **Nothing stored is rewritten** (D1-4).
+- **Nothing is added to `orchestration.py`:** `classify_row` is unchanged, so
+  `route` and `severity` are untouched.
+- **A row with no `orchestration`** (legacy, `None`) gets the structured field
+  only. The frontend already routes such rows to `needs_review`.
+
+Alongside the reason, a structured field is returned on every row:
+`tax_basis_flag`, either `None` or `{"basis": ..., "reason": ...}`. Tests assert
+on this field (inventory design §8), not on string containment.
+
+**Affected:** the basis is pre-fix (including missing or NULL, §8.4), **and** some
+`employer_nps` in the stored computed output or input is greater than 0. This is
+found by walking the stored JSON for the key, not by naming today's shape, so a
+structure nested somewhere new is not silently missed.
+
+#### 8.8.4 Finding: a reason alone is not seen at bulk-approve
+
+- **Where reasons show:** in the Finance queue they are rendered only inside an
+  **expanded** row card (`finance-flow.tsx`, "Routing decision").
+- **Where bulk-approve applies:** to `auto_pass_candidate` rows, each shown
+  collapsed with a green **"Clean"** badge.
+- **The consequence:** a pre-fix affected row that routed clean would carry the
+  reason and still look Clean, bulk-approvable without being opened.
+
+**This repository has already found and fixed this exact failure once.** The
+`RouteBadge` comment records that a low-severity note styled like "Clean" was
+*"scanned past and bulk-approved without ever being read"*. The fix was a
+distinct caution badge.
+
+**So the approved "show it in the Finance queue" step (§8.5) is specified as:**
+an affected row's badge is never the green Clean badge. It uses the same gold
+caution style and icon, reading *"Computed before tax fix"*. The badge is
+display only:
+
+- bulk-approve eligibility is unchanged;
+- no checkbox is removed;
+- no route or status changes.
+
+This stays inside option (b). Uncompiled (no `node`), and recorded as such.
+
+**Not done, and left to the owner:** excluding affected rows from bulk-approve
+selection. It would make the flag impossible to approve past without opening
+the row. But bulk-approve's scope is part of the approval flow, and D1-7(b)
+explicitly does not change it. **Measured context:** no pre-fix route was found
+too permissive (§8.7), so the exposure is figures and possibly structure, not a
+row that skipped review.
+
+#### 8.8.5 Order, with the handshake and a full suite per commit
+
+| # | Commit | Kind |
+|---|---|---|
+| 0 | `tax_basis` column, written from one constant set to pre-fix | structural, storage only |
+| 1 | Statute test and §8.5 pins, committed red | test |
+| 2 | Option B; bump the constant; record the cut-over commit here | behavioural |
+| 3 | Baseline recapture (`nps_opted_non_metro` only) | fixture |
+| 4 | Other moved tests, named | tests |
+| 5 | `tax_basis_flag` and the read-time reason, with both-states tests | behavioural |
+| 6 | Finance badge | frontend, uncompiled |
+| 7 | R7 redraft | record |
+| 8 | TE4 direction, measured on the fixed engine | record |
+| 9 | Status and README | docs |
