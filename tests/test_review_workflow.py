@@ -20,6 +20,7 @@ from io import BytesIO
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import review_queue
+import penalty_exposure
 import tax_engine
 
 # Overridden before `import app` so app.py's module-level review_queue.init_db()
@@ -853,6 +854,77 @@ class TestBatchAuditExceptionBreakdown(unittest.TestCase):
         # this codebase, so a single-row request completing well under
         # that is itself evidence skip_ai actually took effect.
         self.assertEqual(row["orchestration"]["route"], "auto_pass_candidate")
+
+
+class TestBatchAuditFollowsTheCorrectedNpsTax(unittest.TestCase):
+    """
+    TAX_ENGINE_EMPLOYER_NPS_DESIGN.md §8.2 and §8.7, through the real
+    /api/batch-audit route. Committed failing before the fix. Expected tax is
+    derived here from s. 16(k) and s. 124, not read from the engine; the route
+    and savings values were measured on an in-memory prototype of the fix.
+    """
+
+    def setUp(self):
+        self.client = _client()
+
+    @staticmethod
+    def _row(name, ctc, nps_pct_of_basic, rent_pct_of_basic, hra_pct_of_basic):
+        basic = 0.5 * ctc
+        pf = 0.12 * basic
+        nps = nps_pct_of_basic * basic
+        hra = hra_pct_of_basic * basic
+        return {
+            "name": name, "ctc": ctc, "basic": basic, "hra": hra, "lta": 0,
+            "special_allowance": ctc - basic - hra - pf - nps,
+            "employer_pf": pf, "employer_nps": nps, "nps_opted": True,
+            "rent_paid": rent_pct_of_basic * basic, "city": "metro",
+            "band_min": 0.8 * ctc, "band_max": 1.2 * ctc,
+        }
+
+    @staticmethod
+    def _statute_best_tax(row):
+        s = tax_engine.SalaryStructure(**{k: row[k] for k in (
+            "ctc", "basic", "hra", "lta", "special_allowance", "employer_pf", "employer_nps", "nps_opted")})
+        taxes = []
+        for regime in ("old", "new"):
+            salary = s.basic + s.hra + s.lta + s.special_allowance + s.employer_nps
+            deduction = min(s.employer_nps, tax_engine.NPS_80CCD2_CAP_PCT[regime] * s.basic)
+            exempt = 0.0
+            if regime == "old":
+                exempt = (tax_engine.hra_exemption(s.basic, s.hra, row["rent_paid"], row["city"])
+                          + s.lta * tax_engine.LTA_ASSUMED_UTILIZATION_PCT_DEFAULT)
+            taxable = max(0.0, salary - exempt - tax_engine.STANDARD_DEDUCTION[regime] - deduction)
+            taxes.append(tax_engine.compute_tax(taxable, regime)["total_tax"])
+        return min(taxes)
+
+    def _audit(self, rows):
+        resp = self.client.post("/api/batch-audit", json={"rows": rows})
+        self.assertEqual(resp.status_code, 200)
+        return resp.get_json()
+
+    def test_current_tax_and_the_penalty_scenario_follow_the_statutes_tax(self):
+        row = self._row("NPS at 14%", 1_800_000, 0.14, 0.3, 0.4)
+        body = self._audit([row])
+        expected_tax = self._statute_best_tax(row)
+        self.assertAlmostEqual(body["rows"][0]["current_tax"], expected_tax, delta=0.01)
+        one_month = next(s for s in body["penalty_scenario"]["rows"] if s["months_delayed"] == 1)
+        self.assertAlmostEqual(one_month["section_201_1a_interest"],
+                               round(expected_tax / 12 * penalty_exposure.TDS_201_1A_MONTHLY_RATE, 2), delta=0.01)
+
+    def test_an_above_cap_offer_is_not_reported_as_optimal_or_clean(self):
+        # Under the double count the uncapped deduction made this offer look
+        # optimal: Rs 0 unclaimed savings, counted clean. Measured after the fix:
+        # Rs 7,300.80, and flagged.
+        body = self._audit([self._row("NPS at 20%", 1_800_000, 0.20, 0.3, 0.4)])
+        self.assertAlmostEqual(body["rows"][0]["unclaimed_savings"], 7_300.80, delta=0.01)
+        self.assertEqual(body["summary"]["clean_count"], 0)
+
+    def test_a_14pct_offer_is_assessed_under_the_new_regime_and_not_escalated(self):
+        # §8.7's batch mechanism: under the double count the old regime looked
+        # cheapest, its 10% cap applied, and the row escalated.
+        body = self._audit([self._row("9L at 14%", 900_000, 0.14, 0.6, 0.4)])
+        self.assertEqual(body["rows"][0]["current_regime"], "new")
+        self.assertEqual(body["rows"][0]["orchestration"]["route"], "auto_pass_candidate")
 
 
 class TestSubmissionRateLimit(ReviewQueueTestCase):
