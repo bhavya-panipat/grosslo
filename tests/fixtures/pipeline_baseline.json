@@ -618,7 +618,7 @@
     ]
   },
   "nps_opted_non_metro": {
-    "annual_saving": 156270.4,
+    "annual_saving": 159265.6,
     "compliance": {
       "ai_backed": false,
       "flags": [],
@@ -628,13 +628,13 @@
     "ctc": 2400000,
     "explanation": {
       "ai_backed": false,
-      "explanation": "For a CTC of Rs 2,400,000, the new regime gives the lower tax outcome, saving Rs 156,270 per year compared to the other regime. This is based on a basic salary of 60% of CTC and rent paid of Rs 240,000 in a non-metro city \u2014 see the full breakdown table for exact component amounts.",
+      "explanation": "For a CTC of Rs 2,400,000, the new regime gives the lower tax outcome, saving Rs 159,266 per year compared to the other regime. This is based on a basic salary of 60% of CTC and rent paid of Rs 240,000 in a non-metro city \u2014 see the full breakdown table for exact component amounts.",
       "guard_triggered": false
     },
     "metrics": {
       "ai_coverage_pct": 0.0,
       "compliance_pct": 100.0,
-      "optimization_value_pct": 38.9,
+      "optimization_value_pct": 22.5,
       "rules_total": 6,
       "rules_triggered": 0
     },
@@ -646,8 +646,8 @@
         "NPS enrollment (Section 124, formerly 80CCD2)"
       ],
       "guard_triggered": false,
-      "points": "Your current structure and the recommended structure differ on: basic salary, HRA, NPS enrollment (Section 124, formerly 80CCD2). Restructuring along these lines (staying on the new regime) is projected to save Rs 99,268 per year in tax, with your total CTC unchanged. Consider asking HR whether these components can be adjusted within their existing payroll policy.",
-      "total_annual_saving": 99268.0
+      "points": "Your current structure and the recommended structure differ on: basic salary, HRA, NPS enrollment (Section 124, formerly 80CCD2). Restructuring along these lines (staying on the new regime) is projected to save Rs 57,335 per year in tax, with your total CTC unchanged. Consider asking HR whether these components can be adjusted within their existing payroll policy.",
+      "total_annual_saving": 57335.2
     },
     "new_regime_best": {
       "basic_pct": 0.6,
@@ -663,14 +663,14 @@
         "special_allowance": 585600.0
       },
       "tax_breakdown": {
-        "cess": 5992.0,
-        "slab_tax": 149800.0,
-        "tax_after_marginal_relief": 149800.0,
-        "tax_after_rebate": 149800.0,
-        "taxable_income": 1749000.0,
-        "total_tax": 155792.0
+        "cess": 7604.8,
+        "slab_tax": 190120.0,
+        "tax_after_marginal_relief": 190120.0,
+        "tax_after_rebate": 190120.0,
+        "taxable_income": 1950600.0,
+        "total_tax": 197724.8
       },
-      "taxable_income": 1749000.0
+      "taxable_income": 1950600.0
     },
     "old_regime_best": {
       "basic_pct": 0.6,
@@ -686,14 +686,14 @@
         "special_allowance": 302400.0
       },
       "tax_breakdown": {
-        "cess": 12002.4,
-        "slab_tax": 300060.0,
-        "tax_after_marginal_relief": 300060.0,
-        "tax_after_rebate": 300060.0,
-        "taxable_income": 1625200.0,
-        "total_tax": 312062.4
+        "cess": 13730.4,
+        "slab_tax": 343260.0,
+        "tax_after_marginal_relief": 343260.0,
+        "tax_after_rebate": 343260.0,
+        "taxable_income": 1769200.0,
+        "total_tax": 356990.4
       },
-      "taxable_income": 1625200.0
+      "taxable_income": 1769200.0
     },
     "recommended_regime": "new",
     "stages_run": [
