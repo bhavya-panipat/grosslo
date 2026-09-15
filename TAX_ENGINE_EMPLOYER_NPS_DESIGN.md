@@ -696,3 +696,57 @@ row that skipped review.
 | 7 | R7 redraft | record |
 | 8 | TE4 direction, measured on the fixed engine | record |
 | 9 | Status and README | docs |
+
+### 8.9 Implementation progress, and a finding that needs a decision (2026-09-16)
+
+| Step | Commit | Suite |
+|---|---|---|
+| 0 `tax_basis` column | `ff787f4` | 557 OK (+4). Sabotage: writing `None` on insert failed exactly the insert test; adding a column DEFAULT failed exactly the no-backfill test. |
+| 1 statute pins, red | `d7bb8e5` | 568 run, 20 failures (10 tests), exactly the predicted set; the total-outlay invariant passes. |
+| 2 Option B + basis bump | `02d05a8` | 568 run, **2 failures**. All 20 red pins now pass, including the four named cases measured on the prototype. |
+| 3 baseline recapture | `2323e02` | 568 run, 1 failure (below). Only `nps_opted_non_metro` drifted. Structures unchanged; taxable income +₹2,01,600 (new) and +₹1,44,000 (old), each exactly that regime's within-cap NPS. Every other changed field derives from tax. |
+
+**The cut-over commit (D1-4) is `02d05a8`.** Rows stored by code at or after it
+carry `tax_basis = "nps-as-salary-capped"`.
+
+**Step 4 found one test that is neither a pin of the double count nor a
+regression of the fix.**
+
+- **The test:** `test_finos.test_theoretical_minimum_never_exceeds_realistic_recommendation`
+  asserts `theoretical_minimum_tax() <= optimize()`'s recommended tax at four
+  CTCs. At ₹60L it now fails: ₹9,34,315.20 against ₹9,33,192.00.
+- **Cause, measured:** `theoretical_minimum_tax()` searches basic from 1% to 99%
+  in 2% steps (1, 3, ..., 57, 59, 61, ...). The realistic search runs 50% to 60%
+  in 2.5% steps (50, 52.5, 55, 57.5, 60). **The two grids share no point**, so
+  the "minimum" is not a minimum over a superset, and the invariant held only
+  because each optimum happened to have a nearby wide-grid point that was no
+  worse. Under the fix, the ₹60L old-regime optimum is 57.5% basic; the nearest
+  wide points are 57% (₹1,123 worse) and 59%. Searching the union of both grids
+  gives ₹9,33,192.00, restoring the invariant.
+- **Not a pin of the double count:** the property is correct, and retargeting
+  the test would hide a real defect.
+- **Not a regression of the fix:** the engine is correct. The fix only moved an
+  optimum onto a point the wide grid cannot reach.
+- **Stakes:** `theoretical_minimum_tax()` has **no production caller**. It is
+  referenced only by `test_finos.py`, and its docstring describes a radar chart
+  and sensitivity line that nothing in `app.py`, `ai_layer.py`, `pipeline.py` or
+  the frontend reads. No user-facing figure is affected either way.
+
+**Decision D1-8 (owner):**
+
+- **(a) Search the union of both grids** in `theoretical_minimum_tax()`, so the
+  invariant holds by construction. It is a change to `optimizer.py`, which this
+  design did not cover.
+- **(b) Delete `theoretical_minimum_tax()` and its two tests** as superseded code
+  with no caller. It is one of this repository's recurring bug classes: code
+  left behind after what used it went away.
+- **(c) Leave it failing** until the function's future is decided. This is not
+  recommended, because a red suite hides the next real failure.
+
+**Recommendation: (b).** A reference metric nothing displays cannot be wrong in a
+way anyone sees, but it can keep producing findings like this one. If the
+radar chart is wanted again, it should come back with a design, and with the
+grid defect known. (a) is the right fix only if the function is to be kept.
+
+Steps 4 onward wait on D1-8. Step 4 has nothing else to name: this is the only
+test outside steps 1–3 that moved.
