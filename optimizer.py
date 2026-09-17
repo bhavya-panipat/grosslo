@@ -146,9 +146,11 @@ def optimize_new_regime(ctc: float, nps_opted: bool, basic_pct_range: list = Non
     special allowance for the canonical structure (equivalent tax outcome
     to any other split).
 
-    basic_pct_range: override the search range — used ONLY by
-    theoretical_minimum_tax() for a reference-only calculation. Normal
-    calls leave this as None and get the statutory 50-60% band.
+    basic_pct_range: override the search range. No production caller passes
+    it; it is exercised by tests that pin one end of the band. Normal calls
+    leave this as None and get the statutory 50-60% band. It previously
+    existed for theoretical_minimum_tax(), deleted 2026-09-18 (decision D1-8,
+    TAX_ENGINE_EMPLOYER_NPS_DESIGN.md §8.9).
     """
     best = None
     for basic_pct in (basic_pct_range or _basic_pct_range()):
@@ -159,8 +161,9 @@ def optimize_new_regime(ctc: float, nps_opted: bool, basic_pct_range: list = Non
             )
         except ValueError:
             # Infeasible at this basic_pct (e.g. PF+NPS exceeds remaining
-            # CTC at very high basic_pct — only reachable via the wide
-            # reference-only range used by theoretical_minimum_tax()).
+            # CTC at very high basic_pct). Kept after the wide-range caller
+            # that first reached it was deleted (D1-8): the guard is cheap and
+            # a caller-supplied range can still reach it.
             continue
         taxable = taxable_income_for_structure(structure, "new", rent_paid=0, city="metro")
         tax = compute_tax(taxable, "new")
@@ -204,33 +207,6 @@ def optimize_old_regime(ctc: float, rent_paid: float, city: CityTier,
                     )
                 hra_frac += HRA_FRACTION_STEP
     return best
-
-
-def theoretical_minimum_tax(ctc: float, rent_paid: float, city: CityTier,
-                             nps_opted: bool) -> float:
-    """
-    Reference-only calculation: the true unconstrained mathematical minimum
-    tax achievable if basic salary weren't limited to the statutory 50-60%
-    band. NEVER shown to the user as a recommendation or an actionable
-    structure — the actual optimize() function still enforces the real
-    constraint for anything the user is told to do. This exists solely to
-    power the "Tax Efficiency" reference metric (radar chart, sensitivity
-    chart's third dashed line): how close the realistic recommendation gets
-    to the absolute floor, not what to do to reach it.
-
-    The relaxed constraint here is now a legal one (the Code on Wages 50%
-    floor), not a market convention — the wording below reflects that;
-    update any UI copy showing this number to match, if it hasn't already.
-    UI copy showing this number MUST make clear it is a reference floor,
-    not a real structure — see the agreed caption: "The lowest
-    mathematically possible tax if basic salary weren't limited to the
-    statutory Basic-salary floor — a reference point, not a structure any
-    real company would offer."
-    """
-    wide_range = _basic_pct_range(pct_min=0.01, pct_max=0.99, pct_step=0.02)
-    old_ref = optimize_old_regime(ctc, rent_paid, city, nps_opted, basic_pct_range=wide_range)
-    new_ref = optimize_new_regime(ctc, nps_opted, basic_pct_range=wide_range)
-    return round(min(old_ref.tax_breakdown["total_tax"], new_ref.tax_breakdown["total_tax"]), 2)
 
 
 def naive_baseline_tax(ctc: float, rent_paid: float, city: CityTier) -> float:

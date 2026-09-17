@@ -10,7 +10,7 @@ from tax_engine import (
 )
 from optimizer import (
     optimize, best_regime_for_given_structure, sensitivity_sweep,
-    theoretical_minimum_tax, naive_baseline_tax, optimization_value_pct,
+    naive_baseline_tax, optimization_value_pct,
     BASIC_PCT_MIN, BASIC_PCT_MAX,
 )
 from ai_layer import (
@@ -629,21 +629,14 @@ class TestBasicPctStatutoryFloor(unittest.TestCase):
 
 
 class TestTheoreticalMinimumAndOptimizationValue(unittest.TestCase):
-    def test_theoretical_minimum_never_exceeds_realistic_recommendation(self):
-        for ctc in [800_000, 1_800_000, 3_500_000, 6_000_000]:
-            rent = int(0.25 * ctc)
-            realistic = optimize(ctc=ctc, rent_paid=rent, city="metro", nps_opted=True)["recommended"].tax_breakdown["total_tax"]
-            theoretical = theoretical_minimum_tax(ctc=ctc, rent_paid=rent, city="metro", nps_opted=True)
-            self.assertLessEqual(theoretical, realistic)
-
-    def test_theoretical_minimum_does_not_crash_at_wide_basic_range(self):
-        # Regression test: optimize_new_regime originally had no exception
-        # handling for infeasible basic_pct values, which only surfaced
-        # once theoretical_minimum_tax's wide 1-99% search range hit a
-        # basic_pct where PF+NPS exceeded the remaining CTC.
-        result = theoretical_minimum_tax(ctc=1_800_000, rent_paid=400_000, city="metro", nps_opted=True)
-        self.assertIsInstance(result, float)
-
+    # Deleted 2026-09-18, decision D1-8 (TAX_ENGINE_EMPLOYER_NPS_DESIGN.md §8.9):
+    # test_theoretical_minimum_never_exceeds_realistic_recommendation and
+    # test_theoretical_minimum_does_not_crash_at_wide_basic_range went with
+    # optimizer.theoretical_minimum_tax(), which had no production caller. The
+    # first one had started failing: its wide 1-99%-in-2%-steps grid shares no
+    # point with the real 50-60%-in-2.5%-steps search, so its "minimum" was
+    # never a minimum over a superset, and the employer-NPS fix moved one
+    # optimum onto 57.5% basic, which that grid cannot reach.
     def test_optimization_value_is_not_degenerately_zero_for_a_good_recommendation(self):
         # Regression test: the original formula (realistic vs. theoretical
         # floor, as a ratio) showed 0% "efficiency" at CTC 18L specifically
