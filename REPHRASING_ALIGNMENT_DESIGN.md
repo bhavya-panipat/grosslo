@@ -177,3 +177,48 @@ invention within a flag's own call. Decision 2.
 - **Latency of (A)** on a real model.
 - **`negotiate` and `answer_query`** each already make a single call producing
   one answer, so they have no alignment to get wrong. Not affected.
+
+## 9. Implementation record
+
+Full suite with `python3 -B` and the cache cleared, in a worktree at the
+commit, under a "request run" / "go" handshake with the concurrent session over
+the shared Postgres. Every run below was checked for machine sleep during it
+(zero events) and for a clean worktree afterwards.
+
+Each run at these commits also shows `test_theoretical_minimum_never_exceeds_realistic_recommendation`,
+which belongs to the concurrent session's tax-engine work and is fixed in its
+later `ef85fd4`. It is excluded from the counts below.
+
+| step | commit | suite (vs parent) |
+|---|---|---|
+| 2, `flag_compliance` | `9fd7bbf` | **571**, +3 by test-ID diff |
+| 3, `evaluate_band_guardrail` | `84c8173` | **574**, +3 |
+
+| sabotage | predicted to fail | failed |
+|---|---|---|
+| 2-1: whole batch sent in each compliance call | `test_each_call_is_sent_exactly_one_rationale_in_flag_order` | exactly that |
+| 2-2: compliance accepts multi-line replies | `test_a_reply_that_is_not_exactly_one_line_falls_back_for_every_flag` | exactly that |
+| 3-1: whole batch sent in each guardrail call | `test_each_call_is_sent_exactly_one_failing_check_in_order` | exactly that |
+| 3-2: guardrail accepts multi-line replies | `test_a_reply_that_is_not_exactly_one_line_falls_back_for_every_check` | exactly that |
+
+**Three runs were discarded, and why.**
+
+1. **Overlap.** The step-3 suite ran while the concurrent session's suite was
+   running: 55s instead of ~145s, 112 errors across the Postgres-backed
+   `test_auth` / `test_identity` / `test_tenant_isolation` / `test_review_workflow`
+   tests. The runner's own `OVERLAP=1` flag caught it. Re-run alone: clean.
+2. **Sleep.** An earlier set of step-3 runs spanned machine sleep (12 sleep/wake
+   events in one) and picked up a spurious `test_auth` throttling failure, the
+   same signature recorded in `RATIONALE_GUARD_CITATION_DESIGN.md` §10. Re-run
+   with keep-awake held.
+3. **A broken runner, found by reading the output rather than the summary.**
+   Widening the overlap-detection pattern with
+   `sed s/unittest discover -s tests/-m unittest/g` also rewrote the runner's
+   own command into `python3 -B -m -m unittest -q`. Two "runs" exited in three
+   seconds with `No module named -m`. The summary line showed no failures. A
+   `pgrep` pattern beginning with `-` is also parsed as an option and needs
+   `[-]m unittest`. Both fixed, and the pattern was then verified against a
+   process whose command line spells `-s` with an absolute path.
+
+**Still open, as designed:** an off-topic line inside a flag's own call
+(decision 2, the (C) detector, not built).
