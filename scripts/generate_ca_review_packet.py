@@ -48,7 +48,8 @@ DOC = os.path.join(ROOT, "docs", "CA_REVIEW_PACKET.md")
 EXAMPLES = {
     "R7": [
         ("Employer NPS of Rs 80,000 with the opt-in flag false — reachable "
-         "through a batch CSV, and the tax computation still deducts it",
+         "through a batch CSV, and the tax computation still counts it "
+         "(within the cap here, so the tax figure is unaffected)",
          SalaryStructure(ctc=2_000_000, basic=1_000_000, hra=300_000, lta=0,
                          special_allowance=500_000, employer_pf=120_000,
                          employer_nps=80_000, nps_opted=False), 0, True),

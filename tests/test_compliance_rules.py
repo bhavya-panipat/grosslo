@@ -673,9 +673,12 @@ class TestTheFirstBatchesBasesAreTrueNotJustStated(unittest.TestCase):
     # ---- R7's basis --------------------------------------------------------
 
     def test_R7_claim_1_tax_ignores_nps_opted_entirely(self):
-        # "compute_tax() subtracts employer_nps in both regimes without ever
-        # reading nps_opted." If this became false, R7 would be pointing at a
-        # contradiction that no longer has any consequence.
+        # "taxable_income_for_structure() counts employer_nps in both regimes
+        # without ever reading nps_opted." (Redrafted with the employer-NPS fix,
+        # D1-3: it used to say the function subtracts it; it now adds it to
+        # salary and deducts it up to the cap. Unchanged: nps_opted is never
+        # read.) If this became false, R7 would be pointing at a contradiction
+        # that no longer has any consequence.
         import tax_engine
         for regime in ("old", "new"):
             opted = SalaryStructure(
@@ -715,6 +718,23 @@ class TestTheFirstBatchesBasesAreTrueNotJustStated(unittest.TestCase):
             special_allowance=500_000, employer_pf=120_000,
             employer_nps=80_000, nps_opted=False)
         self.assertTrue(self._rule("R7").predicate(inconsistent, 0))
+
+    def test_R7_claim_3_the_pair_is_tax_neutral_within_the_cap_and_only_over_states_above_it(self):
+        # The redrafted rationale's consequence. Within the cap the contribution
+        # adds nothing to taxable income; above it, only the excess does. So a
+        # phantom contribution (not-opted is the true input) can over-state tax,
+        # never under-state it, which is what the rationale now says.
+        import tax_engine
+        def taxable(nps, regime):
+            s = SalaryStructure(
+                ctc=0, basic=1_000_000, hra=300_000, lta=0, special_allowance=500_000,
+                employer_pf=120_000, employer_nps=nps, nps_opted=False)
+            return tax_engine.taxable_income_for_structure(s, regime, 300_000, "metro")
+        for regime in ("old", "new"):
+            cap = tax_engine.NPS_80CCD2_CAP_PCT[regime] * 1_000_000
+            with self.subTest(regime=regime):
+                self.assertAlmostEqual(taxable(cap, regime), taxable(0, regime), delta=0.01)
+                self.assertAlmostEqual(taxable(cap + 50_000, regime) - taxable(0, regime), 50_000, delta=0.01)
 
     # ---- R8's basis --------------------------------------------------------
 
