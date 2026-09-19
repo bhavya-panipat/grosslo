@@ -1,6 +1,6 @@
 # Output-boundary grounding: make the second layer check real output — design
 
-**Status: design approved 2026-09-16, being implemented (§5).** Approved to be written by the user on
+**Status: implemented and verified 2026-09-20 (`bada9d4`, `8e47e5e`, `866176e`; record in §7).** Approved to be written by the user on
 2026-09-15, framed as "output_boundary treats citation digits as figures, and
 its test grounds a year by hand". Measuring that turned up a larger problem,
 recorded first.
@@ -213,3 +213,36 @@ ground response-wide only (the 17 coincidence passes); match small values within
   noted.
 - **The year** (decision 3 in the rationale-guard design).
 - **Whether the boundary should ever run at runtime.** Unchanged: tests only.
+
+## 7. Implementation record
+
+Full suite with `python3 -B` and the cache cleared, in a clean worktree at each
+commit, under the "request run" / "go" handshake. Every run: zero sleep/wake
+events, `OVERLAP=0`, worktree clean after.
+
+| step | commit | suite (vs parent, by test-ID diff) |
+|---|---|---|
+| 2, real-output tests, knowingly red | `bada9d4` | 588: +7; **exactly 11 failures**, all in `test_output_boundary`, each for a reason §1 names |
+| 3, `ai_fields` declared (payload shape) | `8e47e5e` | 592: +4; **exactly 7 failures**; the declaration test went green. The concurrent session measured the same 7 independently |
+| 4, per-object grounding, (d), membership | `866176e` | **594 OK**: +1 (`test_below_100_a_figure_must_match_exactly`) |
+
+| sabotage on `866176e` | predicted to fail | failed |
+|---|---|---|
+| B1: +-1 at every size (undo d) | `test_below_100_a_figure_must_match_exactly` | exactly that |
+| B2: no membership check | `test_a_fabricated_section_whose_digits_are_grounded_is_found` | exactly that |
+| B3: ignore `ai_fields` | at least: the 4 legitimate-output tests, the "2" coincidence subtest and the fabricated-section test; the "1" subtest uncertain | those 6; the "1" subtest passed |
+| B4: response-wide grounding only | at least: 3 legitimate-output tests and the "2" subtest | exactly those 4 |
+
+**One thing the prediction had to leave open, stated rather than rounded:**
+under B3 the old code path reported the fabricated "1 lakh" anyway, so that
+subtest did not separate B3. B1 is the test that pins exact small-value
+matching.
+
+**Residual, by construction, not measured on live output:** negotiate's lever
+text is "NPS enrollment (Section 124, formerly 80CCD2)". The unkeyworded
+"80CCD2" is not a recognised reference, so `_grounded_figures` keeps its 80 and
+2 as figures of the negotiation object, and a fabricated "2" in a point would
+be grounded. It is the same shape as the `80ccd2_cap` text fixed in `5060498`.
+The fix is the same: emit "(formerly Section 80CCD(2))". That is emitted text
+pinned by `test_finos` and the characterization fixture, so it is left for a
+decision.

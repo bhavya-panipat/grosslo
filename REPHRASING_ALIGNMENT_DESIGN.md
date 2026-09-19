@@ -1,6 +1,6 @@
 # Rephrasing alignment: a line must belong to the flag it is served for — design
 
-**Status: design approved 2026-09-16, being implemented (§7).** Approved to be written by the user on
+**Status: implemented and verified 2026-09-18 (`9fd7bbf`, `84c8173`; record in §9).** Approved to be written by the user on
 2026-09-15. It closes the residual that `RATIONALE_GUARD_CITATION_DESIGN.md`
 §5.4 left open, as corrected in `21c42ee`.
 
