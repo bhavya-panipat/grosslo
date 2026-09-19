@@ -345,7 +345,7 @@ class TestRealAiBackedResponses(unittest.TestCase):
             f"You could ask HR to restructure your {p['changed_levers'][-1]}, part of how this "
             f"recommendation reaches Rs {p['total_annual_saving']:,.0f} in annual savings."))
         self.assertTrue(nps["negotiation"]["ai_backed"])
-        self.assertIn("NPS enrollment (Section 124, formerly 80CCD2)", nps["negotiation"]["changed_levers"])
+        self.assertIn("NPS enrollment (Section 124, formerly Section 80CCD(2))", nps["negotiation"]["changed_levers"])
 
     def test_legitimate_compliance_rephrasings_have_no_findings(self):
         response = _real_response(R1_R5, {"R1": self.R1_LINE, "R5": self.R5_LINE})
@@ -374,6 +374,18 @@ class TestRealAiBackedResponses(unittest.TestCase):
                 findings = ob.ungrounded_findings(response, extra=_request_numbers(R1_R5))
                 self.assertTrue(any(f.path == "compliance.flags[1].message" and f.number == number
                                     for f in findings), f"not found: {findings}")
+
+    def test_a_fabricated_figure_equal_to_a_lever_digit_is_found(self):
+        # The NPS lever used to read "(formerly 80CCD2)", and its unkeyworded 2
+        # grounded a fabricated "2 lakh" in a negotiation point. Its citation is
+        # now keyworded and stripped, so the 2 has nothing to match.
+        with self._without_inline_guard():
+            response = _real_response(NEGOTIATES_NPS, {}, negotiation=lambda p: (
+                f"Restructuring your {p['changed_levers'][-1]} alone saves you 2 lakh a year."))
+        self.assertTrue(response["negotiation"]["ai_backed"], "the inline guard was not bypassed")
+        findings = ob.ungrounded_findings(response, extra=_request_numbers(NEGOTIATES_NPS))
+        self.assertTrue(any(f.path == "negotiation.points" and f.number == 2.0 for f in findings),
+                        f"not found: {findings}")
 
     def test_a_fabricated_section_whose_digits_are_grounded_is_found(self):
         # 50 is R1's real floor; "Section 50" was never supplied.

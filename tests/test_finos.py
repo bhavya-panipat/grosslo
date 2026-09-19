@@ -405,7 +405,7 @@ class TestNegotiationCopilot(unittest.TestCase):
         # so it isn't constrained by BASIC_PCT_MIN/MAX at all — the 25%
         # value is unaffected by the statutory-floor fix and needs no
         # change here beyond this comment's own arithmetic being correct.
-        self.assertIn("NPS enrollment (Section 124, formerly 80CCD2)", neg["changed_levers"])
+        self.assertIn("NPS enrollment (Section 124, formerly Section 80CCD(2))", neg["changed_levers"])
 
     def test_already_optimal_structure_yields_no_ask(self):
         # Build a "current" structure that IS the optimizer's own recommendation

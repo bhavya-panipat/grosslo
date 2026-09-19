@@ -371,7 +371,7 @@ class TestNegotiateTreatsItsLeverNamesAsCitations(unittest.TestCase):
     CURRENT = SalaryStructure(ctc=1_800_000, basic=720_000, hra=288_000, lta=0,
                               special_allowance=705_600, employer_pf=86_400,
                               employer_nps=0, nps_opted=False)
-    NPS_LEVER = "NPS enrollment (Section 124, formerly 80CCD2)"
+    NPS_LEVER = "NPS enrollment (Section 124, formerly Section 80CCD(2))"
 
     def _negotiate(self, text=None):
         from optimizer import best_regime_for_given_structure, optimize
@@ -414,6 +414,18 @@ class TestNegotiateTreatsItsLeverNamesAsCitations(unittest.TestCase):
             f"Restructuring your {self.NPS_LEVER} alone would save Rs 41,000 a year.")
         self.assertTrue(result["guard_triggered"])
         self.assertFalse(result["ai_backed"])
+
+    def test_the_nps_lever_cites_its_former_section_with_a_keyword(self):
+        # Until this was fixed the lever read "(formerly 80CCD2)". With no
+        # keyword, no grammar recognises it, so its 80 and 2 were grounded as
+        # figures wherever the lever is a grounding source: the output
+        # boundary grounds a negotiation point in its own changed_levers. Same
+        # defect and same fix as the 80ccd2_cap rationale in 5060498.
+        levers = self._negotiate()["changed_levers"]
+        self.assertIn(self.NPS_LEVER, levers)
+        self.assertIn("formerly Section 80CCD(2)", self.NPS_LEVER)
+        self.assertNotIn("formerly 80CCD2", self.NPS_LEVER)
+        self.assertEqual(_grounded_figures(self.NPS_LEVER), set())
 
 
 if __name__ == "__main__":

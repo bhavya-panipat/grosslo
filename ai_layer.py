@@ -956,7 +956,7 @@ def _diff_levers(current: SalaryStructure, recommended: SalaryStructure,
     if abs(current.lta - recommended.lta) > threshold:
         levers.append("LTA")
     if bool(current.nps_opted) != bool(recommended.nps_opted):
-        levers.append("NPS enrollment (Section 124, formerly 80CCD2)")
+        levers.append("NPS enrollment (Section 124, formerly Section 80CCD(2))")
     return levers
 
 
@@ -1031,7 +1031,7 @@ def negotiate(current_structure: SalaryStructure, current_best: dict,
             )
             candidate = response.content[0].text.strip()
             # The prompt says to name levers, and one lever's name carries a
-            # citation: "NPS enrollment (Section 124, formerly 80CCD2)". Read
+            # citation: "NPS enrollment (Section 124, formerly Section 80CCD(2))". Read
             # as a figure, that 124 rejected every point naming the lever
             # (RATIONALE_GUARD_CITATION_DESIGN.md §2.3 item 5, the §4.4.1
             # defect again). So the levers are the supplied citations, and a

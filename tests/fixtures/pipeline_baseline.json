@@ -643,10 +643,10 @@
       "changed_levers": [
         "basic salary",
         "HRA",
-        "NPS enrollment (Section 124, formerly 80CCD2)"
+        "NPS enrollment (Section 124, formerly Section 80CCD(2))"
       ],
       "guard_triggered": false,
-      "points": "Your current structure and the recommended structure differ on: basic salary, HRA, NPS enrollment (Section 124, formerly 80CCD2). Restructuring along these lines (staying on the new regime) is projected to save Rs 57,335 per year in tax, with your total CTC unchanged. Consider asking HR whether these components can be adjusted within their existing payroll policy.",
+      "points": "Your current structure and the recommended structure differ on: basic salary, HRA, NPS enrollment (Section 124, formerly Section 80CCD(2)). Restructuring along these lines (staying on the new regime) is projected to save Rs 57,335 per year in tax, with your total CTC unchanged. Consider asking HR whether these components can be adjusted within their existing payroll policy.",
       "total_annual_saving": 57335.2
     },
     "new_regime_best": {
