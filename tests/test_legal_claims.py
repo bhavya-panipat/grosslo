@@ -1001,16 +1001,33 @@ class TestStageC2KnownDivergence(unittest.TestCase):
                     any(f.startswith(claim.id) and "diverges" in f for f in findings),
                     "a deliberate departure from the law went unreported")
 
-    def test_TE4s_tax_direction_is_marked_pending_not_guessed(self):
-        # PT2 records "OVER-states, never under-states" -- the direction is what
-        # decides whether a divergence is safe. TE4's cannot be stated while the
-        # engine double-counts employer NPS (TAX_ENGINE_EMPLOYER_NPS_DESIGN.md).
-        # This pins that it says so, so a direction cannot be written in quietly
-        # before D1 is implemented and the direction measured.
+    def test_TE4s_tax_direction_is_recorded_now_that_the_double_count_is_fixed(self):
+        # Was test_TE4s_tax_direction_is_marked_pending_not_guessed, which pinned
+        # "PENDING D1" so no direction could be written in before the engine
+        # stopped double-counting employer NPS. D1 is implemented (02d05a8) and
+        # the direction measured: like PT2, it errs toward over-stating tax.
         te4 = self._claim("TE4").known_divergence
-        self.assertIn("PENDING D1", te4)
-        self.assertNotIn("OVER-states", te4)
-        self.assertNotIn("UNDER-states", te4)
+        self.assertIn("OVER-states", te4)
+        self.assertIn("never under-states", te4)
+        self.assertNotIn("PENDING D1", te4)
+
+    def test_TE4s_direction_holds_because_the_tools_cap_never_exceeds_the_lawful_one(self):
+        # The recorded direction rests on two checkable facts; if either stops
+        # holding, the divergence text is wrong. (1) With no DA and a
+        # non-government employer the tool's cap is the law's; any DA or a
+        # government employer only raises the lawful cap. (2) Tax never falls as
+        # taxable income rises, so a smaller deduction cannot produce less tax.
+        import tax_engine
+        for regime in ("old", "new"):
+            tool_rate = tax_engine.NPS_80CCD2_CAP_PCT[regime]
+            with self.subTest(fact=1, regime=regime):
+                self.assertLessEqual(tool_rate, 0.14)  # s. 124(1)(a): government, both regimes
+            with self.subTest(fact=2, regime=regime):
+                previous = -1.0
+                for taxable in range(0, 3_000_001, 100):  # every threshold, both regimes
+                    tax = tax_engine.compute_tax(taxable, regime)["total_tax"]
+                    self.assertGreaterEqual(tax, previous, f"tax fell at taxable income {taxable}")
+                    previous = tax
 
     def test_a_reviewed_divergence_stops_flagging(self):
         # Both directions. A check asserted only in its failing state might be
