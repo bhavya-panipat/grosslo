@@ -1003,6 +1003,68 @@ def get_tenant_access_code_hashes(tenant_id: int) -> dict | None:
 # one of these, and every statement filters on it unconditionally.
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Rows computed before the employer-NPS tax fix (TAX_ENGINE_EMPLOYER_NPS_DESIGN.md
+# D1-4 to D1-7, §8.8). Flagged when READ, never rewritten: a figure someone may
+# already have acted on must not change underneath them (D1-4), and no corrected
+# figure is shown beside it (D1-6).
+# ---------------------------------------------------------------------------
+
+# Bases whose stored figures are known correct for employer NPS. Anything else
+# is flagged: NULL (a row older than the tax_basis column, or copied in from the
+# legacy SQLite store), the pre-fix value, and any value this code does not
+# recognise. Fail-closed, like require_tenant: an unexpected basis is never
+# read as current. A future basis change adds its value here in the same commit.
+_NPS_CORRECT_TAX_BASES = frozenset({tax_engine.TAX_BASIS_NPS_AS_SALARY_CAPPED})
+
+# One deterministic constant; no model output and no section citation. Its
+# figures are measurements of the pre-fix engine against the fix, recorded in
+# the design's §8.8.1 (1,950 NPS-on submissions, CTC Rs 3L to Rs 1Cr); they are
+# not computed from the row. It is appended to orchestration["reasons"], which
+# nothing sends to a model today. If orchestration is ever marked ai_backed so
+# output_boundary inspects it, these figures would need grounding in the same
+# response like any other.
+PRE_NPS_FIX_REASON = (
+    "Computed before the employer-NPS tax fix — the tax figures on this row are "
+    "too low. The engine subtracted employer NPS from taxable income without first "
+    "adding it to salary, so taxable income is under-stated by this row's employer "
+    "NPS contribution, and by more where it exceeds the NPS cap. Measured on "
+    "recommended structures: tax under-stated by 12–24% of the tax owed at CTC above "
+    "₹20L, by up to 80% between ₹10L and ₹20L, and shown as ₹0 when up to ₹82,419 "
+    "was owed between ₹6.5L and ₹16.5L. TDS escrow is too low and net take-home too "
+    "high by the same amount. The recommended structure may differ from what the "
+    "corrected engine would recommend. Figures are shown as stored, not recomputed."
+)
+
+
+def _has_employer_nps(value) -> bool:
+    """
+    True if any "employer_nps" anywhere in the stored JSON is greater than 0.
+    Walks the whole value rather than naming today's shape (current structure,
+    old/new regime best, recommended), so a structure stored somewhere new is
+    not silently missed.
+    """
+    if isinstance(value, dict):
+        for key, inner in value.items():
+            if key == "employer_nps" and isinstance(inner, (int, float)) and not isinstance(inner, bool) and inner > 0:
+                return True
+            if _has_employer_nps(inner):
+                return True
+    elif isinstance(value, list):
+        return any(_has_employer_nps(item) for item in value)
+    return False
+
+
+def _tax_basis_flag(tax_basis, stored_input, stored_computed) -> dict | None:
+    if tax_basis in _NPS_CORRECT_TAX_BASES:
+        return None
+    if not (_has_employer_nps(stored_computed) or _has_employer_nps(stored_input)):
+        # §8.2: a row with no employer NPS anywhere is unaffected by the fix,
+        # so flagging it would be noise that teaches people to ignore the flag.
+        return None
+    return {"basis": tax_basis, "reason": PRE_NPS_FIX_REASON}
+
+
 def _row_to_dict(row: dict) -> dict:
     d = dict(row)
     d["input"] = json.loads(d.pop("input_json"))
@@ -1011,6 +1073,14 @@ def _row_to_dict(row: dict) -> dict:
     # frontend, tests) must handle this, not assume every row has one.
     raw_orchestration = d.pop("orchestration_json", None)
     d["orchestration"] = json.loads(raw_orchestration) if raw_orchestration else None
+    # Read-time only: computed from this row's stored basis and stored JSON on
+    # every read, appended to a freshly parsed copy of orchestration, so nothing
+    # stored changes and repeated reads never accumulate the reason. route and
+    # severity are untouched (D1-7 option (b)).
+    d["tax_basis_flag"] = _tax_basis_flag(d.get("tax_basis"), d["input"], d["computed"])
+    if d["tax_basis_flag"] is not None and d["orchestration"] is not None:
+        d["orchestration"]["reasons"] = list(d["orchestration"].get("reasons", [])) + [
+            d["tax_basis_flag"]["reason"]]
     return d
 
 

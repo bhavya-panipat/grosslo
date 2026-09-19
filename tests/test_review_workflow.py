@@ -11,6 +11,7 @@ app.py calls review_queue.init_db() at import time, a stopped server fails this
 module at import, before a single test runs.
 """
 
+import json
 import os
 import sys
 import time
@@ -295,6 +296,101 @@ class TestTaxBasisIsRecordedOnTheRow(ReviewQueueTestCase):
         self.assertTrue(self._column_present())
         row = review_queue.get_submission(self.tenant_id, submission_id)["rows"][0]
         self.assertIsNone(row["tax_basis"], "an existing row must not be given a basis it was not computed under")
+
+
+class TestPreFixRowsAreFlaggedOnRead(ReviewQueueTestCase):
+    """
+    TAX_ENGINE_EMPLOYER_NPS_DESIGN.md D1-4 to D1-7, §8.8. A row computed before
+    the employer-NPS fix is flagged when read, on a structured field, and the
+    same reason is appended to orchestration.reasons, where the approver reads.
+    Nothing stored is rewritten, and route/severity do not change.
+
+    Both states are pinned: an affected row is flagged, and each kind of
+    unaffected row (no employer NPS anywhere; computed after the fix) is not.
+    """
+
+    ORCHESTRATION = {
+        "route": "auto_pass_candidate", "severity": "None", "reasons": [],
+        "checked": {"compliance_rules_evaluated": 6, "compliance_flags_triggered": 0,
+                    "guardrail_evaluated": True, "guardrail_checks_failed": 0},
+    }
+
+    def _store(self, nps_opted, basis, orchestration=True, name="Pat"):
+        computed = _optimize_response_for(ctc=1_800_000, nps_opted=nps_opted)
+        result = review_queue.create_submission(self.tenant_id, "single", [{
+            "employee_name": name, "ctc": 1_800_000,
+            "input": {"ctc": 1_800_000, "rent_paid": 0, "city": "metro", "nps_opted": nps_opted,
+                      "current_structure": None},
+            "computed": computed,
+            "orchestration": json.loads(json.dumps(self.ORCHESTRATION)) if orchestration else None,
+        }])
+        with review_queue._conn(self.tenant_id) as conn:
+            conn.execute("UPDATE submission_rows SET tax_basis = %s WHERE tenant_id = %s AND submission_id = %s",
+                         (basis, self.tenant_id, result["submission_id"]))
+        return result["submission_id"]
+
+    def _read(self, submission_id):
+        return review_queue.get_submission(self.tenant_id, submission_id)["rows"][0]
+
+    def test_a_pre_fix_row_with_employer_nps_is_flagged_and_the_reason_reaches_the_approver(self):
+        row = self._read(self._store(nps_opted=True, basis=tax_engine.TAX_BASIS_PRE_NPS_FIX))
+        self.assertEqual(row["tax_basis_flag"], {"basis": tax_engine.TAX_BASIS_PRE_NPS_FIX,
+                                                 "reason": review_queue.PRE_NPS_FIX_REASON})
+        self.assertEqual(row["orchestration"]["reasons"], [review_queue.PRE_NPS_FIX_REASON])
+
+    def test_a_row_with_no_basis_is_flagged_as_pre_fix_never_as_current(self):
+        # §8.4: a row older than the column, or copied in from the legacy SQLite
+        # store, reads NULL. NULL is the pre-fix basis, not today's.
+        row = self._read(self._store(nps_opted=True, basis=None))
+        self.assertIsNotNone(row["tax_basis_flag"])
+        self.assertIsNone(row["tax_basis_flag"]["basis"])
+
+    def test_an_unrecognised_basis_is_flagged_rather_than_trusted(self):
+        row = self._read(self._store(nps_opted=True, basis="some-future-or-corrupt-value"))
+        self.assertIsNotNone(row["tax_basis_flag"])
+
+    def test_a_pre_fix_row_with_no_employer_nps_anywhere_is_not_flagged(self):
+        row = self._read(self._store(nps_opted=False, basis=tax_engine.TAX_BASIS_PRE_NPS_FIX))
+        self.assertFalse(review_queue._has_employer_nps(row["computed"]),
+                         "precondition: this row must carry no employer NPS at all")
+        self.assertIsNone(row["tax_basis_flag"])
+        self.assertEqual(row["orchestration"]["reasons"], [])
+
+    def test_a_row_computed_after_the_fix_is_not_flagged(self):
+        row = self._read(self._store(nps_opted=True, basis=tax_engine.TAX_BASIS))
+        self.assertIsNone(row["tax_basis_flag"])
+        self.assertEqual(row["orchestration"]["reasons"], [])
+
+    def test_route_and_severity_do_not_change(self):
+        row = self._read(self._store(nps_opted=True, basis=None))
+        self.assertEqual(row["orchestration"]["route"], "auto_pass_candidate")
+        self.assertEqual(row["orchestration"]["severity"], "None")
+
+    def test_nothing_stored_is_rewritten_and_reads_do_not_accumulate(self):
+        submission_id = self._store(nps_opted=True, basis=None)
+        self._read(submission_id)
+        row = self._read(submission_id)
+        self.assertEqual(row["orchestration"]["reasons"], [review_queue.PRE_NPS_FIX_REASON])
+        with review_queue._conn(self.tenant_id) as conn:
+            stored = conn.execute(
+                "SELECT orchestration_json, tax_basis FROM submission_rows WHERE tenant_id = %s",
+                (self.tenant_id,)).fetchone()
+        self.assertEqual(json.loads(stored["orchestration_json"])["reasons"], [])
+        self.assertIsNone(stored["tax_basis"])
+
+    def test_a_legacy_row_without_orchestration_still_gets_the_structured_flag(self):
+        row = self._read(self._store(nps_opted=True, basis=None, orchestration=False))
+        self.assertIsNone(row["orchestration"])
+        self.assertIsNotNone(row["tax_basis_flag"])
+
+    def test_the_flag_reaches_the_finance_queue_over_http(self):
+        submission_id = self._store(nps_opted=True, basis=None)
+        client = _client()
+        self.assertEqual(_login_as(client, "finance").status_code, 200)
+        body = client.get("/api/submissions").get_json()
+        rows = [r for s in body["submissions"] for r in s["rows"] if r["submission_id"] == submission_id]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["tax_basis_flag"]["reason"], review_queue.PRE_NPS_FIX_REASON)
 
 
 class TestReject(ReviewQueueTestCase):
