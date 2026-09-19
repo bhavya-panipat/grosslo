@@ -259,6 +259,50 @@ class TestAgainstRealPipelineOutputWithAModel(unittest.TestCase):
                         f"the boundary missed the invented figure: {findings}")
 
 
+class TestAiFieldDeclarations(unittest.TestCase):
+    """OUTPUT_BOUNDARY_GROUNDING_DESIGN.md §5 step 3, structural: sections
+    declare which fields the model wrote, and the boundary resolves those
+    paths. Nothing here imports app, so nothing touches the shared database."""
+
+    def test_the_resolver_follows_every_element_and_indexed_paths(self):
+        section = {"ai_fields": ["flags[].message", "checks[1].message", "points"],
+                   "flags": [{"message": "a"}, {"message": "b"}],
+                   "checks": [{"message": "p"}, {"message": "f"}], "points": "x"}
+        self.assertEqual(ob.declared_ai_fields(section, "s"), [
+            ("s.flags[0].message", "a"), ("s.flags[1].message", "b"),
+            ("s.checks[1].message", "f"), ("s.points", "x")])
+
+    def test_a_declaration_that_resolves_to_nothing_raises(self):
+        with self.assertRaises(ValueError):
+            ob.declared_ai_fields({"ai_fields": ["flags[].mesage"], "flags": [{"message": "a"}]})
+
+    def test_a_fallback_section_declares_nothing(self):
+        # On the fallback path the model wrote nothing, so nothing is declared.
+        structure = SalaryStructure(ctc=2_000_000, basic=800_000, hra=0, lta=300_000,
+                                    special_allowance=780_000, employer_pf=120_000,
+                                    employer_nps=0, nps_opted=False)
+        with patch("ai_layer._client", None):
+            result = ai_layer.flag_compliance(structure, rent_paid=0)
+        self.assertFalse(result["ai_backed"])
+        self.assertNotIn("ai_fields", result)
+
+    def test_the_guardrail_declares_only_the_failing_checks_messages(self):
+        structure = SalaryStructure(ctc=2_000_000, basic=1_000_000, hra=0, lta=0,
+                                    special_allowance=630_000, employer_pf=120_000,
+                                    employer_nps=250_000, nps_opted=True)
+        replies = []
+        for text in ("CTC is outside the approved band.", "Employer NPS is over its cap."):
+            response = Mock()
+            response.content = [Mock(text=text)]
+            replies.append(response)
+        with patch("ai_layer._client", Mock(messages=Mock(create=Mock(side_effect=replies)))):
+            result = ai_layer.evaluate_band_guardrail(structure, "new", 1_000_000, 1_500_000)
+        self.assertTrue(result["ai_backed"])
+        failing = [i for i, c in enumerate(result["checks"]) if not c["passed"]]
+        self.assertEqual(result["ai_fields"], [f"checks[{i}].message" for i in failing])
+        self.assertEqual(len(failing), 2)
+
+
 class TestRealAiBackedResponses(unittest.TestCase):
     """
     OUTPUT_BOUNDARY_GROUNDING_DESIGN.md §3.4, committed knowingly red (§5 step 2)
@@ -341,8 +385,12 @@ class TestRealAiBackedResponses(unittest.TestCase):
                 with self.subTest(section=path):
                     self.assertIn("ai_fields", section)
                     self.assertTrue(section["ai_fields"])
-                    for key in section["ai_fields"]:
-                        self.assertIn(key, section)
+                    # Paths are relative ("flags[].message"), resolved by the
+                    # boundary's own resolver, which raises if a declared path
+                    # resolves to nothing.
+                    resolved = ob.declared_ai_fields(section, path)
+                    self.assertTrue(resolved)
+                    self.assertTrue(all(isinstance(value, str) for _, value in resolved))
 
 
 if __name__ == "__main__":

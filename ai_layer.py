@@ -188,6 +188,12 @@ def extract_from_text(text: str) -> dict:
 
     result["ai_backed"] = ai_backed
     result["mismatch_warning"] = mismatch_warning
+    if ai_backed:
+        # Which fields the model wrote (OUTPUT_BOUNDARY_GROUNDING_DESIGN.md
+        # §3.1 (b)). Declared only when AI-backed: on the fallback path the
+        # model wrote nothing. mismatch_warning is Python's either way.
+        result["ai_fields"] = ["ctc", "basic", "hra", "lta", "special_allowance",
+                               "employer_pf", "currency_note"]
     return result
 
 
@@ -459,11 +465,14 @@ def explain_result(optimizer_result: dict, rent_paid: float, city: str, skip_ai:
         explanation = _deterministic_explain(optimizer_result, rent_paid, city)
         ai_backed = False
 
-    return {
+    result = {
         "explanation": explanation,
         "ai_backed": ai_backed,
         "guard_triggered": guard_triggered,
     }
+    if ai_backed:
+        result["ai_fields"] = ["explanation"]
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -692,7 +701,10 @@ def flag_compliance(structure, rent_paid: float, skip_ai: bool = False) -> dict:
                 if not guard_triggered:
                     for i, flag in enumerate(triggered):
                         flag["message"] = phrased[i]
-                    return {"flags": triggered, "ai_backed": True, "guard_triggered": False}
+                    # Only each flag's message is the model's; rule_id,
+                    # severity and rationale are compliance_rules.py's.
+                    return {"flags": triggered, "ai_backed": True, "guard_triggered": False,
+                            "ai_fields": ["flags[].message"]}
         except Exception:
             pass
 
@@ -867,7 +879,12 @@ def evaluate_band_guardrail(structure: SalaryStructure, regime: str,
         if c["passed"]:
             c["message"] = c["rationale"]
 
-    return {"verdict": verdict, "checks": checks, "ai_backed": ai_backed, "guard_triggered": guard_triggered}
+    result = {"verdict": verdict, "checks": checks, "ai_backed": ai_backed, "guard_triggered": guard_triggered}
+    if ai_backed:
+        # Only the FAILING checks' messages are the model's; a passing check's
+        # message is its rationale.
+        result["ai_fields"] = [f"checks[{i}].message" for i, c in enumerate(checks) if not c["passed"]]
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -1033,13 +1050,17 @@ def negotiate(current_structure: SalaryStructure, current_best: dict,
         points = _deterministic_negotiate(total_saving, changed_levers, recommended_regime)
         ai_backed = False
 
-    return {
+    result = {
         "points": points,
         "total_annual_saving": total_saving,
         "changed_levers": changed_levers,
         "ai_backed": ai_backed,
         "guard_triggered": guard_triggered,
     }
+    if ai_backed:
+        # changed_levers and total_annual_saving are Python's.
+        result["ai_fields"] = ["points"]
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -1196,7 +1217,8 @@ def answer_query(question: str, context: dict, ctc: float, rent_paid: float,
                 candidate = response.content[0].text.strip()
                 guard_triggered = _numbers_ungrounded(candidate, allowed)
                 if not guard_triggered:
-                    return {"answer": candidate, "ai_backed": True, "recalculated": True, "guard_triggered": False}
+                    return {"answer": candidate, "ai_backed": True, "recalculated": True, "guard_triggered": False,
+                            "ai_fields": ["answer"]}
             except Exception:
                 pass
 
@@ -1286,7 +1308,8 @@ def answer_query(question: str, context: dict, ctc: float, rent_paid: float,
                 candidate, allowed, citations=grounding["applicable_sections"]
             ) or _citations_unsupplied(candidate, grounding["applicable_sections"])
             if not guard_triggered:
-                return {"answer": candidate, "ai_backed": True, "recalculated": False, "guard_triggered": False}
+                return {"answer": candidate, "ai_backed": True, "recalculated": False, "guard_triggered": False,
+                        "ai_fields": ["answer"]}
         except Exception:
             pass
 

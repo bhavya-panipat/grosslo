@@ -156,6 +156,45 @@ def _ai_section_paths(payload) -> list:
     return found
 
 
+def declared_ai_fields(section: dict, base: str = "") -> list:
+    """
+    (path, value) for every field `section` declares as model-authored in its
+    "ai_fields" list (OUTPUT_BOUNDARY_GROUNDING_DESIGN.md §3.1 (b)).
+
+    Paths are relative to the section: "points" is a key; "flags[].message" is
+    `message` in every element of `flags`; "checks[2].message" is one element.
+    A declared path that resolves to nothing raises, rather than silently
+    declaring nothing. That would be the same quiet gap this exists to close.
+    """
+    out = []
+    for declared in section.get("ai_fields", []):
+        found = []
+
+        def walk(node, parts, path):
+            if not parts:
+                found.append((path, node))
+                return
+            m = re.fullmatch(r"(\w+)(?:\[(\d*)\])?", parts[0])
+            if not m or not isinstance(node, dict) or m.group(1) not in node:
+                return
+            key, index = m.group(1), m.group(2)
+            child, child_path = node[key], f"{path}.{key}" if path else key
+            if index is None:
+                walk(child, parts[1:], child_path)
+            elif isinstance(child, list):
+                picks = range(len(child)) if index == "" else [int(index)]
+                for i in picks:
+                    if i < len(child):
+                        walk(child[i], parts[1:], f"{child_path}[{i}]")
+
+        walk(section, declared.split("."), base)
+        if not found:
+            raise ValueError(f"ai_fields declares {declared!r}, which resolves to nothing "
+                             f"in {base or 'the section'}")
+        out.extend(found)
+    return out
+
+
 def _in_any_section(path: str, sections: list) -> bool:
     return any(path == s or path.startswith(s + ".") or path.startswith(s + "[")
                for s in sections)

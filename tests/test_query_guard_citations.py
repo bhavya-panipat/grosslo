@@ -132,8 +132,11 @@ class TestAnswerQueryServesAnswersThatCiteWhatItSupplied(unittest.TestCase):
         reply = "Salary TDS on your pay is deducted under Section 392 (formerly Section 192)."
         result, supplied = self._ask(reply)
         self.assertIn("Section 392 (formerly Section 192)", supplied)
+        # ai_fields since OUTPUT_BOUNDARY_GROUNDING_DESIGN.md step 3: the answer is
+        # the model-authored field of an AI-backed query response.
         self.assertEqual(result, {"answer": reply, "ai_backed": True,
-                                  "recalculated": False, "guard_triggered": False})
+                                  "recalculated": False, "guard_triggered": False,
+                                  "ai_fields": ["answer"]})
 
     def test_a_conditionally_supplied_citation_is_served_when_it_applies(self):
         reply = "Your employer NPS contribution is deductible under Section 124 (formerly Section 80CCD(2))."
