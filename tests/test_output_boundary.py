@@ -34,6 +34,52 @@ def _mock_llm(text):
                  Mock(messages=Mock(create=Mock(return_value=response))))
 
 
+# Real requests for the real pipeline (app._build_optimize_response, skip_ai
+# False). Measured in OUTPUT_BOUNDARY_GROUNDING_DESIGN.md §1.
+R1_ONLY = dict(ctc=2_000_000, rent_paid=300_000, city="metro", nps_opted=False,
+               current_extracted={"basic": 900_000, "hra": 400_000, "lta": 0, "employer_pf": 108_000})
+R1_R5 = dict(ctc=4_000_000, rent_paid=0, city="metro", nps_opted=True,
+             current_extracted={"basic": 1_000_000, "hra": 0, "lta": 0, "employer_pf": 800_000})
+NEGOTIATES_NPS = dict(ctc=1_800_000, rent_paid=400_000, city="metro", nps_opted=True,
+                      current_extracted={"basic": 720_000, "hra": 288_000, "lta": 0, "employer_pf": 86_400})
+
+
+def _request_numbers(request):
+    return [request["ctc"], request["rent_paid"], *request["current_extracted"].values()]
+
+
+def _real_response(request, compliance_lines, negotiation=None):
+    """
+    The real assembled response, with only the model mocked. One reply per call,
+    chosen by prompt: each compliance call (one flag per call since
+    REPHRASING_ALIGNMENT_DESIGN.md step 2) gets that flag's line, and the
+    negotiation call gets negotiation(payload) if given.
+    """
+    import app as flask_app
+
+    def create(**kwargs):
+        system = kwargs.get("system", "")
+        payload = json.loads(kwargs["messages"][0]["content"])
+        if system == ai_layer.COMPLIANCE_SYSTEM_PROMPT:
+            text = "\n".join(compliance_lines[flag["rule_id"]] for flag in payload)
+        elif system == ai_layer.EXPLAINER_SYSTEM_PROMPT:
+            text = "The recommended regime is cheaper for this structure."
+        elif negotiation is not None:
+            text = negotiation(payload)
+        else:
+            text = "You could ask HR whether the structure can be adjusted."
+        response = Mock()
+        response.content = [Mock(text=text)]
+        response.usage = None
+        return response
+
+    with patch("ai_layer._client", Mock(messages=Mock(create=Mock(side_effect=create)))):
+        response, _ = flask_app._build_optimize_response(
+            request["ctc"], request["rent_paid"], request["city"], request["nps_opted"],
+            request["current_extracted"], False, skip_ai=False)
+    return response
+
+
 class TestTheCheckIsNotVacuousOverTheBaseline(unittest.TestCase):
     """
     The characterization baseline has ai_backed False throughout — it is the
@@ -176,14 +222,15 @@ class TestAgainstRealPipelineOutputWithAModel(unittest.TestCase):
             employer_nps=0, nps_opted=False)
 
     def test_a_legitimate_rephrasing_passes_both_layers(self):
-        with _mock_llm("This structure sets Basic below the 50% floor the "
-                       "Code on Wages 2025 requires."):
-            result = ai_layer.flag_compliance(self._structure(), rent_paid=300_000)
-        self.assertTrue(result["ai_backed"])
-        self.assertFalse(result["guard_triggered"])
-        payload = {"compliance": result,
-                   "metrics": {"basic_pct": 50, "year": 2025}}
-        self.assertEqual(ob.ungrounded_findings(payload), [])
+        # OUTPUT_BOUNDARY_GROUNDING_DESIGN.md §3.4. This used to pass only
+        # because its payload added "metrics": {"basic_pct": 50, "year": 2025},
+        # grounding R1's floor and year by hand. Now it asserts on the real
+        # assembled response, where nothing is hand-grounded.
+        response = _real_response(R1_ONLY, {"R1": "This structure sets Basic below the 50% "
+                                                  "floor the Code on Wages 2025 requires."})
+        self.assertTrue(response["compliance"]["ai_backed"])
+        self.assertFalse(response["compliance"]["guard_triggered"])
+        self.assertEqual(ob.ungrounded_findings(response, extra=_request_numbers(R1_ONLY)), [])
 
     def test_an_invented_figure_is_caught_by_the_inline_guard_first(self):
         # Defence in depth working as designed: the inline guard rejects the
@@ -210,6 +257,92 @@ class TestAgainstRealPipelineOutputWithAModel(unittest.TestCase):
         findings = ob.ungrounded_findings(payload)
         self.assertTrue(any(f.number == 35.0 for f in findings),
                         f"the boundary missed the invented figure: {findings}")
+
+
+class TestRealAiBackedResponses(unittest.TestCase):
+    """
+    OUTPUT_BOUNDARY_GROUNDING_DESIGN.md §3.4, committed knowingly red (§5 step 2)
+    before the boundary changes. Driven with the real assembled response. Before
+    this, the layer was only ever driven with an all-fallback baseline or
+    hand-built payloads, and on real AI-backed output it was wrong both ways
+    (§1): false findings on Python-written fields, and fabricated figures
+    grounded by unrelated metrics.
+
+    Where a test needs a fabrication to reach the boundary, the inline guard is
+    switched off, as in test_the_boundary_catches_it_when_the_inline_guard_is_disabled:
+    the second layer is only worth anything if it holds on its own.
+    """
+
+    R1_LINE = "This structure sets Basic below the 50% floor the Code on Wages 2025 requires."
+    R5_LINE = "The excess over Rs 7.5L is a taxable perquisite under Section 17(1)(h)."
+
+    def _without_inline_guard(self):
+        return patch.multiple(ai_layer, _numbers_ungrounded=lambda *a, **k: False,
+                              _citations_unsupplied=lambda *a, **k: False)
+
+    def test_the_fixtures_reach_ai_backed_sections(self):
+        # Without this, every "no findings" test below would pass vacuously.
+        both = _real_response(R1_R5, {"R1": self.R1_LINE, "R5": self.R5_LINE})
+        self.assertEqual([f["rule_id"] for f in both["compliance"]["flags"]], ["R1", "R5"])
+        self.assertTrue(both["compliance"]["ai_backed"])
+        nps = _real_response(NEGOTIATES_NPS, {}, negotiation=lambda p: (
+            f"You could ask HR to restructure your {p['changed_levers'][-1]}, part of how this "
+            f"recommendation reaches Rs {p['total_annual_saving']:,.0f} in annual savings."))
+        self.assertTrue(nps["negotiation"]["ai_backed"])
+        self.assertIn("NPS enrollment (Section 124, formerly 80CCD2)", nps["negotiation"]["changed_levers"])
+
+    def test_legitimate_compliance_rephrasings_have_no_findings(self):
+        response = _real_response(R1_R5, {"R1": self.R1_LINE, "R5": self.R5_LINE})
+        self.assertEqual(ob.ungrounded_findings(response, extra=_request_numbers(R1_R5)), [])
+
+    def test_a_negotiation_point_naming_a_real_lever_and_the_real_saving_has_no_findings(self):
+        response = _real_response(NEGOTIATES_NPS, {}, negotiation=lambda p: (
+            f"You could ask HR to restructure your {p['changed_levers'][-1]}, part of how this "
+            f"recommendation reaches Rs {p['total_annual_saving']:,.0f} in annual savings."))
+        self.assertEqual(ob.ungrounded_findings(response, extra=_request_numbers(NEGOTIATES_NPS)), [])
+
+    def test_python_written_fields_inside_ai_sections_are_never_findings(self):
+        response = _real_response(R1_R5, {"R1": self.R1_LINE, "R5": self.R5_LINE})
+        paths = [f.path for f in ob.ungrounded_findings(response, extra=_request_numbers(R1_R5))]
+        self.assertEqual([p for p in paths if p.endswith((".rationale", ".rule_id", ".severity"))
+                          or ".changed_levers" in p], [])
+
+    def test_a_fabricated_figure_equal_to_an_unrelated_metric_is_found(self):
+        # §1.2: 2 equals metrics.rules_triggered and 1 is within +-1 of
+        # basic_pct. Neither has anything to do with R5's ceiling.
+        for fabricated, number in (("Your contributions exceed the limit by 2 lakh.", 2.0),
+                                   ("Your contributions exceed the limit by 1 lakh.", 1.0)):
+            with self.subTest(number=number), self._without_inline_guard():
+                response = _real_response(R1_R5, {"R1": self.R1_LINE, "R5": fabricated})
+                self.assertTrue(response["compliance"]["ai_backed"], "the inline guard was not bypassed")
+                findings = ob.ungrounded_findings(response, extra=_request_numbers(R1_R5))
+                self.assertTrue(any(f.path == "compliance.flags[1].message" and f.number == number
+                                    for f in findings), f"not found: {findings}")
+
+    def test_a_fabricated_section_whose_digits_are_grounded_is_found(self):
+        # 50 is R1's real floor; "Section 50" was never supplied.
+        with self._without_inline_guard():
+            response = _real_response(R1_R5, {"R1": "Basic salary is below the 50% floor set by Section 50.",
+                                              "R5": self.R5_LINE})
+        findings = ob.ungrounded_findings(response, extra=_request_numbers(R1_R5))
+        self.assertTrue(any(f.path == "compliance.flags[0].message" for f in findings),
+                        f"the fabricated citation was not found: {findings}")
+
+    def test_every_ai_backed_section_in_real_output_declares_its_model_authored_fields(self):
+        # §3.1 (b). Walks the real response, so a new AI-backed section that
+        # forgets to declare is caught here without anyone updating a list.
+        responses = [_real_response(R1_R5, {"R1": self.R1_LINE, "R5": self.R5_LINE}),
+                     _real_response(NEGOTIATES_NPS, {}, negotiation=lambda p: "You could ask HR.")]
+        for response in responses:
+            for path in ob._ai_section_paths(response):
+                section = response
+                for part in path.replace("]", "").replace("[", ".").split("."):
+                    section = section[int(part)] if part.isdigit() else section[part]
+                with self.subTest(section=path):
+                    self.assertIn("ai_fields", section)
+                    self.assertTrue(section["ai_fields"])
+                    for key in section["ai_fields"]:
+                        self.assertIn(key, section)
 
 
 if __name__ == "__main__":
