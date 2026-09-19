@@ -342,6 +342,14 @@ export type SubmissionRow = {
   // null for rows submitted before this feature shipped — every consumer
   // must treat that as "needs_review" (fail-safe direction), never as clean.
   orchestration?: OrchestrationDecision | null;
+  /** Set when the row was computed before the employer-NPS tax fix and has
+   *  employer NPS somewhere in it (review_queue._row_to_dict, read time only;
+   *  TAX_ENGINE_EMPLOYER_NPS_DESIGN.md §8.8). Its tax figures are too low and
+   *  are shown as stored, not recomputed. `basis` is null for rows older than
+   *  the tax_basis column. The same `reason` is also appended to
+   *  orchestration.reasons when orchestration is present. Optional so a
+   *  backend without this field still type-checks. */
+  tax_basis_flag?: { basis: string | null; reason: string } | null;
 };
 
 export type Submission = {

@@ -23,6 +23,27 @@ const inr = (v: number) => `₹${Math.round(v).toLocaleString("en-IN")}`;
 // malformed row silently fast-tracking into the bulk-approve path.
 const routeOf = (r: SubmissionRow): OrchestrationRoute => r.orchestration?.route ?? "needs_review";
 
+// A row computed before the employer-NPS tax fix (row.tax_basis_flag, set by
+// the backend at read time). Shown on EVERY route, beside the route badge,
+// because the collapsed row header prints the stored tax figure, which is the
+// figure known to be too low. Same gold caution token and icon as the
+// low-severity badge below, for the same reason: this repository already found
+// once that a note styled like "Clean" gets scanned past and bulk-approved
+// unread (TAX_ENGINE_EMPLOYER_NPS_DESIGN.md §8.8.4). Display only: it changes
+// no route, no status, and no bulk-approve eligibility (decision D1-7 (b)).
+function TaxBasisBadge({ row }: { row: SubmissionRow }) {
+  if (!row.tax_basis_flag) return null;
+  return (
+    <span
+      title={row.tax_basis_flag.reason}
+      className="inline-flex items-center gap-1 rounded-full border border-gold/30 bg-gold/[0.08] px-2 py-0.5 text-[11px] font-medium text-gold-bright"
+    >
+      <TriangleAlert className="h-3 w-3 shrink-0" />
+      Computed before tax fix
+    </span>
+  );
+}
+
 function RouteBadge({ row }: { row: SubmissionRow }) {
   const route = routeOf(row);
   const severity = row.orchestration?.severity ?? "None";
@@ -42,6 +63,15 @@ function RouteBadge({ row }: { row: SubmissionRow }) {
       <span className="inline-flex items-center gap-1 rounded-full border border-gold/30 bg-gold/[0.08] px-2 py-0.5 text-[11px] font-medium text-gold-bright">
         <TriangleAlert className="h-3 w-3 shrink-0" />
         Fast-tracked · {flags.length} low-severity note{flags.length === 1 ? "" : "s"}, {ruleIds}
+      </span>
+    );
+  }
+  if (route === "auto_pass_candidate" && row.tax_basis_flag) {
+    // Never the green "Clean" badge for a pre-fix row: its routing is real,
+    // but its figures are not, and green reads as "nothing to look at".
+    return (
+      <span className="inline-flex items-center rounded-full border border-gold/30 bg-gold/[0.08] px-2 py-0.5 text-[11px] font-medium text-gold-bright">
+        Fast-tracked
       </span>
     );
   }
@@ -451,6 +481,7 @@ function RowCard({
             <p className="flex items-center gap-2 font-medium text-neutral-200">
               {row.employee_name || `Row ${row.row_index + 1}`}
               <RouteBadge row={row} />
+              <TaxBasisBadge row={row} />
             </p>
             <p className="text-xs text-neutral-500">
               {inr(row.ctc)} · {recommendedRegime} regime · tax {inr(recommended.tax_breakdown.total_tax)}
@@ -492,6 +523,14 @@ function RowCard({
                     <span className="font-mono text-gold-bright">{f.rule_id}</span> — {f.rationale}
                   </p>
                 ))}
+              </div>
+            )}
+            {row.tax_basis_flag && !row.orchestration && (
+              // A legacy row with no routing data has no reasons list for the
+              // backend to append to, so the reason is shown on its own here.
+              <div className="flex flex-col gap-1.5">
+                <p className="text-xs uppercase tracking-wide text-neutral-500">Tax basis</p>
+                <p className="text-sm text-gold-bright">{row.tax_basis_flag.reason}</p>
               </div>
             )}
             {row.orchestration && (
