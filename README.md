@@ -407,21 +407,37 @@ bolted-on fallback.
 
 ## Known unverified surfaces — one standing limitation, not separate gaps
 
-**There is no `node` binary in the environment this was built in**, although
-`frontend/node_modules` is populated. So the frontend cannot be type-checked or
-run here, and every backend claim in this repo has been verified by running it
-while the files below have been reviewed by eye only. They are listed together
-because this is ONE environmental limitation with several instances, not a fresh
-gap each time one appears:
+**Corrected 2026-09-19: Node was installed all along, just not on `PATH`.** This
+section used to open *"There is no `node` binary in the environment this was
+built in"*. That was a fact about how the shell looked for it, not about the
+machine: a binary is at `~/.local/node-v24.20.0-darwin-arm64/bin`. It is the same
+mistake as reading two automated 403s as "the legal sources are unreachable",
+concluding from one access method that a thing is absent. It stood from Phase
+1.2 until another session located the binary.
 
-| File | Added in | What must be checked once Node is available |
+What is now verified, 2026-09-19, by that session:
+- a whole-project `tsc --noEmit` exits 0, so **every file below type-checks**;
+- the Next.js dev server compiles and serves `/finance` with a 200 and no console
+  or runtime errors. **Scope:** this shows the frontend compiles and renders, and
+  nothing about the backend. The backend answering on port 8000 was a process
+  started 2026-09-04, before tenancy, identity and the NPS fix. It issued a
+  session with no tenant at all, so no current backend logic was exercised, and
+  the page never got past login.
+
+**What is still unverified is behaviour with data.** The rows below say what
+has to be rendered and seen, and none of those checks has been done yet. They
+are listed together because they are one gap with several instances:
+
+| File | Added in | Type-checked | What must still be rendered and seen |
 |---|---|---|
-| `frontend/components/finance/finance-flow.tsx` (`DecidedBy`) | Phase 1.2 | Type-check; render a decided row and confirm the decider's name appears; render one with a NULL `decided_by_user_id` and confirm it shows as *Unattributed* rather than blank or, worse, attributed to someone |
-| `frontend/lib/api-types.ts` | Phase 2.1, 2.2 | Type-check only — declarations for `stages_run`, `PipelineStage`, and the `rules_triggered`/`rules_total` metric fields |
-| `frontend/components/ring-metric.tsx` | Phase 2.2 | Type-check; confirm the Compliance ring shows the rule ratio beside the percentage, and that a response lacking those fields still renders the bare percentage rather than `undefined/undefined` |
+| `frontend/components/finance/finance-flow.tsx` (`DecidedBy`) | Phase 1.2 | yes | Render a decided row and confirm the decider's name appears; render one with a NULL `decided_by_user_id` and confirm it shows as *Unattributed* rather than blank or, worse, attributed to someone |
+| `frontend/lib/api-types.ts` | Phase 2.1, 2.2, D1 | yes | Nothing further: declarations only (`stages_run`, `PipelineStage`, `rules_triggered`/`rules_total`, `tax_basis_flag`) |
+| `frontend/components/ring-metric.tsx` | Phase 2.2 | yes | Confirm the Compliance ring shows the rule ratio beside the percentage, and that a response lacking those fields still renders the bare percentage rather than `undefined/undefined` |
+
+| `frontend/components/finance/finance-flow.tsx` (`TaxBasisBadge`, `RouteBadge`) | D1 (`1dc3b98`) | yes | Render a pending row carrying `tax_basis_flag` on each route: it must show the gold *"Computed before tax fix"* badge; an `auto_pass_candidate` one must show gold *"Fast-tracked"*, never green *"Clean"*; a legacy row with no `orchestration` must show the reason under *"Tax basis"* when expanded |
 
 Until each is checked, the honest description of this project is **"backend
-verified, these UI surfaces unverified"**. `IDENTITY_DESIGN.md` §7 and
+verified, UI surfaces type-checked, their behaviour with data unverified"**. `IDENTITY_DESIGN.md` §7 and
 `COMPLIANCE_BREADTH_DESIGN.md` reference this table rather than keeping their
 own copies — a second list would be the same drift problem those phases were
 written to remove.
@@ -877,6 +893,24 @@ future plans:
 
 ## What broke during development (and what that caught)
 
+- **The tax engine double-counted employer NPS, from the first version until
+  2026-09-16** (`TAX_ENGINE_EMPLOYER_NPS_DESIGN.md`). `taxable_income_for_structure()`
+  left the employer's contribution out of gross salary and subtracted it anyway,
+  uncapped. So every structure with employer NPS showed too little tax: 12–24% of
+  the tax owed above ₹20L CTC, up to 80% between ₹10L and ₹20L, and ₹0 where up to
+  ₹82,419 was owed.
+  - **What it also changed:** the recommended regime or structure in 111 of 1,140
+    NPS-on cases, and 68 routing decisions, all towards escalation. No row was
+    fast-tracked that should not have been.
+  - **How it survived:** the tests pinned what the code returned, not what the Act
+    says. The first measurement sampled 36 hand-picked cases and missed every
+    changed recommendation.
+  - **The fix (`02d05a8`):** add the contribution to salary (s. 16(k)) and deduct
+    it only up to the cap (s. 124). It is pinned by tests that derive the expected
+    figure from the statute and were committed failing first.
+  - **Rows already stored:** they are not recomputed. Those computed before the fix
+    carry a `tax_basis` and are flagged when read, with the reason shown to the
+    approver.
 - An early draft of the 87A rebate function was left in a broken, duplicate
   state after an editing false-start, before the final version replaced it.
   Caught by review before it reached production logic.

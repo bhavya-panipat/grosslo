@@ -14,6 +14,8 @@ implementation waits on it.** `tax_engine.py` is not changed.
 reason's text. Measuring for that text found two things, recorded in §8.8: the
 suggested bound does not hold, and a reason alone is not seen at bulk-approve.
 **Implementation proceeds per §8.5 as amended by §8.8.**
+*Updated 2026-09-19:* **implemented, steps 0–8** (§8.9). D1-8 was approved as (b).
+The engine fix is `02d05a8`. Step 9 is this documentation.
 Decision D1 of `R1_TE4_RECORD_UPDATE_DESIGN.md` approved *opening* this design
 ahead of the record updates; the standing rule that a design is approved before
 implementation applies here with more force than anywhere else, because this is
@@ -750,3 +752,30 @@ grid defect known. (a) is the right fix only if the function is to be kept.
 
 Steps 4 onward wait on D1-8. Step 4 has nothing else to name: this is the only
 test outside steps 1–3 that moved.
+
+**D1-8 approved 2026-09-18: (b), delete.** The owner's reasons:
+
+- It matches every earlier case of code losing its only reason to exist:
+  `require_role`, `KIND_NONE_EXISTS`, and the checkmark canvas that kept running
+  unseen after everyone thought it was gone.
+- (a) would mean maintaining a second search in lockstep with the tax logic, for
+  a value nothing consumes.
+- (c) would end the suite's meaning as a signal. "Green or something is wrong"
+  does not survive an accepted exception.
+
+**Steps 4–8, each with a full suite in a clean worktree and the request/go
+handshake:**
+
+| Step | Commit | Result |
+|---|---|---|
+| 4 delete `theoretical_minimum_tax()` and its two tests | `ef85fd4` | 572 OK. The step-2 sabotage runs, made here on a green tree: restoring the pre-fix engine failed 21 subtests in 11 tests, exactly as predicted; dropping only the `min()` cap failed 5 in 3, exactly as predicted. *One earlier run of the first sabotage overlapped another session's suite (55s, about 110 auth/identity errors) and was discarded. Both were re-run with timestamps, 02:29–02:35.* |
+| 5 read-time flag and reason | `debb0aa` | 581 OK (+9). Sabotage: dropping the employer-NPS condition failed exactly 1 test; treating a NULL basis as current failed exactly 4. The 4 is a corrected prediction: an earlier message said 1, missing three other tests that also store NULL. |
+| 6 Finance badge | `1dc3b98` | Python suite unaffected. Its 7 failures are all another session's knowingly-red `test_output_boundary`, confirmed by that session. The frontend: whole-project `tsc --noEmit` exit 0, run by another session. **Not seen rendering a flagged row.** The only live backend was a process from 2026-09-04, before tenancy and this fix. |
+| 7 R7 redraft | `1b13bc8` | 593 run (+1): the same 7 failures, another session's, nothing else. `test_rationale_guard_citations` walks R7's new rationale and passes. |
+| 8 TE4 direction | `59d677b` | Recorded as **over-states, never under-states**, holding both by construction and by measurement. **By construction:** the tool's cap never exceeds the lawful one, and `compute_tax` never decreases, checked every ₹10 to ₹30L and every ₹5,000 to ₹10Cr. **By measurement:** 886 structures, of which 186 over-state (at most ₹1,02,336), 700 are equal, and none under-state. Suite pending with step 9. |
+
+**Found on the way: Node was on this machine all along.** For fifteen days the
+project recorded "no `node` binary" and three frontend files as uncompiled. It
+was on the machine, just not on `PATH`. Corrected in README and
+`docs/PROJECT_STATUS.md`. It is the same error as the 403 entry: a fact about an
+access method, recorded as a fact about the thing.

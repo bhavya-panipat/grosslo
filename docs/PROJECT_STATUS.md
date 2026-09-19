@@ -8,7 +8,8 @@ Its purpose is to be the single place someone can read to know where a
 multi-phase effort with real human dependencies actually stands, without
 reconstructing it from separate closing reports.
 
-_Last updated: 2026-09-15, after the D1 approvals and blast-radius check
+_Last updated: 2026-09-19, after the employer-NPS fix was implemented (D1, steps 0–8).
+Before that, 2026-09-15, after the D1 approvals and blast-radius check
 (`TAX_ENGINE_EMPLOYER_NPS_DESIGN.md` §8). Earlier the same day, after the R1/TE4 record updates
 (`R1_TE4_RECORD_UPDATE_DESIGN.md`). Before that, 2026-09-14, after the R5 citation
 propagation (`R5_CITATION_PROPAGATION_DESIGN.md`) and the gap-owner table below. Previously
@@ -21,9 +22,9 @@ propagation (`R5_CITATION_PROPAGATION_DESIGN.md`) and the gap-owner table below.
 | Phase | Shipped | Waiting on a person |
 |---|---|---|
 | **1.1** Multi-tenancy | Postgres row-level security, `FORCE ROW LEVEL SECURITY`, transaction-scoped `SET LOCAL app.tenant_id`, startup assertion that RLS is actually enforceable | — |
-| **1.2** Identity & RBAC | Permission-based `require_permission`, order-independent guards, login timing oracle closed (77× → 1.02×), audit-log split into two sinks | 1 frontend file uncompiled (`finance-flow.tsx`) |
-| **2.1** Pipeline orchestration | Declared `STAGES` sequence, `stages_run` in the API response, characterization baseline | 1 frontend file uncompiled (`api-types.ts`) |
-| **2.2** Compliance rule breadth | Rule set as data with one source of truth, candidate-rule protocol with six steps, generated rules table, `compliance_pct` reports its denominator | **CA review packet** — 2 candidate rules + 5 questions on live rules. 1 frontend file uncompiled (`ring-metric.tsx`) |
+| **1.2** Identity & RBAC | Permission-based `require_permission`, order-independent guards, login timing oracle closed (77× → 1.02×), audit-log split into two sinks | 1 frontend file type-checked 2026-09-19, behaviour with data unverified (`finance-flow.tsx`) |
+| **2.1** Pipeline orchestration | Declared `STAGES` sequence, `stages_run` in the API response, characterization baseline | 1 frontend file type-checked 2026-09-19, behaviour with data unverified (`api-types.ts`) |
+| **2.2** Compliance rule breadth | Rule set as data with one source of truth, candidate-rule protocol with six steps, generated rules table, `compliance_pct` reports its denominator | **CA review packet** — 2 candidate rules + 5 questions on live rules. 1 frontend file type-checked 2026-09-19, behaviour with data unverified (`ring-metric.tsx`) |
 | **2.4** Legal claim inventory | `provenance.py` evidence model, `Claim` record with no inert state, 4 `tax_engine` claims, drift check, ranked review queue over both carriers | — superseded by 2.4b below |
 | **2.4b** Inventory expansion | **17 claims across five files**, including `optimizer.py`'s `BASIC_PCT_MIN`. `instrument_kind`, value-less claims, key paths, `known_divergence`, the §5.1 verified rule | **14 unverified claims** (TE4's citation verified 2026-09-14); no human has signed off on anything. *(The browser lookup for R5 that was listed here is done — 2026-09-13.)* |
 
@@ -73,7 +74,6 @@ Owners are records and roles, not sessions. Sessions end; records don't.
 | Gap | Severity | Owner | Next action | Deadline |
 |---|---|---|---|---|
 | **The rationale guard: what is left after the fix.** *Updated 2026-09-15.* Steps 3–8 of `RATIONALE_GUARD_CITATION_DESIGN.md` shipped (`a98e83f` to `ef98fc2`, each suite- and sabotage-verified). Each rephrased line is now grounded only in its own flag's rationale; a rationale's citation digits no longer ground figures; and a line citing a section it was never supplied is rejected, at all four citing call sites. **Still open:** (1) any two rephrased lines that *contain no figures*, returned in swapped order, are still served, each flag carrying the other's reason. That covers any flag pair, R1 + R4 included, and the guardrail's checks too. *(Corrected 2026-09-16: this item first said "figure-free flags (e.g. R3 and R6)", which was measured to be too narrow.)*; (2) an unparsed citation form ("s. 17(1)(h)", plurals) whose digits equal a real figure is not checked; (3) "Rs 2,025" in R1's own line (Act years deferred, decision 3); (4) `output_boundary.py` has the same citation/figure namespace problem, and one of its tests grounds a year by hand. | **Fail-open.** The figure-bearing cases are closed: figures borrowed across flags, swapped lines with figures, citation-digit figures, and fabricated citations. (1) can still attach the wrong reason to a routing decision whenever the model phrases both lines without numbers, which is less narrow than first stated. | Numeric guard, `ai_layer.py`; `output_boundary.py` for (4). Decisions: project owner. | (1) is being designed in `REPHRASING_ALIGNMENT_DESIGN.md` (user-approved 2026-09-15), because a figure check cannot see it. (3) waits on the CA's ruling on packet question R1. (2) and (4): decide whether to address. | None formal. |
-| **The tax engine double-counts employer NPS.** `taxable_income_for_structure()` leaves employer NPS out of gross salary and subtracts it anyway, so every NPS-opted structure's tax is under-stated by the tax on the whole contribution — measured: +₹23,587 at ₹18L CTC to +₹1,31,040 at ₹50L, 15–24% of tax owed. *(This row said "No recommendation changes"; false, see §8.7: the recommended regime or structure changes in 111 of 1,140 NPS-on cases.)* *Updated 2026-09-15, blast-radius check (`TAX_ENGINE_EMPLOYER_NPS_DESIGN.md` §8):* the liability and treasury **totals cannot move** (tax cancels in `total_capital_outlay`), but inside them TDS escrow is under-stated and net take-home over-stated by the same amount. Also wrong: the s. 398(3) penalty scenario (under), `optimization_value_pct` (about double), `annual_saving` (both directions), and batch `unclaimed_savings`/`clean_count` (an above-cap offer reads ₹0 and clean). **Routing:** reached through the regime; in 9,564 measured cases, 68 routes change, all `escalate` → `auto_pass_candidate`, none the other way. | **Wrong tax figure, live** for every structure with employer NPS, AI layer or not. | Tax engine, `tax_engine.py`. Decisions: project owner. | **D1-1 to D1-4 approved 2026-09-15** (Option B; redraft R7; record and visibly flag pre-fix submissions). D1-5 (`tax_basis` column; NULL reads pre-fix) and D1-6 (flag only) approved. **Waiting on D1-7, reopened** (§8.6: a pending pre-fix row can carry a different recommended structure; recommended option (b), flag reason in `orchestration.reasons`, no gate change). Then implement §5 as revised by §8.5. | None formal. It is live now. |
 | **Treasury funding leaves out employer NPS.** `total_capital_outlay` reduces to `cash + employer_pf`; the employer's NPS remittance is in no component. An ₹18L structure with 14% NPS reports ₹16,74,000. Found 2026-09-15 (`TAX_ENGINE_EMPLOYER_NPS_DESIGN.md` §8.3), not caused by the double count. | Required Treasury Funding under-stated by the employer NPS of every pending row that has it. | Treasury path, `payroll_breakdown.py`. Decisions: project owner. | A design. It touches the treasury path, which carries the hard constraints. | None formal. |
 | **The payout payload's amount is gross, not net.** `_build_composite_payout()` (`app.py`) sets `amount` from `(basic + hra + lta + special_allowance) / 12` in a variable named `net_monthly`; no TDS, employee PF or PT is withheld. `net_monthly_disbursement()`, which withholds them, has no callers. No test pins the amount. Present since `90e43cc` (2026-08-31); found 2026-09-15 (§8.3). | A wrong amount in an exported payment payload. Schema-only; no dispatch exists anywhere. | Payout path, `app.py`. Decisions: project owner. | A design, with a test pinning the amount first. Same hard constraints as above. **Owner, 2026-09-15: scope it soon, well before Phase 3 execution exists**, and not left queued indefinitely. | Before Phase 3 starts. |
 | **An annual figure is labelled "Monthly".** The Executive Summary's "Total Monthly Payroll Liability" sums `total_capital_outlay`, which `treasury_forecast()` defines as annual; nothing divides by 12. The Treasury Gate compares the same annual sum to the live balance, so bulk-approve is blocked against a year of payroll: conservative, but not what the label says. Read from code, not run (no `node`); found 2026-09-15 (§8.3). | Mislabelled figure; the gate errs toward blocking. | Frontend, `executive-summary-card.tsx` and `finance-flow.tsx`. Decisions: project owner. | Decide what the banners should show: annual labelled as annual, or a real monthly figure. Owner, 2026-09-15: errs safe; queued behind D1. | None formal. |
@@ -83,10 +83,29 @@ Owners are records and roles, not sessions. Sessions end; records don't.
 The full list of items the R5 propagation left open, including CA questions
 already in the packet, is `R5_CITATION_PROPAGATION_DESIGN.md` §4.7.5. This table
 covers only the rows above that have no other owner, plus the rationale guard's
-residuals, the tax-engine double count, and the three treasury and payout gaps found while measuring it. With the guard's broad fail-open
-cases closed on 2026-09-15, the tax-engine double count is the most severe open
-item in the repository: a wrong tax figure, live, whether or not the AI layer
-is configured.
+residuals and the three treasury and payout gaps found while measuring the
+tax-engine double count. That double count was the most severe open item until it
+was fixed (closed below). No remaining row is a wrong tax figure. Of what remains,
+the owner asked on 2026-09-15 for the payout gross/net gap to be scoped before
+Phase 3 starts.
+
+**Closed 2026-09-19:**
+- ~~The tax engine double-counts employer NPS~~ — fixed in `02d05a8`
+  (`TAX_ENGINE_EMPLOYER_NPS_DESIGN.md`, D1-1 to D1-8, all owner-approved). Employer NPS
+  is now added to salary (s. 16(k)) and deducted up to the cap (s. 124). The fix is
+  pinned by statute-derived tests committed failing first, and by two sabotage runs
+  (restore the bug: 21 failures; drop the cap: 5).
+  - **Stored rows:** those computed before it carry `tax_basis` and are flagged when
+    read, with the reason appended to the approver's routing reasons (`debb0aa`). The
+    Finance queue never shows them as green *Clean* (`1dc3b98`).
+  - **Other records:** candidate R7 was redrafted (`1b13bc8`), TE4's direction is now
+    recorded as over-states, never under-states (`59d677b`), and the unused
+    `theoretical_minimum_tax()` was deleted (`ef85fd4`).
+  - **Still open:** the badge has been type-checked but not seen rendering a flagged
+    row (README, *Known unverified surfaces*). R7's severity is left to the reviewer.
+- ~~No `node` binary~~ — Node was installed all along, just not on `PATH`
+  (`~/.local/node-v24.20.0-darwin-arm64/bin`). Another session found it, and a
+  whole-project `tsc --noEmit` exits 0.
 
 **Closed 2026-09-14:**
 - ~~`(Act 30 of 2025)` unverified but recorded as fact on TE1–TE4 and PE4~~ — the Gazette
@@ -138,10 +157,16 @@ claims at all, or something else, is open.
 
 ## Standing environmental limitations
 
-- **No `node` binary**, though `frontend/node_modules` is populated. Three
-  frontend files across three phases are uncompiled and unverified — one
-  limitation with three instances, tracked in README's *Known unverified
-  surfaces* table.
+- **Node is not on `PATH`.** *(Corrected 2026-09-19.)* This entry said "No `node`
+  binary" from Phase 1.2 until another session found one at
+  `~/.local/node-v24.20.0-darwin-arm64/bin`. It was the same error as the 403 entry
+  below: a fact about the access method, read as a fact about the thing. With it:
+  - the whole frontend type-checks (`tsc --noEmit`, exit 0);
+  - `/finance` compiles and serves, but against a stale backend process started
+    2026-09-04. No current backend behaviour was exercised.
+
+  What remains unverified is behaviour with data, tracked in README's *Known
+  unverified surfaces* table.
 - **Automated requests to primary legal sources are refused (HTTP 403)** —
   re-tested 2026-09-14 with default and browser headers alike. **The sources
   themselves are readable in an ordinary browser**, which is how both
