@@ -40,7 +40,8 @@ from __future__ import annotations
 
 import re
 
-from ai_layer import _extract_numbers
+from ai_layer import (_citations_unsupplied, _extract_numbers, _grounded_figures,
+                      _strip_supplied_citations)
 
 # The structural marker for "this section may contain model-authored text".
 #
@@ -63,15 +64,22 @@ TOLERANCE = 1.0
 
 
 class Finding:
-    """One number in model-authored text that no deterministic field supports."""
+    """
+    One number in model-authored text that no deterministic field supports, or,
+    with number None, a citation in model-authored text that no deterministic
+    field of its object supplied.
+    """
 
-    def __init__(self, path: str, number: float, text: str):
+    def __init__(self, path: str, number, text: str):
         self.path = path
         self.number = number
         self.text = text
 
     def __str__(self) -> str:
         excerpt = self.text if len(self.text) <= 160 else self.text[:157] + "..."
+        if self.number is None:
+            return (f"{self.path}: model-authored text cites a reference that no "
+                    f"deterministic field of its object supplied. Text: {excerpt!r}")
         return (f"{self.path}: the figure {self.number:g} appears in "
                 f"model-authored text but matches no deterministic field of "
                 f"this response. Either it was invented, or the value it "
@@ -157,6 +165,11 @@ def _ai_section_paths(payload) -> list:
 
 
 def declared_ai_fields(section: dict, base: str = "") -> list:
+    """Public form of _declared: (path, value) pairs."""
+    return [(path, value) for path, value, _container, _key in _declared(section, base)]
+
+
+def _declared(section: dict, base: str = "") -> list:
     """
     (path, value) for every field `section` declares as model-authored in its
     "ai_fields" list (OUTPUT_BOUNDARY_GROUNDING_DESIGN.md §3.1 (b)).
@@ -170,9 +183,9 @@ def declared_ai_fields(section: dict, base: str = "") -> list:
     for declared in section.get("ai_fields", []):
         found = []
 
-        def walk(node, parts, path):
+        def walk(node, parts, path, container=None, key=None):
             if not parts:
-                found.append((path, node))
+                found.append((path, node, container, key))
                 return
             m = re.fullmatch(r"(\w+)(?:\[(\d*)\])?", parts[0])
             if not m or not isinstance(node, dict) or m.group(1) not in node:
@@ -180,12 +193,12 @@ def declared_ai_fields(section: dict, base: str = "") -> list:
             key, index = m.group(1), m.group(2)
             child, child_path = node[key], f"{path}.{key}" if path else key
             if index is None:
-                walk(child, parts[1:], child_path)
+                walk(child, parts[1:], child_path, node, key)
             elif isinstance(child, list):
                 picks = range(len(child)) if index == "" else [int(index)]
                 for i in picks:
                     if i < len(child):
-                        walk(child[i], parts[1:], f"{child_path}[{i}]")
+                        walk(child[i], parts[1:], f"{child_path}[{i}]", node, key)
 
         walk(section, declared.split("."), base)
         if not found:
@@ -216,9 +229,40 @@ def grounded_numbers(payload, extra=()) -> set:
     return allowed
 
 
+def _matches(number: float, allowed) -> bool:
+    """
+    Design (d): below 100 a figure must match exactly; from 100 up, within
+    TOLERANCE, because rupee amounts are rounded for display.
+
+    With +-1 at every size, 0.6 (a basic_pct fraction) grounded "1", and a
+    small count anywhere in the response grounded any small figure anywhere
+    (OUTPUT_BOUNDARY_GROUNDING_DESIGN.md §1.2).
+    """
+    return any(abs(number - a) < TOLERANCE if number >= 100 else number == a
+               for a in allowed)
+
+
+_NOT_CONTENT = {AI_MARKER, "ai_fields", "guard_triggered"}
+
+
+def _object_sources(container: dict, declared_keys: set):
+    """Deterministic strings and numbers in the same object as a declared field."""
+    strings, numbers = [], set()
+    for key, value in container.items():
+        if key in declared_keys or key in _NOT_CONTENT:
+            continue
+        for item in (value if isinstance(value, list) else [value]):
+            if isinstance(item, str):
+                strings.append(item)
+            elif _is_number(item):
+                numbers.add(float(item))
+    return strings, numbers
+
+
 def ungrounded_findings(payload, extra=()) -> list:
     """
-    Numbers in model-authored text with nothing in the response to support them.
+    Numbers in model-authored text with nothing in the response to support them,
+    and citations in it that nothing supplied.
 
     NO skip_below, deliberately, and stricter than the inline guard's 100 for
     explanation text (design §3.4). A backstop that exempts a range is not a
@@ -227,14 +271,74 @@ def ungrounded_findings(payload, extra=()) -> list:
     the 14% NPS cap. Prose filler is handled by the allow-set instead: a small
     integer that appears in the deterministic payload is allowed, and one that
     does not is precisely what this is looking for.
+
+    DECLARED SECTIONS (OUTPUT_BOUNDARY_GROUNDING_DESIGN.md §3). Only the fields a
+    section lists in "ai_fields" are model text; rationale, rule_id,
+    changed_levers and the rest are Python's and are never inspected. Each
+    declared field is grounded in its OWN object first: the figures of that
+    object's deterministic strings (citation digits removed, via the inline
+    guard's _grounded_figures), its deterministic numbers, and the request's
+    numbers. Those same strings are the only citations it may use. An object
+    with no deterministic source of its own (the explanation) is grounded
+    response-wide.
+
+    THE COST, stated: grounding per object means this layer now shares the
+    inline guard's scoping policy, not only its parser. The independence it keeps
+    is that it trusts no call site to have run the guard at all. That was the
+    case it was built for (design §2 of OUTPUT_BOUNDARY_DESIGN.md), and it still
+    holds.
+
+    UNDECLARED SECTIONS keep the original rule: every string is inspected,
+    grounded response-wide. A section that forgets to declare is checked more
+    strictly, not less.
     """
-    allowed = grounded_numbers(payload, extra)
-    sections = _ai_section_paths(payload)
+    response_wide = grounded_numbers(payload, extra)
+    request = {float(n) for n in extra}
     findings = []
-    for path, value in _walk(payload):
-        if not isinstance(value, str) or not _in_any_section(path, sections):
+    for path, section in _ai_sections(payload):
+        if "ai_fields" not in section:
+            for leaf_path, value in _walk(section, path):
+                if isinstance(value, str):
+                    for number in figures(value):
+                        if not _matches(number, response_wide):
+                            findings.append(Finding(leaf_path, number, value))
             continue
-        for number in figures(value):
-            if not any(abs(number - a) < TOLERANCE for a in allowed):
-                findings.append(Finding(path, number, value))
+        declared = _declared(section, path)
+        declared_keys = {}
+        for _p, _v, container, key in declared:
+            declared_keys.setdefault(id(container), set()).add(key)
+        for field_path, value, container, _key in declared:
+            if not isinstance(value, str):
+                continue
+            strings, numbers = _object_sources(container, declared_keys[id(container)])
+            if strings or numbers:
+                allowed = numbers | request
+                for source in strings:
+                    allowed |= _grounded_figures(source)
+            else:
+                allowed = response_wide
+            text = _strip_supplied_citations(value, strings) if strings else value
+            for number in figures(text):
+                if not _matches(number, allowed):
+                    findings.append(Finding(field_path, number, value))
+            if _citations_unsupplied(value, strings):
+                findings.append(Finding(field_path, None, value))
     return findings
+
+
+def _ai_sections(payload) -> list:
+    """(path, section) for every section that declares ai_backed True."""
+    found = []
+
+    def visit(node, path=""):
+        if isinstance(node, dict):
+            if node.get(AI_MARKER) is True:
+                found.append((path, node))
+            for key, value in node.items():
+                visit(value, f"{path}.{key}" if path else key)
+        elif isinstance(node, (list, tuple)):
+            for index, value in enumerate(node):
+                visit(value, f"{path}[{index}]")
+
+    visit(payload)
+    return found

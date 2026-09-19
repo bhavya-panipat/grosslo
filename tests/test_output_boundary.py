@@ -202,6 +202,18 @@ class TestGroundingRules(unittest.TestCase):
         findings = ob.ungrounded_findings(payload)
         self.assertEqual([f.number for f in findings], [35.0])
 
+    def test_below_100_a_figure_must_match_exactly(self):
+        # OUTPUT_BOUNDARY_GROUNDING_DESIGN.md (d). Measured on real output: a
+        # basic_pct fraction of 0.6 grounded "1" under +-1. Small counts and
+        # percentages are exactly where an unrelated leaf lands within 1 of a
+        # fabricated figure.
+        payload = {"old_regime_best": {"basic_pct": 0.6},
+                   "e": {"ai_backed": True, "t": "There is 1 issue."}}
+        self.assertEqual([f.number for f in ob.ungrounded_findings(payload)], [1.0])
+        exact = {"metrics": {"rules_triggered": 1},
+                 "e": {"ai_backed": True, "t": "There is 1 issue."}}
+        self.assertEqual(ob.ungrounded_findings(exact), [])
+
     def test_tolerance_matches_the_inline_guard(self):
         payload = {"metrics": {"total_tax": 120_000},
                    "e": {"ai_backed": True, "t": "Tax of Rs 120,000.4"}}
