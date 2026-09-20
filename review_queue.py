@@ -1037,6 +1037,51 @@ PRE_NPS_FIX_REASON = (
 )
 
 
+# A stored forecast written before nps_remittance_annual existed
+# (TREASURY_NPS_OUTLAY_DESIGN.md, D-T3). Its total funded everything except the
+# employer's NPS contribution, and the Finance queue sums exactly these stored
+# totals against the live bank balance, so a queue of such rows under-reports
+# what payroll costs. Flagged on read, never recomputed (the D1-4 rule).
+#
+# The old shape is identified by the ABSENCE of the key, not by a stored version
+# marker: a forecast either carries the term or predates it, and the response
+# itself says which. A new forecast with no contribution carries it as 0.0, so
+# absent and zero stay distinguishable.
+PRE_NPS_REMITTANCE_FORECAST_REASON = (
+    "Funding figure computed before the employer-NPS remittance was counted — it is "
+    "too low. The treasury forecast funded net pay, TDS escrow, the EPFO challan and "
+    "professional tax, but not the employer's NPS contribution, which is part of this "
+    "employee's CTC and is remitted by the company. Measured: 5.0% of the true figure "
+    "at ₹6L CTC, 8.4% from ₹18L up. The queue's Required Treasury Funding total sums "
+    "these stored figures, so approving on it can commit to a payroll the balance does "
+    "not cover. Figures are shown as stored, not recomputed."
+)
+
+
+def _forecasts(value):
+    """Every stored treasury forecast in a row, found by shape rather than by path."""
+    if isinstance(value, dict):
+        if "total_capital_outlay" in value:
+            yield value
+        for inner in value.values():
+            yield from _forecasts(inner)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _forecasts(item)
+
+
+def _pre_nps_remittance_flag(stored_computed) -> dict | None:
+    forecasts = list(_forecasts(stored_computed))
+    stale = [f for f in forecasts if "nps_remittance_annual" not in f]
+    if not stale:
+        return None
+    if not _has_employer_nps(stored_computed):
+        # No contribution anywhere, so the old total was already complete for
+        # this row. Flagging it would teach people to ignore the flag.
+        return None
+    return {"reason": PRE_NPS_REMITTANCE_FORECAST_REASON}
+
+
 def _has_employer_nps(value) -> bool:
     """
     True if any "employer_nps" anywhere in the stored JSON is greater than 0.
@@ -1078,9 +1123,11 @@ def _row_to_dict(row: dict) -> dict:
     # stored changes and repeated reads never accumulate the reason. route and
     # severity are untouched (D1-7 option (b)).
     d["tax_basis_flag"] = _tax_basis_flag(d.get("tax_basis"), d["input"], d["computed"])
-    if d["tax_basis_flag"] is not None and d["orchestration"] is not None:
-        d["orchestration"]["reasons"] = list(d["orchestration"].get("reasons", [])) + [
-            d["tax_basis_flag"]["reason"]]
+    d["treasury_basis_flag"] = _pre_nps_remittance_flag(d["computed"])
+    appended = [flag["reason"] for flag in (d["tax_basis_flag"], d["treasury_basis_flag"])
+                if flag is not None]
+    if appended and d["orchestration"] is not None:
+        d["orchestration"]["reasons"] = list(d["orchestration"].get("reasons", [])) + appended
     return d
 
 

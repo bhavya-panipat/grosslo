@@ -129,6 +129,16 @@ def _login_as(client, role, code=None):
                        json={"email": email, "password": _TEST_PASSWORD})
 
 
+def _recommended_structure(ctc, nps_opted):
+    from optimizer import optimize
+    return optimize(ctc=ctc, rent_paid=0, city="metro", nps_opted=nps_opted)["recommended"].structure
+
+
+def _recommended_tax(ctc, nps_opted):
+    from optimizer import optimize
+    return optimize(ctc=ctc, rent_paid=0, city="metro", nps_opted=nps_opted)["recommended"].tax_breakdown
+
+
 class ReviewQueueTestCase(unittest.TestCase):
     def setUp(self):
         review_queue.DB_SCHEMA = TEST_SCHEMA
@@ -391,6 +401,82 @@ class TestPreFixRowsAreFlaggedOnRead(ReviewQueueTestCase):
         rows = [r for s in body["submissions"] for r in s["rows"] if r["submission_id"] == submission_id]
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["tax_basis_flag"]["reason"], review_queue.PRE_NPS_FIX_REASON)
+
+
+class TestPreNpsRemittanceForecastsAreFlaggedOnRead(ReviewQueueTestCase):
+    """
+    TREASURY_NPS_OUTLAY_DESIGN.md D-T3. A row stored before the forecast
+    counted the employer's NPS remittance carries a total that funds everything
+    except that contribution, and the Finance queue sums exactly those stored
+    totals against the live bank balance. Flagged on read; nothing stored is
+    rewritten (the D1-4 rule).
+
+    The row that matters is one WRITTEN under the old meaning and READ after the
+    change, so these strip the field from stored JSON to reproduce that state
+    rather than asserting on a freshly written row, which would only prove a
+    round-trip.
+    """
+
+    ORCHESTRATION = {
+        "route": "auto_pass_candidate", "severity": "None", "reasons": [],
+        "checked": {"compliance_rules_evaluated": 6, "compliance_flags_triggered": 0,
+                    "guardrail_evaluated": True, "guardrail_checks_failed": 0},
+    }
+
+    def _store(self, nps_opted, strip_field, name="Forecast"):
+        computed = _optimize_response_for(ctc=1_800_000, nps_opted=nps_opted)
+        computed["treasury_forecast"] = flask_app.treasury_forecast(
+            _recommended_structure(1_800_000, nps_opted), _recommended_tax(1_800_000, nps_opted),
+            work_location="karnataka")
+        if strip_field:
+            computed["treasury_forecast"].pop("nps_remittance_annual")
+            # ...and the total goes back to what it was before the term existed,
+            # so the stored row is exactly what the old code would have written.
+            computed["treasury_forecast"]["total_capital_outlay"] = round(
+                computed["treasury_forecast"]["total_capital_outlay"]
+                - (_recommended_structure(1_800_000, nps_opted).employer_nps), 2)
+        result = review_queue.create_submission(self.tenant_id, "single", [{
+            "employee_name": name, "ctc": 1_800_000,
+            "input": {"ctc": 1_800_000, "rent_paid": 0, "city": "metro", "nps_opted": nps_opted,
+                      "current_structure": None},
+            "computed": computed,
+            "orchestration": json.loads(json.dumps(self.ORCHESTRATION)),
+        }])
+        return result["submission_id"]
+
+    def _read(self, submission_id):
+        return review_queue.get_submission(self.tenant_id, submission_id)["rows"][0]
+
+    def test_a_row_written_before_the_term_existed_is_flagged_when_read_after(self):
+        row = self._read(self._store(nps_opted=True, strip_field=True))
+        self.assertIsNotNone(row["treasury_basis_flag"])
+        self.assertEqual(row["treasury_basis_flag"]["reason"],
+                         review_queue.PRE_NPS_REMITTANCE_FORECAST_REASON)
+        self.assertIn(review_queue.PRE_NPS_REMITTANCE_FORECAST_REASON,
+                      row["orchestration"]["reasons"])
+
+    def test_a_row_written_after_the_change_is_not_flagged(self):
+        row = self._read(self._store(nps_opted=True, strip_field=False))
+        self.assertIsNone(row["treasury_basis_flag"])
+        self.assertEqual(row["orchestration"]["reasons"], [])
+
+    def test_an_old_row_with_no_employer_nps_is_not_flagged(self):
+        # Its old total was already complete, so there is nothing to warn about
+        # and a flag here would only teach people to ignore flags.
+        row = self._read(self._store(nps_opted=False, strip_field=True))
+        self.assertIsNone(row["treasury_basis_flag"])
+
+    def test_the_stored_row_is_not_rewritten_and_reads_do_not_accumulate(self):
+        submission_id = self._store(nps_opted=True, strip_field=True)
+        self._read(submission_id)
+        row = self._read(submission_id)
+        self.assertEqual(row["orchestration"]["reasons"].count(
+            review_queue.PRE_NPS_REMITTANCE_FORECAST_REASON), 1)
+        with review_queue._conn(self.tenant_id) as conn:
+            stored = conn.execute("SELECT computed_json, orchestration_json FROM submission_rows "
+                                  "WHERE tenant_id = %s", (self.tenant_id,)).fetchone()
+        self.assertNotIn("nps_remittance_annual", stored["computed_json"])
+        self.assertEqual(json.loads(stored["orchestration_json"])["reasons"], [])
 
 
 class TestReject(ReviewQueueTestCase):
