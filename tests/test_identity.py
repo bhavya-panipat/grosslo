@@ -156,6 +156,48 @@ class TestPermissionMatrix(IdentityTestCase):
                             f"{role} lacks {permission} and was NOT refused at "
                             f"{method} {url} (got {resp.status_code})")
 
+    def test_the_session_reports_exactly_the_permissions_the_routes_enforce(self):
+        # LOGIN_FIX_DESIGN.md §3.1 and §5. The page gates on this list, so if it
+        # ever disagreed with what the routes enforce, a person would be shown a
+        # page they cannot use, or hidden from one they can. Checked against the
+        # routes themselves, not against a second copy of the table.
+        for role in ("hr", "finance", "owner"):
+            client, _ = self._as(ALPHA_HOST, self.alpha, role)
+            reported = set(client.get("/api/auth/session").get_json()["permissions"])
+            self.assertEqual(reported, set(ROLE_PERMISSIONS[role]))
+            for permission, method, url in GUARDED_ROUTES:
+                refused = client.open(url, method=method, json={}).status_code == 403
+                with self.subTest(role=role, permission=permission, url=url):
+                    self.assertEqual(permission in reported, not refused,
+                                     f"{role}: session says {permission} "
+                                     f"{'granted' if permission in reported else 'withheld'}, "
+                                     f"but {method} {url} said otherwise")
+
+    def test_a_caller_with_no_session_is_reported_as_holding_nothing(self):
+        body = _client_for(ALPHA_HOST).get("/api/auth/session").get_json()
+        self.assertEqual(body["permissions"], [])
+        self.assertIsNone(body["display_name"])
+        self.assertIsNone(body["user_id"])
+
+    def test_the_session_names_the_person_it_belongs_to(self):
+        client, user = self._as(ALPHA_HOST, self.alpha, "finance")
+        self.assertEqual(client.get("/api/auth/session").get_json()["display_name"],
+                         user["display_name"])
+
+    def test_a_user_with_no_roles_is_reported_as_holding_nothing(self):
+        # The both-states counterpart: authenticated, named, and permitted
+        # nothing. Distinct from signed out, where there is no name either.
+        user = review_queue.create_user(self.alpha, "empty@alpha.test", "Empty", [])
+        with review_queue._conn(self.alpha) as conn:
+            conn.execute("UPDATE users SET password_hash = %s WHERE tenant_id = %s AND id = %s",
+                         (_PASSWORD_HASH, self.alpha, user["id"]))
+        client = _client_for(ALPHA_HOST)
+        self.assertEqual(client.post("/api/auth/login",
+                                     json={"email": user["email"], "password": _PASSWORD}).status_code, 200)
+        body = client.get("/api/auth/session").get_json()
+        self.assertEqual(body["permissions"], [])
+        self.assertEqual(body["display_name"], "Empty")
+
     def test_an_unidentified_caller_gets_401_not_403_everywhere(self):
         # The distinction the 403 commit established: 401 answers "who are
         # you?", 403 answers "you may not". A guard order that evaluates

@@ -34,7 +34,7 @@ from razorpayx_client import (
 )
 from auth import (
     verify_login, verify_password, require_permission, require_tenant,
-    require_resolved_tenant, current_roles,
+    require_resolved_tenant, current_roles, current_permissions,
     ROLE_PERMISSIONS,
     current_tenant_id, resolved_tenant_id, tenant_from_request, TENANT_DOMAIN_SUFFIX,
 )
@@ -1566,10 +1566,27 @@ def api_auth_logout():
 
 @app.route("/api/auth/session", methods=["GET"])
 def api_auth_session():
+    """
+    What this session is, for the caller's own UI (LOGIN_FIX_DESIGN.md §3.1).
+
+    `permissions` is derived server-side from the session's roles, so the page
+    gates on what the person may do without keeping its own copy of
+    ROLE_PERMISSIONS. It reports only; every route still enforces its own
+    @require_permission. `display_name` is the caller's own name, read under
+    the caller's own tenant, and is None when no session or no such user.
+    """
+    user_id = session.get("user_id")
+    tenant_id = session.get("tenant_id")
+    display_name = None
+    if user_id is not None and tenant_id is not None:
+        user = review_queue.get_user(tenant_id, user_id)
+        display_name = user["display_name"] if user else None
     return jsonify({
-        "user_id": session.get("user_id"),
-        "tenant_id": session.get("tenant_id"),
+        "user_id": user_id,
+        "tenant_id": tenant_id,
         "roles": session.get("roles", []),
+        "permissions": current_permissions(),
+        "display_name": display_name,
     })
 
 

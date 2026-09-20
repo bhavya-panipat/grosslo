@@ -266,6 +266,22 @@ def has_permission(permission: str) -> bool:
                for r in current_roles())
 
 
+def current_permissions() -> list:
+    """
+    Every permission this session's roles grant, sorted.
+
+    Derived from ROLE_PERMISSIONS here, so the frontend can ask what the person
+    may do without keeping a second copy of the table (LOGIN_FIX_DESIGN.md
+    §3.1). It reports; it never authorises. Each route still runs its own
+    @require_permission, so a page that shows or hides the wrong thing cannot
+    grant access to anything.
+    """
+    granted = set()
+    for role in current_roles():
+        granted |= ROLE_PERMISSIONS.get(role, frozenset())
+    return sorted(granted)
+
+
 def require_permission(permission: str):
     """
     Route decorator: refuses unless the session's roles grant `permission`.
