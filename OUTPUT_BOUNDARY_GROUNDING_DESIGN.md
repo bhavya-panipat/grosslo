@@ -225,6 +225,7 @@ events, `OVERLAP=0`, worktree clean after.
 | 2, real-output tests, knowingly red | `bada9d4` | 588: +7; **exactly 11 failures**, all in `test_output_boundary`, each for a reason §1 names |
 | 3, `ai_fields` declared (payload shape) | `8e47e5e` | 592: +4; **exactly 7 failures**; the declaration test went green. The concurrent session measured the same 7 independently |
 | 4, per-object grounding, (d), membership | `866176e` | **594 OK**: +1 (`test_below_100_a_figure_must_match_exactly`) |
+| 5, the lever's citation keyworded (closes the residual below) | `f104214` | **597 OK**: +2 (`test_the_nps_lever_cites_its_former_section_with_a_keyword`, `test_a_fabricated_figure_equal_to_a_lever_digit_is_found`) |
 
 | sabotage on `866176e` | predicted to fail | failed |
 |---|---|---|
@@ -238,11 +239,26 @@ under B3 the old code path reported the fabricated "1 lakh" anyway, so that
 subtest did not separate B3. B1 is the test that pins exact small-value
 matching.
 
-**Residual, by construction, not measured on live output:** negotiate's lever
-text is "NPS enrollment (Section 124, formerly 80CCD2)". The unkeyworded
-"80CCD2" is not a recognised reference, so `_grounded_figures` keeps its 80 and
-2 as figures of the negotiation object, and a fabricated "2" in a point would
-be grounded. It is the same shape as the `80ccd2_cap` text fixed in `5060498`.
-The fix is the same: emit "(formerly Section 80CCD(2))". That is emitted text
-pinned by `test_finos` and the characterization fixture, so it is left for a
-decision.
+**Residual, found by construction here, then closed in `f104214`:** negotiate's
+lever text read "NPS enrollment (Section 124, formerly 80CCD2)". The
+unkeyworded "80CCD2" is not a recognised reference, so `_grounded_figures` kept
+its 80 and 2 as figures of the negotiation object, and a fabricated "2" in a
+point was grounded. It is the same shape as the `80ccd2_cap` text fixed in
+`5060498`, and the fix is the same: emit "(Section 124, formerly Section
+80CCD(2))". Because it is emitted text pinned by `test_finos` and the
+characterization fixture, it was left for a decision; the user took it, and
+`f104214` makes the change. `_grounded_figures(lever)` is now empty.
+
+It was recorded above as "not measured on live output". It is measured now:
+`test_a_fabricated_figure_equal_to_a_lever_digit_is_found` drives the real
+`_build_optimize_response` with the inline guard off and asserts the boundary
+reports a fabricated "2 lakh" in a negotiation point.
+
+| sabotage on `f104214` | predicted to fail | failed |
+|---|---|---|
+| L1: revert the lever string to "formerly 80CCD2" (that one line, nothing else) | 7 named in advance: `test_finos.test_changed_levers_detected`; `test_output_boundary.test_the_fixtures_reach_ai_backed_sections`; `test_output_boundary.test_a_fabricated_figure_equal_to_a_lever_digit_is_found`; `test_pipeline_baseline.test_every_case_matches_the_baseline_byte_for_byte`; `test_rationale_guard_citations.test_a_point_naming_the_nps_lever_is_served`, `.test_the_fixture_changes_the_nps_lever_and_saves_money`, `.test_the_nps_lever_cites_its_former_section_with_a_keyword` | exactly those 7, and no others (the baseline test failed on `case='nps_opted_non_metro'`) |
+
+The run that matters for the leak is the third: with the old text the
+fabricated "2 lakh" is *not* reported, which is the defect this step closes,
+and the other six are the pins that make the text change visible rather than
+silent.
