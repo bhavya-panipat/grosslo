@@ -1,7 +1,14 @@
 # Frontend login against the per-user identity model — fix design
 
-**Status:** design only, **awaiting approval.** No code is changed. Decisions
-D-L1 to D-L4 (§7) are the owner's.
+**Status:** **D-L1 to D-L4 approved by the owner, 2026-09-20** (§7). Implementation
+is under way; §6 carries the sequence and who does which step.
+
+**One instruction added at approval, and it changes §5's order:** the sabotage
+runs, and specifically *"drop the peer check, keep the flag"*, are run and
+**reported before the end-to-end proxy verification**, not merely before the
+commit. The owner's reason: that sabotage is the only thing standing between
+this design's stated safety property and a silent regression to the rejected
+first draft, where the flag alone was enough.
 
 **Why this exists.** Phase 1.2 (`IDENTITY_DESIGN.md`) replaced the two shared
 role codes with per-person accounts, and verified the backend by its own tests.
@@ -261,22 +268,31 @@ is not proposed here. Verification:
 
 Separate commits, full Python suite after each, request/go handshake:
 
-1. `GET /api/auth/session` gains `permissions` and `display_name`, with tests.
-   Backend, additive.
-2. `TRUST_FORWARDED_HOST` in `tenant_slug_from_host`, default off, with tests.
-   Only if D-L2 is approved.
-3. `api-types.ts`: the session type.
-4. `PermissionGate` replaces `RoleGate`, and the two pages switch to it.
-5. `.env.example` and the README's run instructions: set the variable for local
-   development, and why.
-6. The end-to-end run (§5), then README / `docs/PROJECT_STATUS.md`: close the login
-   row, or record exactly what is still unseen.
+1. **This session.** `GET /api/auth/session` gains `permissions` and
+   `display_name`, with tests. Backend, additive.
+2. **This session** (D-L3). `TRUST_FORWARDED_HOST` plus the `TRUSTED_PROXY_IPS`
+   peer check, default off, with tests and **both sabotages reported before
+   step 6**.
+3. **Frontend session.** `api-types.ts`: the session type.
+4. **Frontend session.** `PermissionGate` replaces `RoleGate`, and the two pages
+   switch to it.
+5. **Frontend session.** `.env.example` and the README's run instructions: both
+   variables for local development, and why.
+6. **Frontend session**, after step 2's sabotages are reported. The end-to-end run
+   (§5), then README / `docs/PROJECT_STATUS.md`: close the login row, or record
+   exactly what is still unseen.
+
+**Implementation note, step 2.** `tenant_slug_from_host(host)` is a pure
+function with its own tests. Rather than give it request access, the header
+decision goes in a small `resolution_host()` helper that `tenant_from_request`
+calls, and the pure function keeps taking a host string. Same behaviour as
+designed, one testable seam instead of two responsibilities in one function.
 
 ## 7. Decisions for the owner
 
 | | Decision | Recommendation |
 |---|---|---|
-| **D-L1** | Who may open `/hr`? | **Anyone holding `view_queue`** (hr, finance, owner). The page's own data call already requires exactly that, and gating it more narrowly than its data would lock an owner out of HR for no security gain. The alternative: add a distinct `submit` permission held only by hr and owner, which is a change to the permission model. |
-| **D-L2** | Trust `X-Forwarded-Host` for tenant resolution? | **Yes, but only with both `TRUST_FORWARDED_HOST=1` and the request arriving from a peer in `TRUSTED_PROXY_IPS`**, both default-off, enabled in local development only (§4, §4.1). The first draft proposed the flag alone; review showed that rests the safety of an unauthenticated, bank-detail-carrying route on a comment. |
-| **D-L3** | Who implements? | **The frontend-rebuild session, with this session reviewing** — with one carve-out the owner should rule on explicitly, raised by that session itself: **step 2 is a backend trust-boundary change** in `auth.py`, a file this session has been working in and that one has not. Either it implements step 2 under review, or this session implements step 2 and it does steps 3–6. No default is assumed. |
-| **D-L4** | Remove the *"Demo code"* hint? | **Yes.** Codes no longer sign anyone in; after bootstrap the hint is simply false. |
+| **D-L1** | Who may open `/hr`? | **Approved 2026-09-20. Anyone holding `view_queue`** (hr, finance, owner). The page's own data call already requires exactly that, and gating it more narrowly than its data would lock an owner out of HR for no security gain. The alternative: add a distinct `submit` permission held only by hr and owner, which is a change to the permission model. |
+| **D-L2** | Trust `X-Forwarded-Host` for tenant resolution? | **Approved 2026-09-20, as designed.** The owner affirmed the framing that the peer check is a blast-radius reducer, not a verification mechanism, and accepted the recorded limits: the exact-match peer list does not fit a multi-instance deployment, and no code here can confirm the named peer scrubs the header. **Yes, but only with both `TRUST_FORWARDED_HOST=1` and the request arriving from a peer in `TRUSTED_PROXY_IPS`**, both default-off, enabled in local development only (§4, §4.1). The first draft proposed the flag alone; review showed that rests the safety of an unauthenticated, bank-detail-carrying route on a comment. |
+| **D-L3** | Who implements? | **Ruled 2026-09-20: this session takes step 2**, the backend trust-boundary change, and the frontend-rebuild session takes steps 3–6, with each reviewing the other. The owner's reason: continuity of context beats load-balancing at a trust boundary. Step 1 is also this session's, being backend. Originally recommended as **the frontend-rebuild session, with this session reviewing** — with one carve-out the owner should rule on explicitly, raised by that session itself: **step 2 is a backend trust-boundary change** in `auth.py`, a file this session has been working in and that one has not. Either it implements step 2 under review, or this session implements step 2 and it does steps 3–6. No default is assumed. |
+| **D-L4** | Remove the *"Demo code"* hint? | **Approved 2026-09-20. Yes.** Codes no longer sign anyone in; after bootstrap the hint is simply false. |
