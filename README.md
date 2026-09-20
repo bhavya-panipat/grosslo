@@ -372,7 +372,7 @@ company's review queue.
 
 Backend:
 ```bash
-python3 -m unittest discover -s tests   # 199 tests, all pass with no API key set
+python3 -m unittest discover -s tests   # 615 tests, all pass with no API key set
 python3 app.py 8000                     # serves the API at http://127.0.0.1:8000
 ```
 
@@ -1076,9 +1076,19 @@ future plans:
 
 ## Test coverage
 
-150 tests total across five files (counted directly from the test
-methods in the repo, not estimated — re-run `python3 -m unittest discover
--s tests` yourself to confirm):
+615 tests across 18 files, all passing with no skips — measured at
+commit `0277b6a` with `python3 -B -m unittest discover -s tests`, not
+estimated. Re-run it yourself to confirm. The commit is part of the claim:
+`tests/` changes often here, so a bare number goes stale silently, and if
+you are on a later commit you should trust your own run over this sentence.
+
+Note that counting `def test_` in the source undercounts the suite: at
+`0277b6a` that gives 609, while the runner reports 615. The six-test
+difference is deliberate —
+`TestAnswerQueryRejectsSectionsItNeverSupplied` in
+`tests/test_query_guard_citations.py` subclasses
+`TestAnswerQueryServesAnswersThatCiteWhatItSupplied`, re-running its six
+parent tests with the membership check in place.
 
 - **82 in `tests/test_finos.py`** — the marginal relief calculation
   (validated against the government's own worked example), the
@@ -1104,7 +1114,7 @@ methods in the repo, not estimated — re-run `python3 -m unittest discover
   confirmed-zero distinguished from an unrecognized `work_location`, and
   `treasury_forecast()`'s net-disbursement identity holding with PT
   folded in as a fourth term).
-- **28 in `tests/test_review_workflow.py`** — the maker-checker flow end
+- **57 in `tests/test_review_workflow.py`** — the maker-checker flow end
   to end: submission persistence, approval writes the correct
   simulated-not-dispatched status, rejection requires and stores a
   reason, the diff view's before/after values match a real optimizer run
@@ -1130,18 +1140,61 @@ methods in the repo, not estimated — re-run `python3 -m unittest discover
   `reasons` ordering, not just the route), and two different-severity
   flags on one row (proves the aggregation picks the higher one, not
   just that the logic reads correctly).
-- **15 in `tests/test_auth.py`** — login/logout/session-check against
+- **51 in `tests/test_auth.py`** — login/logout/session-check against
   real correct and incorrect codes, that protected routes 401 with no
   session and succeed with the right role, that the wrong role (HR on a
   Finance-only route) is rejected specifically — not just "any login
   passes" — and the explicit regression guard that `POST
   /api/submissions` (create) stays open with zero session, since a
   future "fix" gating it would break `/optimize/batch`'s public flow.
-- **6 in `tests/test_razorpayx_client.py`** — the not-configured and
+- **13 in `tests/test_razorpayx_client.py`** — the not-configured and
   live-key-refusal guards, plus one test that genuinely round-trips to
   RazorpayX's real server with a deliberately fake key and confirms a
   real `401` comes back, proving requests actually leave the machine
   rather than hitting a local stub.
+
+The thirteen files the list above predated, which together are most of the
+suite. Counts at `0277b6a`:
+
+- **91 in `tests/test_compliance_rules.py`** — the rule set as data (Phase
+  2.2): that the count is derived rather than declared, that active and
+  candidate rules partition the set, that the candidate gate holds in both
+  directions, and that the protocol is enforced rather than merely documented.
+- **85 in `tests/test_legal_claims.py`** — the legal claim inventory (Phase
+  2.4): the mechanism proved by probes independently of the inventory it
+  holds, that a claim has no inert state, and that the value check compares
+  two real copies rather than a copy against itself.
+- **50 in `tests/test_tenant_isolation.py`** — the Phase 1.1 exit criterion:
+  two companies in use simultaneously with zero leakage, asserted at the
+  application layer and again at RLS as an independent layer, plus per-tenant
+  payout source accounts and audit-log isolation.
+- **40 in `tests/test_rationale_guard_citations.py`** — that citation digits
+  are not grounding: a section number in a rationale must not license
+  restating that number as a figure, and grounding can only narrow.
+- **27 in `tests/test_output_boundary.py`** — the second enforcement layer for
+  the numeric guard, which trusts no call site to have supplied a correct
+  allow-set, including against real AI-backed responses.
+- **24 in `tests/test_query_guard_citations.py`** — the guard's citation-token
+  exemption: supplied references are not figures, what only looks like one is
+  still checked, and an answer citing what was actually supplied is served
+  rather than spuriously rejected.
+- **23 in `tests/test_identity.py`** — Phase 1.2's exit criteria: the
+  permission matrix driven by every role against every guarded route,
+  cross-tenant user isolation, and that guard order cannot reintroduce the bug.
+- **16 in `tests/test_rationale_guard_scope.py`** — per-line grounding: each
+  rephrased rationale is checked against its own flag rather than one pooled
+  set, with one model call per flag.
+- **10 in `tests/test_usage_tracking.py`** — that every model call is accounted
+  for, that usage is recorded, and that no behaviour changed.
+- **9 in `tests/test_pipeline_baseline.py`** — the Phase 2.1 characterization
+  baseline, asserted against a fixture committed before the restructure began.
+- **8 in `tests/test_employer_nps_statute.py`** — employer NPS pinned to the
+  statute rather than to the engine (s. 16(k), s. 124(1)–(2)), including named
+  cases where the fix changes the advice.
+- **7 in `tests/test_pipeline_stages.py`** — that every declared stage actually
+  runs, and that a dropped stage fails by name.
+- **3 in `tests/test_execution_trace.py`** — the POLICY_GATE stage returned by
+  `/api/guardrail`, which nothing covered before.
 
 All pass with no `ANTHROPIC_API_KEY` set, exercising every deterministic
 fallback. With a real key set (live Claude calls active), a small number
