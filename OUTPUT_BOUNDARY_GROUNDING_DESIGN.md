@@ -217,8 +217,19 @@ ground response-wide only (the 17 coincidence passes); match small values within
 ## 7. Implementation record
 
 Full suite with `python3 -B` and the cache cleared, in a clean worktree at each
-commit, under the "request run" / "go" handshake. Every run: zero sleep/wake
-events, `OVERLAP=0`, worktree clean after.
+commit, under the "request run" / "go" handshake. Every run recorded here: zero
+sleep/wake events, `OVERLAP=0`, worktree clean after.
+
+**Use `caffeinate -dimsu`, not `caffeinate -i`.** `-i` blocks idle sleep only,
+and on battery it is not enough: two runs were lost to it, the merged-tip run
+below (159s of test time spread over two hours of wall clock, DarkWake cycles
+about every 17 minutes, battery at 7%) and the concurrent session's LOGIN_FIX
+step-2 run, whose 60-second rate-limit test failed on the clock jump. Both were
+discarded and re-run. Check the wall clock against unittest's own elapsed time:
+`time.perf_counter` does not advance while the machine is asleep, so a slept run
+reports a plausible duration and only the wall clock shows the gap. The lost
+tip run also reported `OK (skipped=2)`; the clean re-run skips nothing, and the
+two skips are unexplained — recorded as unexplained rather than guessed at.
 
 | step | commit | suite (vs parent, by test-ID diff) |
 |---|---|---|
@@ -226,6 +237,7 @@ events, `OVERLAP=0`, worktree clean after.
 | 3, `ai_fields` declared (payload shape) | `8e47e5e` | 592: +4; **exactly 7 failures**; the declaration test went green. The concurrent session measured the same 7 independently |
 | 4, per-object grounding, (d), membership | `866176e` | **594 OK**: +1 (`test_below_100_a_figure_must_match_exactly`) |
 | 5, the lever's citation keyworded (closes the residual below) | `f104214` | **597 OK**: +2 (`test_the_nps_lever_cites_its_former_section_with_a_keyword`, `test_a_fabricated_figure_equal_to_a_lever_digit_is_found`) |
+| merged tip, this work beside the concurrent session's LOGIN_FIX steps | `e250c2e` | **609 OK, no skips**: +12, all of them the other session's (601 at its step 1, 609 at its step 2). Run independently by both sessions within 25 minutes, same numbers |
 
 | sabotage on `866176e` | predicted to fail | failed |
 |---|---|---|
