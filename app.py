@@ -25,7 +25,7 @@ from optimizer import optimize, best_regime_for_given_structure, sensitivity_swe
 # alone, since it is not this phase's to change.)
 from ai_layer import extract_from_text, flag_compliance, answer_query, evaluate_band_guardrail, EPFO_AGGREGATE_CEILING
 from tax_engine import SalaryStructure, derive_pf, derive_nps
-from payroll_breakdown import treasury_forecast
+from payroll_breakdown import treasury_forecast, employee_pf_monthly
 from penalty_exposure import build_scenario_table
 from execution_trace import trace_optimize_stage, trace_guardrail_stage
 from orchestration import classify_row
@@ -686,19 +686,49 @@ SOURCE_ACCOUNT_PLACEHOLDER_LABEL = (
 )
 
 
-def _build_composite_payout(structure, employee: dict, account_number: str) -> dict:
+def _payout_basis(structure, tax_breakdown: dict, forecast: dict) -> dict:
+    """
+    What the payout withholds, reported beside the payload rather than inside
+    it (PAYOUT_NET_AMOUNT_DESIGN.md §3, D-P4): the RazorpayX object keeps
+    exactly its verified fields, and a reviewer can still see why the amount is
+    what it is.
+
+    Every figure comes from the forecast in the same response, so the payload
+    and the forecast cannot disagree about what one person is paid. The
+    professional tax is the forecast's annual figure spread evenly, which does
+    not reproduce February's higher instalment — a recorded simplification
+    (D-P3), not an oversight.
+    """
+    gross_monthly = round(
+        (structure.basic + structure.hra + structure.lta + structure.special_allowance) / 12, 2)
+    return {
+        "gross_monthly_cash": gross_monthly,
+        "employee_pf_monthly": employee_pf_monthly(structure.basic),
+        "tds_monthly": round(tax_breakdown["total_tax"] / 12, 2),
+        "professional_tax_monthly": round(forecast["professional_tax_annual"] / 12, 2),
+        "net_monthly": round(forecast["net_take_home_annual"] / 12, 2),
+        "note": "amount is net of the withholdings listed; they are remitted separately "
+                "(TDS escrow, EPFO challan, professional tax) and are in the treasury forecast",
+    }
+
+
+def _build_composite_payout(structure, employee: dict, account_number: str, forecast: dict) -> dict:
     """
     Builds one payout object matching RazorpayX's real Composite Payout API
     schema (verified against https://razorpay.com/docs/api/x/payout-composite/
     create/bank-account/ — not guessed): nested fund_account.bank_account and
     fund_account.contact, amount in paise. This is schema construction only —
     no live call to RazorpayX is made anywhere in this route.
+
+    THE AMOUNT IS NET PAY, taken from the forecast's net_take_home_annual —
+    what actually reaches the employee's bank account after employee PF, TDS
+    and professional tax. Until 2026-09-21 it was the whole monthly cash
+    salary, in a variable named net_monthly, which overpaid by Rs 21,348.53 a
+    month on the recommended Rs 18L structure and left that month's TDS and PF
+    unremitted (PAYOUT_NET_AMOUNT_DESIGN.md §1.1). The forecast is passed in
+    rather than recomputed here: one figure, one source.
     """
-    net_monthly = round(
-        (structure.basic + structure.hra + structure.lta + structure.special_allowance) / 12,
-        2,
-    )
-    amount_paise = int(round(net_monthly * 100))
+    amount_paise = int(round(round(forecast["net_take_home_annual"] / 12, 2) * 100))
     return {
         "account_number": account_number,
         "amount": amount_paise,
@@ -777,9 +807,11 @@ def api_export_razorpayx():
     }
     if employees is not None:
         response["payouts"] = [
-            _build_composite_payout(recommended.structure, employee, account_number)
+            _build_composite_payout(recommended.structure, employee, account_number, forecast)
             for employee in employees
         ]
+        response["payout_basis"] = _payout_basis(
+            recommended.structure, recommended.tax_breakdown, forecast)
 
     _log_compute_event("/api/export-razorpayx", {
         "ctc": ctc, "band_min": band_min, "band_max": band_max,
@@ -1153,7 +1185,9 @@ def api_export_approved_row(submission_id, row_index):
         "payouts": [_build_composite_payout(
             recommended.structure, employee,
             PLACEHOLDER_SOURCE_ACCOUNT if using_placeholder else source_account,
+            forecast,
         )],
+        "payout_basis": _payout_basis(recommended.structure, recommended.tax_breakdown, forecast),
     }
     if using_placeholder:
         # Loud in the body, and again in a header so the warning survives being
