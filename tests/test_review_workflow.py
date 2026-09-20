@@ -644,6 +644,87 @@ class TestExportApprovedRow(ReviewQueueTestCase):
         self.assertEqual(payout["fund_account"]["bank_account"]["account_number"], "1234567890")
         self.assertEqual(payout["fund_account"]["bank_account"]["ifsc"], "HDFC0000001")
 
+    # --- PAYOUT_NET_AMOUNT_DESIGN.md: the amount must be net ----------------
+    # Committed failing, before the fix. Every expected value is derived here
+    # from the treasury forecast in the same response, never from a figure
+    # copied out of a run — the defect was precisely that the payload and the
+    # forecast disagreed about what the employee is paid.
+
+    PAYOUT_ROW = {
+        "employee_name": "Net Pay", "ctc": 1_800_000, "rent_paid": 0, "city": "metro",
+        "nps_opted": False, "band_min": 1_700_000, "band_max": 1_900_000,
+        "work_location": "karnataka",
+        "bank_account_number": "1234567890", "ifsc": "HDFC0000001", "email": "net@test.com",
+    }
+
+    def _exported(self, row=None):
+        submission_id = self._submit_and_approve(dict(row or self.PAYOUT_ROW))
+        export = self.client.post(f"/api/submissions/{submission_id}/rows/0/export")
+        self.assertEqual(export.status_code, 200, export.get_data(as_text=True))
+        return export.get_json()
+
+    def test_the_payout_amount_is_the_forecasts_net_take_home_not_the_gross(self):
+        body = self._exported()
+        forecast = body["treasury_forecast"]
+        expected_paise = int(round(round(forecast["net_take_home_annual"] / 12, 2) * 100))
+        self.assertEqual(body["payouts"][0]["amount"], expected_paise)
+
+    def test_the_four_components_still_sum_to_the_capital_outlay(self):
+        # The identity that makes the payout checkable: what is paid out, plus
+        # what is withheld and remitted, is the whole cost.
+        for work_location in ("karnataka", None):
+            with self.subTest(work_location=work_location):
+                row = dict(self.PAYOUT_ROW, work_location=work_location,
+                           employee_name=f"Net {work_location}")
+                body = self._exported(row)
+                forecast = body["treasury_forecast"]
+                paid_annually = body["payouts"][0]["amount"] / 100 * 12
+                self.assertAlmostEqual(
+                    paid_annually + forecast["tds_escrow_annual"]
+                    + forecast["epfo_challan_annual"] + forecast["professional_tax_annual"],
+                    forecast["total_capital_outlay"], delta=0.5)
+
+    def test_the_amount_is_below_gross_by_exactly_pf_tds_and_professional_tax(self):
+        body = self._exported()
+        basis = body["payout_basis"]
+        self.assertAlmostEqual(
+            basis["net_monthly"],
+            basis["gross_monthly_cash"] - basis["employee_pf_monthly"]
+            - basis["tds_monthly"] - basis["professional_tax_monthly"], delta=0.01)
+        self.assertEqual(body["payouts"][0]["amount"], int(round(basis["net_monthly"] * 100)))
+        self.assertLess(basis["net_monthly"], basis["gross_monthly_cash"])
+
+    def test_a_zero_tax_structure_still_withholds_pf_and_professional_tax(self):
+        # Without this case an implementation that withheld only TDS would look
+        # correct wherever tax is zero.
+        body = self._exported(dict(self.PAYOUT_ROW, ctc=600_000, employee_name="Zero Tax",
+                                   band_min=500_000, band_max=700_000))
+        basis = body["payout_basis"]
+        self.assertEqual(basis["tds_monthly"], 0.0)
+        self.assertGreater(basis["employee_pf_monthly"], 0.0)
+        self.assertGreater(basis["professional_tax_monthly"], 0.0)
+        self.assertLess(basis["net_monthly"], basis["gross_monthly_cash"])
+
+    def test_the_amount_is_whole_paise(self):
+        body = self._exported()
+        amount = body["payouts"][0]["amount"]
+        self.assertIsInstance(amount, int)
+        self.assertAlmostEqual(amount / 100, body["payout_basis"]["net_monthly"], delta=0.005)
+
+    def test_the_other_export_route_pays_the_same_amount_for_the_same_input(self):
+        # /api/export-razorpayx and the per-row export must not disagree about
+        # what one person is paid.
+        row_body = self._exported()
+        direct = self.client.post("/api/export-razorpayx", json={
+            "ctc": 1_800_000, "rent_paid": 0, "city": "metro", "nps_opted": False,
+            "band_min": 1_700_000, "band_max": 1_900_000, "work_location": "karnataka",
+            "employees": [{"name": "Net Pay", "bank_account_number": "1234567890",
+                           "ifsc": "HDFC0000001", "email": "net@test.com"}],
+        })
+        self.assertEqual(direct.status_code, 200, direct.get_data(as_text=True))
+        self.assertEqual(direct.get_json()["payouts"][0]["amount"],
+                         row_body["payouts"][0]["amount"])
+
     def test_new_hire_export_without_bank_details_errors_clearly(self):
         # No bank_account_number/ifsc supplied at submission time — the
         # export must fail with a clear reason, not a generated payload
