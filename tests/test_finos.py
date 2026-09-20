@@ -950,11 +950,16 @@ class TestStateProfessionalTax(unittest.TestCase):
         self.assertAlmostEqual(
             with_pt["total_capital_outlay"],
             with_pt["net_take_home_annual"] + with_pt["tds_escrow_annual"]
-            + with_pt["epfo_challan_annual"] + with_pt["professional_tax_annual"],
+            + with_pt["epfo_challan_annual"] + with_pt["professional_tax_annual"]
+            + with_pt["nps_remittance_annual"],
             places=2,
         )
         # And the total itself is unchanged by PT — it's a fourth split of
         # the same fixed cash pool, not new money the company has to find.
+        # (The fifth term, nps_remittance_annual, is NOT like that: it raises
+        # the total. See TREASURY_NPS_OUTLAY_DESIGN.md. This structure carries
+        # no employer NPS, which is why adding that term did not move this
+        # assertion — and is exactly why no identity test here caught the gap.)
         self.assertAlmostEqual(without_pt["total_capital_outlay"], with_pt["total_capital_outlay"], places=2)
 
 

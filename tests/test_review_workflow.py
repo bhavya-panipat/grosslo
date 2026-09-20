@@ -669,20 +669,31 @@ class TestExportApprovedRow(ReviewQueueTestCase):
         expected_paise = int(round(round(forecast["net_take_home_annual"] / 12, 2) * 100))
         self.assertEqual(body["payouts"][0]["amount"], expected_paise)
 
-    def test_the_four_components_still_sum_to_the_capital_outlay(self):
+    def test_the_components_still_sum_to_the_capital_outlay(self):
         # The identity that makes the payout checkable: what is paid out, plus
         # what is withheld and remitted, is the whole cost.
-        for work_location in ("karnataka", None):
-            with self.subTest(work_location=work_location):
-                row = dict(self.PAYOUT_ROW, work_location=work_location,
-                           employee_name=f"Net {work_location}")
+        #
+        # Renamed from ..._four_components_... and given the NPS term on
+        # 2026-09-21 (TREASURY_NPS_OUTLAY_DESIGN.md). Written a day earlier, it
+        # asserted four components because the total itself was missing the
+        # employer's NPS remittance; it passed only because every row it ran on
+        # had nps_opted false. The nps_opted=True case below is the one that
+        # would have failed, and is why it is here now.
+        for work_location, nps_opted in (("karnataka", False), (None, False), ("karnataka", True)):
+            with self.subTest(work_location=work_location, nps_opted=nps_opted):
+                row = dict(self.PAYOUT_ROW, work_location=work_location, nps_opted=nps_opted,
+                           employee_name=f"Net {work_location} {nps_opted}")
                 body = self._exported(row)
                 forecast = body["treasury_forecast"]
                 paid_annually = body["payouts"][0]["amount"] / 100 * 12
                 self.assertAlmostEqual(
                     paid_annually + forecast["tds_escrow_annual"]
-                    + forecast["epfo_challan_annual"] + forecast["professional_tax_annual"],
+                    + forecast["epfo_challan_annual"] + forecast["professional_tax_annual"]
+                    + forecast["nps_remittance_annual"],
                     forecast["total_capital_outlay"], delta=0.5)
+                if nps_opted:
+                    self.assertGreater(forecast["nps_remittance_annual"], 0,
+                                       "precondition: this case must actually carry employer NPS")
 
     def test_the_amount_is_below_gross_by_exactly_pf_tds_and_professional_tax(self):
         body = self._exported()
@@ -862,7 +873,9 @@ class TestExportApprovedRow(ReviewQueueTestCase):
         # isolation against payroll_breakdown.py directly.
         self.assertAlmostEqual(
             forecast["total_capital_outlay"],
-            forecast["net_take_home_annual"] + forecast["tds_escrow_annual"] + forecast["epfo_challan_annual"],
+            forecast["net_take_home_annual"] + forecast["tds_escrow_annual"]
+            + forecast["epfo_challan_annual"] + forecast["professional_tax_annual"]
+            + forecast["nps_remittance_annual"],
             places=2,
         )
         self.assertGreater(forecast["total_capital_outlay"], 0)

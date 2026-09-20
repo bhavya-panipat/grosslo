@@ -117,14 +117,18 @@ class TestTheTreasurySplitFollowsTheCorrectedTax(unittest.TestCase):
                                cash - derive_pf(s.basic) - expected_tax, delta=0.01)
 
     def test_the_total_outlay_does_not_depend_on_tax_at_all(self):
-        # The invariant, and the one assertion here that passes before the fix
-        # as well as after: cash + employer PF, whatever the tax is.
+        # The invariant: whatever the tax is, the total is what the company
+        # committed to pay. Retargeted 2026-09-21 (TREASURY_NPS_OUTLAY_DESIGN.md):
+        # it read `cash + employer_pf`, which was the defect stated as an
+        # expectation — the employer's NPS contribution was funded by nothing.
+        # This was the ONLY identity test in the suite written on a structure
+        # that actually carries employer NPS, and so the only one the fix broke.
         for nps in (0.0, 140_000.0, 250_000.0):
             with self.subTest(nps=nps):
                 s = _structure(employer_nps=nps)
                 cash = s.basic + s.hra + s.lta + s.special_allowance
                 self.assertAlmostEqual(self._forecast(s, "new")["total_capital_outlay"],
-                                       cash + s.employer_pf, delta=0.01)
+                                       cash + s.employer_pf + s.employer_nps, delta=0.01)
 
 
 class TestNamedCasesWhereTheFixChangesTheAdvice(unittest.TestCase):
