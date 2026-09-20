@@ -65,9 +65,11 @@ See "Isn't this what RazorpayX Payroll already does?" in
   compensation band, the ₹7.5L aggregate EPFO contribution ceiling, the
   regime-specific Section 124 employer-NPS cap, formerly Section 80CCD(2)
   under the 1961 Act — see "Regulatory currency" below).
-- **Forecast**: net take-home, TDS escrow, and EPFO challan are summed into a
-  single capital-outlay number, with a funding lead time — what treasury needs
-  to have ready before payroll runs.
+- **Forecast**: net take-home, TDS escrow, the EPFO challan, professional tax
+  and the employer's NPS remittance are summed into a single capital-outlay
+  number, with a funding lead time — what treasury needs to have ready before
+  payroll runs. The five components reconstruct the total, and the total equals
+  the structure's own CTC.
 - **Export**: a real RazorpayX Composite Payout payload (verified against
   RazorpayX's own API docs, not guessed) — nested `fund_account`/`contact`,
   amount in paise. The amount is **net pay**: the treasury forecast's take-home,
@@ -916,6 +918,20 @@ future plans:
 
 ## What broke during development (and what that caught)
 
+- **The treasury forecast funded everything except the employer's NPS**, until
+  2026-09-21 (`TREASURY_NPS_OUTLAY_DESIGN.md`). The figure reduced to cash plus
+  employer PF, so Required Treasury Funding was short by 5.0% of the true amount
+  at ₹6L CTC and 8.4% from ₹18L up — and that figure gates bulk-approve against
+  the live bank balance, so the error was systematically permissive rather than
+  merely wrong.
+  - **How it survived:** the suite had four tests asserting the total's
+    identity, and every one but a single case ran on a structure with **no
+    employer NPS**, where the missing term is zero. The exception asserted
+    `cash + employer_pf`, which is the defect stated as an expectation. An
+    identity checked only where the missing term vanishes is not a check.
+  - **The fix:** a fifth component, and the tests now pin the total to
+    `SalaryStructure.total()` — this tool's own definition of CTC — so the
+    assertion cannot be satisfied by an incomplete total again.
 - **The payout payload paid gross salary, from 2026-08-31 to 2026-09-21**
   (`PAYOUT_NET_AMOUNT_DESIGN.md`). `_build_composite_payout()` set `amount` from
   the whole monthly cash salary, in a variable named `net_monthly`, withholding

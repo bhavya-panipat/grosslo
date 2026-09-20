@@ -1,7 +1,7 @@
 # The treasury forecast leaves out employer NPS — fix design
 
-**Status:** design only, **awaiting approval.** No code is changed. Decisions
-D-T1 to D-T4 (§7) are the owner's.
+**Status:** **D-T1 to D-T4 approved 2026-09-21 as recommended; implemented.**
+§9 records the runs and the one prediction §3 got wrong.
 
 **Why now.** Found 2026-09-15 while measuring the employer-NPS tax blast radius,
 recorded as an open gap in `docs/PROJECT_STATUS.md`, and now the oldest live
@@ -171,3 +171,33 @@ The employee's own NPS contribution (not modelled anywhere); the
 annual-figure-labelled-"Monthly" banner (its own gap row); D-P5, one structure
 applied to every employee in an export list; anything that changes who approves
 a payout, or that dispatches money.
+
+
+## 9. Implementation record (2026-09-21)
+
+| Step | Commit | Result |
+|---|---|---|
+| 1 tests, committed red | `4060a37` | 621 run, 17 assertions failing across all 6 new tests, as designed |
+| 2 the fifth component | `a19d912` | 621 run, **2 failures** |
+| 3 retargeted identity tests | `83895ae` | 621 OK |
+| 5 read-time flag for stored rows (D-T3) | `9bdb1b2` | 625 OK (+4) |
+| Sabotage: term present but out of the total | — | 14 assertions fail; **the field-presence test still passes**, which is the point: the identities catch it, not the field's existence |
+| Sabotage: term sourced from employer PF | — | 20 assertions fail, including the no-NPS case, where PF is non-zero and the term should be zero |
+| Sabotage: stored-row flag never fires | — | exactly its 2 tests fail |
+
+**§3 predicted three tests would break. Two of the three did not.** The
+`test_finos` professional-tax identity and the `test_review_workflow` live-response
+identity both kept passing, because the structures they run on carry no employer
+NPS — so the term this fix adds is zero there. Only
+`test_employer_nps_statute`'s tax-independence invariant failed, being the one
+identity assertion in the suite written on a structure that actually has a
+contribution.
+
+**That is the finding, not a footnote.** The suite asserted this total's identity
+in four places and still shipped a total that omitted a whole remittance, because
+every assertion but one was made where the omission is invisible. The prediction
+was wrong in the direction that matters: I expected the existing tests to be
+sensitive, and they were not. They are retargeted to five terms anyway, and the
+payout identity test now carries an `nps_opted=True` case with a precondition
+asserting the contribution is non-zero, so the coverage gap cannot reopen
+silently.
