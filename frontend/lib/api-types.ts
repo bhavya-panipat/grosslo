@@ -414,3 +414,50 @@ export type RazorpayXBalanceResponse = {
   balance?: { entity: "collection"; count: number; items: RazorpayXBankingBalance[] };
   error?: string;
 };
+
+// auth.PERMISSIONS, verbatim — the only permission names any route enforces.
+// A gate must check membership in this set, never invent a narrower one.
+export type Permission =
+  | "view_queue"
+  | "decide_row"
+  | "export_row"
+  | "view_audit_log"
+  | "view_bank_balance"
+  | "manage_users";
+
+// GET /api/auth/session (LOGIN_FIX_DESIGN.md §3.1). permissions is the
+// server-derived union over the session's roles — a page gates on this, and
+// never re-derives it from `roles` itself, so there is exactly one place
+// (auth.ROLE_PERMISSIONS) that knows which role can do what. A signed-in
+// user with no roles yet reports permissions: [] with a real display_name —
+// distinct from signed-out, which is user_id: null and display_name: null.
+export type SessionResponse = {
+  user_id: number | null;
+  tenant_id: number | null;
+  roles: string[];
+  permissions: Permission[];
+  display_name: string | null;
+};
+
+// POST /api/auth/login — the {email, password} branch (app.py's
+// api_auth_login, "normal path"). Success sets a real per-user session.
+export type LoginResponse = {
+  user: { id: number; email: string; display_name: string; roles: string[] };
+  tenant: { id: number; slug: string; display_name: string };
+};
+
+// POST /api/auth/login — the {role, code} bootstrap branch. Only valid while
+// a tenant has zero users; the resulting session can do exactly one thing
+// (POST /api/auth/bootstrap) and nothing else.
+export type BootstrapRequiredResponse = {
+  bootstrap_required: true;
+  tenant: { id: number; slug: string; display_name: string };
+  message: string;
+};
+
+// POST /api/auth/bootstrap — creates the tenant's first owner and permanently
+// retires its shared access codes.
+export type BootstrapResponse = {
+  user: { id: number; email: string; display_name: string; roles: string[] };
+  shared_codes_retired: true;
+};

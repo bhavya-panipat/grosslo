@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Nav from "@/components/nav";
 import FinanceFlow from "@/components/finance/finance-flow";
-import RoleGate from "@/components/role-gate";
+import PermissionGate from "@/components/permission-gate";
 
 export const metadata: Metadata = {
   title: "grosslo — Finance",
@@ -12,9 +12,9 @@ export default function FinancePage() {
   return (
     <main className="relative min-h-screen bg-canvas">
       <Nav />
-      <RoleGate role="finance">
+      <PermissionGate permission="decide_row" label="Finance">
         <FinanceFlow />
-      </RoleGate>
+      </PermissionGate>
     </main>
   );
 }
