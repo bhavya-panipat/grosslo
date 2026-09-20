@@ -15,6 +15,13 @@ SCOPE / KNOWN LIMITATIONS (state these explicitly, same as tax_engine.py does):
   2025 effective 1 April 2026) involves employer discretion and
   quarter-based re-estimation as the year progresses — this models the
   simplified even-distribution case only.
+- net_monthly_disbursement() was deleted on 2026-09-21 (PAYOUT_NET_AMOUNT_DESIGN.md
+  D-P2). It computed cash minus employee PF minus TDS, had no callers, and
+  predated professional tax, so it was 208.33 a month short of the real net on
+  the 18L Karnataka case. The payout payload now takes its amount from
+  treasury_forecast()'s net_take_home_annual, which withholds PT as well. A
+  second, staler implementation of "net pay" beside the live one is what let
+  the payout pay gross unnoticed in the first place.
 - Employee-side PF is NOT modeled anywhere in tax_engine.py (SalaryStructure
   only tracks employer_pf/employer_nps, both cost-to-company lines). This
   module introduces employee_pf_monthly() as a new, explicit assumption:
@@ -181,19 +188,6 @@ def monthly_tds_schedule(tax_breakdown: dict) -> list[float]:
 def employee_pf_monthly(basic_annual: float) -> float:
     """Employee PF deduction — 12% of basic, monthly. See module docstring."""
     return round(derive_pf(basic_annual) / 12, 2)
-
-
-def net_monthly_disbursement(structure: SalaryStructure, tax_breakdown: dict) -> float:
-    """
-    Net cash hitting the employee's bank account per month.
-    Only the cash components of the structure (basic/HRA/LTA/special
-    allowance) are payslip cash — employer_pf/employer_nps are
-    cost-to-company retiral contributions, not cash to the employee.
-    """
-    monthly_cash = (structure.basic + structure.hra + structure.lta
-                     + structure.special_allowance) / 12
-    monthly_tds = tax_breakdown["total_tax"] / 12
-    return round(monthly_cash - employee_pf_monthly(structure.basic) - monthly_tds, 2)
 
 
 def treasury_forecast(structure: SalaryStructure, tax_breakdown: dict, work_location: str | None = None) -> dict:
