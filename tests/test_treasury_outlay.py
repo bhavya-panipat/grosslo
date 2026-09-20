@@ -105,5 +105,50 @@ class TestTheForecastFundsTheWholeCtc(unittest.TestCase):
         self.assertGreater(tax_breakdown["total_tax"], 0, "precondition: this structure owes tax")
 
 
+class TestTheAverageMonthlyFigureIsDefinedNotDerivedByCallers(unittest.TestCase):
+    """
+    TREASURY_PERIOD_LABEL_DESIGN.md, D-M3/D-M4. Every field the forecast returns
+    is annual, and two frontend surfaces reached for a monthly number — one of
+    them labelling the annual figure "Monthly". The twelfth is computed here,
+    beside the definition it depends on, rather than in a component.
+
+    It is an AVERAGE month: professional tax is eleven base instalments plus a
+    higher February, so no real month equals a twelfth of the annual figure.
+    """
+
+    def test_it_is_a_twelfth_of_the_total(self):
+        for ctc in CTCS:
+            for nps_opted in (True, False):
+                for work_location in (LOCATION, None):
+                    with self.subTest(ctc=ctc, nps_opted=nps_opted, work_location=work_location):
+                        _s, _t, forecast = _forecast(ctc, nps_opted, work_location=work_location)
+                        self.assertAlmostEqual(forecast["average_monthly_outlay"],
+                                               round(forecast["total_capital_outlay"] / 12, 2),
+                                               delta=0.01)
+
+    def test_twelve_average_months_are_the_year(self):
+        _s, _t, forecast = _forecast(1_800_000, nps_opted=True)
+        self.assertAlmostEqual(forecast["average_monthly_outlay"] * 12,
+                               forecast["total_capital_outlay"], delta=0.12)
+
+    def test_it_is_an_average_month_and_not_february(self):
+        # What makes "average" the honest word: February's professional tax is
+        # strictly more than a twelfth of the annual figure, so a real February
+        # costs more than this number says.
+        from payroll_breakdown import annual_professional_tax, monthly_professional_tax
+        gross_monthly = 1_800_000 / 12
+        annual_pt = annual_professional_tax(LOCATION, gross_monthly)["amount"]
+        february_pt = monthly_professional_tax(LOCATION, gross_monthly, month=2)["amount"]
+        self.assertGreater(february_pt, annual_pt / 12,
+                           "if PT were twelve equal instalments, 'average' would be the wrong word "
+                           "and this field could be named monthly_outlay")
+
+    def test_the_annual_fields_are_untouched_by_it(self):
+        # Additive: the identity that this file exists to protect still holds.
+        structure, _t, forecast = _forecast(3_600_000, nps_opted=True)
+        self.assertAlmostEqual(forecast["total_capital_outlay"], structure.total(), delta=1.0)
+        self.assertIn("average_monthly_outlay", forecast)
+
+
 if __name__ == "__main__":
     unittest.main()
