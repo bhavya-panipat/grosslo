@@ -61,7 +61,7 @@ export default function TreasuryGate({
         Current RazorpayX Account Balance: <span className="font-mono text-white">{inr(availableRupees)}</span>
       </span>
       <span className="text-neutral-300">
-        Required Treasury Funding (pending rows):{" "}
+        Required Treasury Funding, annual (pending rows):{" "}
         <span className="font-mono text-white">{inr(requiredFunding)}</span>
       </span>
       {deficit && (

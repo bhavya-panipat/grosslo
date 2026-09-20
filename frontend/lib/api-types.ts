@@ -194,6 +194,13 @@ export type TreasuryForecast = {
   pt_state_recognized: boolean;
   pt_is_approximation: boolean;
   total_capital_outlay: number;
+  // An AVERAGE month (total_capital_outlay / 12), not a real payroll month —
+  // professional tax is eleven equal months plus a higher February, so no
+  // single month actually costs this (TREASURY_PERIOD_LABEL_DESIGN.md D-M3,
+  // D-M4). Not surfaced in the UI yet (D-M1/D-M2 keep both existing surfaces
+  // on the annual figure, relabelled rather than switched) — typed here for
+  // accuracy since the backend already returns it.
+  average_monthly_outlay: number;
   funding_deadline_hours_before_payroll: number;
 };
 

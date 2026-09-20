@@ -42,9 +42,9 @@ export default function ExecutiveSummaryCard({
     },
     {
       icon: Landmark,
-      label: "Total Monthly Payroll Liability",
+      label: "Total Annual Payroll Liability",
       value: inr(totalLiability),
-      detail: "Net take-home + TDS escrow + EPFO challan, summed across all processed rows",
+      detail: "Net take-home + TDS escrow + EPFO challan + professional tax + NPS remittance, summed across all processed rows",
     },
     {
       icon: TrendingUp,
