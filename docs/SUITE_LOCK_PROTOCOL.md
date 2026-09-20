@@ -16,9 +16,9 @@ half the usual, plus `UniqueViolation` on `pg_namespace_nspname_index`,
 mkdir /tmp/grosslo-suite.lock        # atomic: succeeds for exactly one process
 ```
 
-- **It succeeded:** write an `owner` file naming your session, your pid and what
-  you are running, then run. Release when your whole block of runs is done, not
-  between runs.
+- **It succeeded:** write an `owner` file naming your session, **a pid that
+  lives for the whole job**, and what you are running. Release when your whole
+  block of runs is done, not between runs.
 - **It failed:** you do not have the lock. Read `owner`, queue behind whoever is
   named, and start nothing. Read the exit status; do not assume it.
 
@@ -29,7 +29,35 @@ grep -q "pid=$$" /tmp/grosslo-suite.lock/owner && rm -rf /tmp/grosslo-suite.lock
 ```
 
 Put it on an `EXIT` trap so a crash releases the lock instead of leaving a
-genuinely stale one behind.
+genuinely stale one behind. The `grep` must match something that identifies
+**you** — a session name is safer than a pid, because a pid can be dead while
+the job is alive (below).
+
+### The pid you write is the hard part
+
+**Recording a pid that outlives the job is the whole point, and both sessions
+that tried it got it wrong in opposite directions on the same night.**
+
+- A lock named pid 84635, which was **dead**, while that session's suite ran as
+  84671 → 84673 → 84675: the recorded pid was an earlier shell in the pipeline.
+  Clearing that "stale" lock would have killed a healthy run.
+- A lock named pid 84968, also **dead**, held by a session that was genuinely
+  mid-job — between a sabotage run and a docs run, editing files in the gap. For
+  those minutes there was no suite process either, so the lock satisfied **both
+  halves** of the staleness rule while being entirely legitimate. Caught because
+  the session queued behind it **asked instead of acting**.
+
+So the staleness rule is necessary but not sufficient: a two-phase job has gaps
+in which it looks exactly like an abandoned lock. Options, in order of
+preference:
+
+1. **Write a pid that lives for the whole job** — the long-running shell's `$$`,
+   never a child's, and never a pid from a command substitution.
+2. **Write a phase or heartbeat line** the holder updates between runs, so a gap
+   is distinguishable from abandonment by something machine-checkable. A `work=`
+   field describing two runs states intent, but nothing reads it.
+3. **Ask the named session before clearing anything.** This is what actually
+   worked. It is slower than a heuristic and it is right more often.
 
 ## Why the obvious alternatives do not work
 
@@ -43,8 +71,13 @@ All four were tried on 2026-09-20/21, and all four failed the same way.
 | "The owner pid is dead, so the lock is stale" | **The most dangerous of the four.** The lock named pid 84635, which was dead, while that session's suite was alive as 84671 → 84673 → 84675: the recorded pid was an earlier shell in the same pipeline. Clearing that "stale" lock would have destroyed a healthy run. |
 
 **A lock is stale only if the owner pid is dead AND no suite process is
-running** (`pgrep -f "[-]m unittest"`). If either is alive, it is not stale. When
-in doubt, ask the named session.
+running** (`pgrep -f "[-]m unittest"`). If either is alive, it is not stale.
+
+**And even then, ask the named session before clearing it.** Both halves were
+true of a live, legitimate lock on 2026-09-21, during an edit gap between two
+runs of the same job. A session that applied the rule correctly and acted on it
+would have collided with the holder's second run. The rule tells you a lock
+*might* be abandoned; only the holder can tell you it is.
 
 **The principle underneath all four**, which is the part worth carrying to other
 problems: each mechanism infers a global fact from a local observation taken a
