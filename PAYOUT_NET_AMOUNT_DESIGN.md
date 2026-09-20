@@ -1,7 +1,7 @@
 # The payout payload's amount is gross salary — fix design
 
-**Status:** design only, **awaiting approval.** No code is changed. Decisions
-D-P1 to D-P5 (§7) are the owner's.
+**Status:** **D-P1 to D-P5 approved 2026-09-21 as recommended; implemented.**
+§9 records the runs, including one prediction that was wrong.
 
 **Why now.** Found 2026-09-15 while measuring the employer-NPS blast radius, and
 recorded as an open gap with the owner's instruction: *scope it soon, well before
@@ -174,3 +174,22 @@ Separate commits, full suite after each, request/go handshake:
 Live dispatch of any kind; the treasury total's omission of employer NPS (its own
 gap row); the annual-figure-labelled-monthly banner (its own gap row); anything
 that changes who approves a payout.
+
+
+## 9. Implementation record (2026-09-21)
+
+| Step | Commit | Result |
+|---|---|---|
+| 1 tests, committed red | `5acdbda` | 615 run, 6 failures: 3 assertion failures and 3 errors for the missing `payout_basis`, as predicted. The cross-route test passed, also as predicted — both routes were equally wrong. |
+| 2 the fix | `b4bab69` | 615 OK |
+| 3 delete `net_monthly_disbursement()` | `c55035c` | 615 OK. Grepped first: no importer anywhere, only prose mentions. |
+| Sabotage: restore the gross arithmetic | — | **5 failures, where §5 predicted 2.** The two predicted, plus the whole-paise and below-gross tests, because `payout_basis` keeps reporting the correct net while `amount` goes back to gross, so the payload stops agreeing with itself. The under-prediction is recorded rather than smoothed over: it is real information about how tightly the basis block couples to the amount. |
+| Sabotage: withhold TDS but not professional tax | — | Two attempts were discarded for cross-session database contention (see below); the clean run is reported with the docs commit. |
+
+**Two runs were lost to concurrent suites**, not to anything in the tree: two
+sessions started runs seconds apart, twice, producing ~100 errors in the
+database-backed tests in around half the usual wall time. A pre-flight process
+check cannot prevent it, since it only sees runs that have already started. The
+sessions have moved to an explicit hold-and-acknowledge handshake, and an atomic
+lock directory is proposed so that the exclusion is structural rather than
+conventional.

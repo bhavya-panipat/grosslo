@@ -70,7 +70,10 @@ See "Isn't this what RazorpayX Payroll already does?" in
   to have ready before payroll runs.
 - **Export**: a real RazorpayX Composite Payout payload (verified against
   RazorpayX's own API docs, not guessed) — nested `fund_account`/`contact`,
-  amount in paise. No live call is ever made; this generates the payload only.
+  amount in paise. The amount is **net pay**: the treasury forecast's take-home,
+  after employee PF, TDS and professional tax, which are remitted separately and
+  reported beside the payload as `payout_basis`. No live call is ever made; this
+  generates the payload only.
 - **Batch**: `/hr`'s CSV upload structures a set of new offers in one pass —
   the single path for this now, single or batch, so every new hire goes
   through the same Finance review an individual offer does (see "Redundancy
@@ -913,6 +916,25 @@ future plans:
 
 ## What broke during development (and what that caught)
 
+- **The payout payload paid gross salary, from 2026-08-31 to 2026-09-21**
+  (`PAYOUT_NET_AMOUNT_DESIGN.md`). `_build_composite_payout()` set `amount` from
+  the whole monthly cash salary, in a variable named `net_monthly`, withholding
+  nothing. On the recommended ₹18L structure in Karnataka it paid ₹1,39,200 where
+  ₹1,17,851.47 was owed — ₹2,56,182 a year per employee, with that month's TDS and
+  PF left unremitted.
+  - **How it survived:** no test pinned the amount, and
+    `payroll_breakdown.net_monthly_disbursement()` — which withheld PF and TDS,
+    though not professional tax — sat beside it with **no callers at all**. A
+    correct-looking function nobody calls is not a safety net; it is a decoy.
+  - **What it cost to keep quiet:** nothing dispatches money, so no payment was
+    ever made. The export screen renders the payload and offers *Copy*, though,
+    so the realistic path was a person pasting it into RazorpayX.
+  - **The fix:** the amount now comes from the same treasury forecast the
+    response already returns, so the payload and the forecast cannot disagree.
+    The unused function was deleted rather than left as a second definition of
+    "net pay".
+  - **Found** while measuring the blast radius of a different bug, which is the
+    argument for measuring wider than the change under review.
 - **The tax engine double-counted employer NPS, from the first version until
   2026-09-16** (`TAX_ENGINE_EMPLOYER_NPS_DESIGN.md`). `taxable_income_for_structure()`
   left the employer's contribution out of gross salary and subtracted it anyway,
