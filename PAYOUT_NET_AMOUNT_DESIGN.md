@@ -40,11 +40,13 @@ RazorpayX to pay anyone, and that constraint is not being touched here.
 
 **But the payload is built to be used.** The export modal renders it and offers
 *Copy*, so the realistic path is a person pasting a schema-accurate payload into
-RazorpayX. At ₹18L CTC the recommended structure's monthly cash is ₹1,39,500,
-while the employee is owed roughly ₹1,20,000 after withholding. Every such
-payment overpays the employee and under-remits the TDS and PF the same figures
-say are due — the tool's own treasury forecast already computes what should have
-been withheld.
+RazorpayX. Measured on the recommended structure at ₹18L CTC, Karnataka:
+the payload pays **₹1,39,200 a month** where the employee is owed
+**₹1,17,851.47** — an overpayment of **₹21,348.53 a month, ₹2,56,182.36 a year,
+per employee**. The difference is exactly what the tool's own forecast says
+should have been withheld: employee PF ₹10,800, TDS ₹10,340.20 and professional
+tax ₹208.33 a month. So each payment overpays the employee and leaves the TDS and
+PF unremitted.
 
 ## 2. What "net" has to mean here
 
@@ -61,8 +63,9 @@ account: cash, minus employee PF, minus total tax, minus professional tax. The
 payout `amount` should be one twelfth of it.
 
 **This is not the same as `net_monthly_disbursement()`**, which withholds PF and
-TDS but **not** professional tax, because it predates the PT feature. Using it
-unchanged would still overpay by the PT amount (₹200/month in Karnataka, ₹300 in
+TDS but **not** professional tax, because it predates the PT feature. Measured on the same ₹18L structure it returns ₹1,18,059.80 against the correct
+₹1,17,851.47, so using it unchanged would still overpay by the professional tax —
+₹208.33 a month as the forecast spreads it (₹200 in eleven months, ₹300 in
 February).
 
 ## 3. Design
@@ -85,14 +88,16 @@ February).
 
   ```json
   "payout_basis": {
-    "gross_monthly_cash": 139500.0,
-    "employee_pf_monthly": 9000.0,
-    "tds_monthly": 8374.6,
-    "professional_tax_monthly": 200.0,
-    "net_monthly": 121925.4,
+    "gross_monthly_cash": 139200.0,
+    "employee_pf_monthly": 10800.0,
+    "tds_monthly": 10340.2,
+    "professional_tax_monthly": 208.33,
+    "net_monthly": 117851.47,
     "note": "amount is net of the withholdings listed; they are remitted separately"
   }
   ```
+
+  (Measured for ₹18L CTC in Karnataka, not illustrative.)
 
   A reviewer can then see why the figure is what it is, which is the same
   reasoning that made `treasury_forecast` report its components.
@@ -133,9 +138,9 @@ components; it corrects which of them the payout pays).
   same amount for the same input.
 - **Paise:** the value is an integer number of paise, and `amount / 100` equals
   the rupee figure to two decimals.
-- **A zero-tax structure** (₹6L CTC) still withholds PF and PT, so the amount is
-  below gross there too — a case where "net equals gross" would otherwise look
-  plausible.
+- **A zero-tax structure** (₹6L CTC, tax ₹0) still withholds PF and PT: measured
+  gross ₹47,000 a month against a net of ₹43,791.67. Without this case, an
+  implementation that withheld only TDS would look correct wherever tax is zero.
 
 **Sabotage:**
 - Restore the gross arithmetic: the identity test and the not-gross test fail.
