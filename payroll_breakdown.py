@@ -195,9 +195,28 @@ def treasury_forecast(structure: SalaryStructure, tax_breakdown: dict, work_loca
     Annual capital-outlay forecast for a single employee's structure —
     what the company needs to have funded before payroll runs.
     total_capital_outlay is defined as the sum of net_take_home_annual,
-    tds_escrow_annual, epfo_challan_annual, AND professional_tax_annual;
-    verification should confirm that identity holds, not just that a number
-    is displayed.
+    tds_escrow_annual, epfo_challan_annual, professional_tax_annual AND
+    nps_remittance_annual; verification should confirm that identity holds,
+    not just that a number is displayed. The stronger check, and the one the
+    tests use, is that the total equals SalaryStructure.total() — everything
+    the company pays for this employee is what it committed to pay.
+
+    nps_remittance_annual was added 2026-09-21 (TREASURY_NPS_OUTLAY_DESIGN.md).
+    Before that the employer's NPS contribution appeared in no component, so
+    this forecast reduced to cash + employer_pf and under-reported the funding
+    requirement by that contribution: 5.0% of the true figure at Rs 6L CTC,
+    8.4% from Rs 18L up. That mattered beyond display, because finance-flow.tsx
+    sums this figure against the live bank balance to decide whether
+    bulk-approve stays open, so the error was systematically permissive.
+
+    UNLIKE professional tax, which was a fourth way of splitting a pool that
+    did not change size, this term RAISES the total. It is money the company
+    owes that the figure did not previously contain.
+
+    The employee's own NPS contribution is not modelled anywhere in this
+    codebase and is not part of this term, which is the employer's side only —
+    the same asymmetry epfo_challan_annual does NOT have, since that one
+    carries both sides of PF.
 
     work_location is optional and additive: PT doesn't change the total
     cash the company needs (that pool was already fixed by basic + hra +
@@ -223,14 +242,19 @@ def treasury_forecast(structure: SalaryStructure, tax_breakdown: dict, work_loca
     )
     tds_escrow_annual = round(tax_breakdown["total_tax"], 2)
     epfo_challan_annual = round(structure.employer_pf + derive_pf(structure.basic), 2)
+    # Zero rather than absent when there is no contribution: a consumer must be
+    # able to tell "nothing to remit" from "this response predates the field".
+    nps_remittance_annual = round(structure.employer_nps, 2)
     total_capital_outlay = round(
-        net_take_home_annual + tds_escrow_annual + epfo_challan_annual + professional_tax_annual, 2
+        net_take_home_annual + tds_escrow_annual + epfo_challan_annual
+        + professional_tax_annual + nps_remittance_annual, 2
     )
     return {
         "net_take_home_annual": net_take_home_annual,
         "tds_escrow_annual": tds_escrow_annual,
         "epfo_challan_annual": epfo_challan_annual,
         "professional_tax_annual": professional_tax_annual,
+        "nps_remittance_annual": nps_remittance_annual,
         "pt_state_recognized": pt["pt_state_recognized"],
         "pt_is_approximation": pt["is_approximation"],
         "total_capital_outlay": total_capital_outlay,
