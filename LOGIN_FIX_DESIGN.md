@@ -143,12 +143,19 @@ maker-checker, routes' guards, or the hard constraints.
 
 Breaks 3 and 4 have one cause. Four options:
 
-- **(A) Recommended: trust `X-Forwarded-Host` for tenant resolution only, and
-  only when explicitly enabled.**
-  - `tenant_slug_from_host` reads `X-Forwarded-Host`, first value, when the
-    environment variable `TRUST_FORWARDED_HOST=1` is set. Otherwise it keeps
-    reading `Host`. Default: off.
-  - Local development sets it, next to the Next proxy that sets the header.
+- **(A) Recommended: trust `X-Forwarded-Host` for tenant resolution only, when
+  explicitly enabled AND the request came from a configured peer.** *(Revised
+  2026-09-20 after review by the frontend-rebuild session; the first draft had
+  only the flag. See §4.1 for why that was not enough.)*
+  - Two settings, both required, neither sufficient alone:
+    - `TRUST_FORWARDED_HOST=1`, and
+    - `TRUSTED_PROXY_IPS`, a comma-separated set of peer addresses (for local
+      development, `127.0.0.1,::1`).
+  - `tenant_slug_from_host` reads `X-Forwarded-Host`'s first value only when the
+    flag is on **and** `request.remote_addr` is in that set. Otherwise it reads
+    `Host`, exactly as today.
+  - An empty or unset `TRUSTED_PROXY_IPS` means the header is never trusted, so
+    the flag alone changes nothing.
 - **(B) Werkzeug `ProxyFix(x_host=1)` on the whole app.** Rejected: it rewrites
   `request.host` for every consumer, not only tenant resolution, which is a wider
   change than the problem.
@@ -158,6 +165,30 @@ Breaks 3 and 4 have one cause. Four options:
 - **(D) Leave it, and document "log in on the backend port".** Rejected as a fix.
   It is the workaround the frontend session used to test, and it leaves break 4
   as well.
+
+### 4.1 Why the flag alone was not enough
+
+The reviewing session's objection, which this design accepts:
+
+- *"`may be enabled only where the terminating proxy overwrites the header` is a
+  documentation promise, not something the code verifies."* True of the first
+  draft.
+- The failure mode is the same shape `MULTI_TENANT_DESIGN.md` built row-level
+  security to catch: not "the app code is wrong" but "one layer was relied on
+  alone". There, a forgotten `WHERE` clause; here, the flag switched on in an
+  environment whose proxy passes a client's `X-Forwarded-Host` through.
+- **What that would cost is not only a misrouted login.** The other route this
+  resolution gates is the unauthenticated `POST /api/submissions`, whose own
+  docstring in `app.py` calls its contents *"attacker-controlled bank details"*.
+  With the header trusted in the wrong environment, anyone could place a
+  fabricated row, with bank details, into any tenant's review queue by setting
+  one header. A human still approves every row, so this is a queue-poisoning and
+  review-load attack, not a payout — but it is a real one.
+
+The peer check does not make the header trustworthy; it makes **enabling it
+without also naming the proxy do nothing**, which is the property a comment
+cannot provide. A deployment that genuinely terminates at a scrubbing proxy
+still has to set both.
 
 **Why (A) is safe, and where it would not be** (the trust boundary is
 `auth.tenant_slug_from_host`'s own docstring):
@@ -173,9 +204,14 @@ Breaks 3 and 4 have one cause. Four options:
 - **Where it becomes unsafe:** when a production proxy validates `Host` but
   passes a client's `X-Forwarded-Host` through unchanged. Trusting the header
   there would bypass that validation. That is why it is off by default.
-- **The condition for enabling it in production:** it may be enabled only where
-  the terminating proxy sets or overwrites `X-Forwarded-Host`. That is decision
-  **D-L2**, and the variable's docstring will say so.
+- **The condition for enabling it in production:** both settings, and only where
+  the terminating proxy sets or overwrites `X-Forwarded-Host` and is the peer
+  Flask sees. That is decision **D-L2**, and both variables' docstrings will say
+  so.
+- **What is still not verified in code:** that the named peer really scrubs the
+  header. Nothing available here can check that, and this design does not claim
+  to. It narrows the mistake from "one flag in the wrong place" to "one flag and
+  a named peer in the wrong place".
 
 ## 5. Tests and verification
 
@@ -193,10 +229,14 @@ Breaks 3 and 4 have one cause. Four options:
     `X-Forwarded-Host` and no tenant `Host` still gets "Unknown workspace", and
     one with a tenant `Host` still resolves that tenant, whatever
     `X-Forwarded-Host` says.
-  - With it set, `X-Forwarded-Host` decides.
+  - With the flag set but `TRUSTED_PROXY_IPS` empty, the header is still
+    ignored — the flag alone does nothing.
+  - With both set and the request from a listed peer, `X-Forwarded-Host` decides.
+  - With both set and the request from an unlisted peer, it is ignored.
   - A malformed or multi-label value resolves to no tenant, as today.
 - **Sabotage:**
   - Make the flag default to on: the "unset" tests fail.
+  - Drop the peer check and keep the flag: the unlisted-peer test fails.
   - Compute `permissions` from a copied table: the parity test fails once one
     role's entry differs.
 
@@ -237,6 +277,6 @@ Separate commits, full Python suite after each, request/go handshake:
 | | Decision | Recommendation |
 |---|---|---|
 | **D-L1** | Who may open `/hr`? | **Anyone holding `view_queue`** (hr, finance, owner). The page's own data call already requires exactly that, and gating it more narrowly than its data would lock an owner out of HR for no security gain. The alternative: add a distinct `submit` permission held only by hr and owner, which is a change to the permission model. |
-| **D-L2** | Trust `X-Forwarded-Host` for tenant resolution? | **Yes, opt-in (`TRUST_FORWARDED_HOST=1`), default off, enabled in local development only** until a production proxy is known to overwrite the header (§4). |
-| **D-L3** | Who implements? | **The frontend-rebuild session, all six steps, with this session reviewing.** Its user asked it to build this, it has the Node toolchain and the end-to-end harness working, and one implementer avoids splitting a coupled backend/frontend change across two sessions. |
+| **D-L2** | Trust `X-Forwarded-Host` for tenant resolution? | **Yes, but only with both `TRUST_FORWARDED_HOST=1` and the request arriving from a peer in `TRUSTED_PROXY_IPS`**, both default-off, enabled in local development only (§4, §4.1). The first draft proposed the flag alone; review showed that rests the safety of an unauthenticated, bank-detail-carrying route on a comment. |
+| **D-L3** | Who implements? | **The frontend-rebuild session, with this session reviewing** — with one carve-out the owner should rule on explicitly, raised by that session itself: **step 2 is a backend trust-boundary change** in `auth.py`, a file this session has been working in and that one has not. Either it implements step 2 under review, or this session implements step 2 and it does steps 3–6. No default is assumed. |
 | **D-L4** | Remove the *"Demo code"* hint? | **Yes.** Codes no longer sign anyone in; after bootstrap the hint is simply false. |
