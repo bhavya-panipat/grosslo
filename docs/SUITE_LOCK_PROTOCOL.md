@@ -59,6 +59,15 @@ preference:
 3. **Ask the named session before clearing anything.** This is what actually
    worked. It is slower than a heuristic and it is right more often.
 
+**Both traps were found by a session checking a lock it wanted to take, never by
+the lock's holder** — and that is not a coincidence. From inside a job
+everything looks fine: the holder is running, its files are where it left them,
+and nothing in its own view says the lock it wrote now reads as abandoned. The
+failure is only visible from outside. So the ask-first step earns its place even
+after the pid handling is fixed: whoever is about to clear a lock is the only
+party who can see the problem, and asking is the only action that puts that
+observation in front of the one who can resolve it.
+
 ## Why the obvious alternatives do not work
 
 All four were tried on 2026-09-20/21, and all four failed the same way.
