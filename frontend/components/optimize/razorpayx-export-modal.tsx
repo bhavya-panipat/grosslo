@@ -149,11 +149,12 @@ export default function RazorpayXExportModal({ form, onClose }: Props) {
             </div>
           ) : (
             <div className="mt-6 space-y-4">
-              <div className="grid grid-cols-3 gap-3 text-center">
+              <div className="grid grid-cols-2 gap-3 text-center sm:grid-cols-4">
                 {[
                   ["Net take-home", result.treasury_forecast.net_take_home_annual],
                   ["TDS escrow", result.treasury_forecast.tds_escrow_annual],
                   ["EPFO challan", result.treasury_forecast.epfo_challan_annual],
+                  ["NPS remittance", result.treasury_forecast.nps_remittance_annual],
                 ].map(([label, value]) => (
                   <div key={label as string} className="rounded-xl border border-white/[0.06] bg-black/30 p-3">
                     <p className="text-xs text-neutral-500">{label}</p>

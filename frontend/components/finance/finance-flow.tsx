@@ -44,6 +44,26 @@ function TaxBasisBadge({ row }: { row: SubmissionRow }) {
   );
 }
 
+// A row whose STORED treasury forecast predates the employer-NPS remittance
+// term (row.treasury_basis_flag, set by the backend at read time). Same
+// treatment as TaxBasisBadge and for the same reason: the collapsed row
+// header's Required Treasury Funding total is exactly this stored figure,
+// and it's short by the employer's NPS contribution
+// (TREASURY_NPS_OUTLAY_DESIGN.md D-T3). Display only: changes no route, no
+// status, no bulk-approve eligibility.
+function TreasuryBasisBadge({ row }: { row: SubmissionRow }) {
+  if (!row.treasury_basis_flag) return null;
+  return (
+    <span
+      title={row.treasury_basis_flag.reason}
+      className="inline-flex items-center gap-1 rounded-full border border-gold/30 bg-gold/[0.08] px-2 py-0.5 text-[11px] font-medium text-gold-bright"
+    >
+      <TriangleAlert className="h-3 w-3 shrink-0" />
+      Funding figure incomplete
+    </span>
+  );
+}
+
 function RouteBadge({ row }: { row: SubmissionRow }) {
   const route = routeOf(row);
   const severity = row.orchestration?.severity ?? "None";
@@ -482,6 +502,7 @@ function RowCard({
               {row.employee_name || `Row ${row.row_index + 1}`}
               <RouteBadge row={row} />
               <TaxBasisBadge row={row} />
+              <TreasuryBasisBadge row={row} />
             </p>
             <p className="text-xs text-neutral-500">
               {inr(row.ctc)} · {recommendedRegime} regime · tax {inr(recommended.tax_breakdown.total_tax)}
@@ -531,6 +552,15 @@ function RowCard({
               <div className="flex flex-col gap-1.5">
                 <p className="text-xs uppercase tracking-wide text-neutral-500">Tax basis</p>
                 <p className="text-sm text-gold-bright">{row.tax_basis_flag.reason}</p>
+              </div>
+            )}
+            {row.treasury_basis_flag && !row.orchestration && (
+              // Same reasoning as the tax-basis panel above: with no
+              // orchestration.reasons list to already carry this, it needs
+              // its own block or it's never shown at all.
+              <div className="flex flex-col gap-1.5">
+                <p className="text-xs uppercase tracking-wide text-neutral-500">Treasury basis</p>
+                <p className="text-sm text-gold-bright">{row.treasury_basis_flag.reason}</p>
               </div>
             )}
             {row.orchestration && (

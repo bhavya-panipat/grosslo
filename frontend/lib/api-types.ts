@@ -179,6 +179,12 @@ export type TreasuryForecast = {
   net_take_home_annual: number;
   tds_escrow_annual: number;
   epfo_challan_annual: number;
+  // The employer's NPS contribution — inside CTC, funded by no other
+  // component here (TREASURY_NPS_OUTLAY_DESIGN.md). 0.0 when there is no
+  // contribution, never absent, so "nothing to remit" stays distinguishable
+  // from "this response predates the field" (see SubmissionRow's
+  // treasury_basis_flag for rows stored before this existed).
+  nps_remittance_annual: number;
   // State Professional Tax — 0 with pt_state_recognized:false when
   // work_location wasn't supplied or isn't one of the 5 modeled states
   // (a real "not modeled" gap), vs. Delhi's genuine, checked 0 with
@@ -350,6 +356,16 @@ export type SubmissionRow = {
    *  orchestration.reasons when orchestration is present. Optional so a
    *  backend without this field still type-checks. */
   tax_basis_flag?: { basis: string | null; reason: string } | null;
+  /** Set when a STORED treasury forecast on this row predates
+   *  nps_remittance_annual (review_queue._pre_nps_remittance_flag, read time
+   *  only; TREASURY_NPS_OUTLAY_DESIGN.md D-T3). Its total_capital_outlay
+   *  funds net pay, TDS escrow, the EPFO challan and professional tax, but
+   *  not the employer's NPS contribution — the queue's Required Treasury
+   *  Funding sums exactly these stored totals. No `basis` field (unlike
+   *  tax_basis_flag): a forecast either carries the term or predates it,
+   *  identified by the key's absence, not a stored version marker. Optional
+   *  so a backend without this field still type-checks. */
+  treasury_basis_flag?: { reason: string } | null;
 };
 
 export type Submission = {
