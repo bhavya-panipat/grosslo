@@ -147,3 +147,35 @@ half-updated edit is caught by arithmetic, with no suite run and no lock. That
 property — failing loudly and locally — is what the old sentence lacked, and it
 is worth reaching for wherever a document states something checkable about the
 code.
+
+## Publishing, when several sessions share one branch
+
+A branch push publishes **everything reachable**, not the commits you wrote. On
+2026-09-20/21 three sessions committed to one `main`, and two pushes carried
+another session's work: once approved, once not. The mechanism was identical
+both times; only the approval differed.
+
+**The rules, in the order they were learned:**
+
+1. **Push the SHA you verified, never `HEAD`.** `HEAD` can move between the run
+   and the push. It moved 14 seconds after one run, and the push published a
+   commit that had never been in any suite run.
+2. **Print the range before pushing** — `git log --oneline origin/main..<sha>` —
+   and read it. This is what turned a later push from a surprise into a
+   decision: another session's commits were in the range, and they had been
+   approved.
+3. **Approval to commit is not approval to publish.** Ask. The two cases look
+   identical from outside the other session, which is exactly why you cannot
+   infer which one you are in. Over-asking costs one message.
+4. **Never push a prefix ending at a knowingly-red commit.** Tests committed
+   failing are a deliberate step in a sequence; publishing that state is worse
+   than publishing an unverified one.
+
+**The structural fix, and why it beats the rules above: each session pushes its
+own commits.** Every rule here depends on the pusher remembering to apply it at
+the moment of pushing. Having each session publish only its own range removes
+the need to remember, because the dangerous case — a branch push sweeping up
+work you did not write — cannot arise. Cherry-picking your own commits onto
+`origin/main` is the escape hatch when someone else's unpublished work sits
+underneath yours; the duplicates drop out by patch-id when the original range
+later lands.
