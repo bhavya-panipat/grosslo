@@ -2,7 +2,7 @@
 The characterization baseline for Phase 2.1 (ORCHESTRATION_DESIGN.md §3.3).
 
 This asserts the pipeline's exact output against a COMMITTED fixture captured
-before the restructure began. It exists because the other 261 tests cannot
+before the restructure began. It exists because the other tests cannot
 catch what this phase risks: they call flag_compliance(), negotiate() and the
 rest DIRECTLY and assert on their return values, so a restructure that dropped
 a stage from the pipeline entirely would not falsify a single one of them. A
