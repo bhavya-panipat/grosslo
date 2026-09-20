@@ -110,3 +110,32 @@ The lock stops collisions. It does not make a run valid.
   disagree has slept; check `pmset -g log` and discard it.
 - **Report the commit, the window and the count**, so another session can tell a
   real change in the count from an artefact.
+
+## Numbers that describe the suite
+
+From the README session's work on 2026-09-21, and general beyond this file.
+
+**A count in prose rots.** README asserted "150 tests total across five files"
+while the suite was 615, and the sentence invited the reader to confirm it —
+naming no commit, so there was nothing to confirm it against. It had survived
+from 150 to 615 in that state.
+
+**When you find a stale number, first ask whether the sentence needs a number at
+all.** Three outcomes, most durable first:
+
+1. **Delete it** if it is rhetorical. "The other 261 tests cannot catch what this
+   phase risks" is an argument about the *kind* of coverage the rest of the suite
+   provides; the count carries no weight and is strictly more durable gone.
+2. **Anchor it to a commit** if it is a verification claim: *615 tests at
+   `0277b6a`*. That cannot go stale — it can only become not-yet-re-measured, and
+   a reader elsewhere can tell immediately which.
+3. **Pin it as historical** if it records what was true then, and say so.
+
+Refreshing it in place is the one option that guarantees you will be back.
+
+**Prefer an invariant that fails cheaply over a measurement that must be
+repeated.** README's eighteen per-file counts now sum to its stated total, so a
+half-updated edit is caught by arithmetic, with no suite run and no lock. That
+property — failing loudly and locally — is what the old sentence lacked, and it
+is worth reaching for wherever a document states something checkable about the
+code.
