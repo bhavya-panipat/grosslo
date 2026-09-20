@@ -249,6 +249,15 @@ def treasury_forecast(structure: SalaryStructure, tax_breakdown: dict, work_loca
         net_take_home_annual + tds_escrow_annual + epfo_challan_annual
         + professional_tax_annual + nps_remittance_annual, 2
     )
+    # An AVERAGE month, and named so (TREASURY_PERIOD_LABEL_DESIGN.md, D-M4).
+    # No real month equals it: annual_professional_tax() is eleven base
+    # instalments plus a higher February, so February costs more than this.
+    # Computed here rather than in a frontend component because two surfaces
+    # reached for a monthly number and one of them labelled the ANNUAL figure
+    # "Total Monthly Payroll Liability" — the arithmetic belongs beside the
+    # definition it depends on.
+    average_monthly_outlay = round(total_capital_outlay / 12, 2)
+
     return {
         "net_take_home_annual": net_take_home_annual,
         "tds_escrow_annual": tds_escrow_annual,
@@ -258,5 +267,6 @@ def treasury_forecast(structure: SalaryStructure, tax_breakdown: dict, work_loca
         "pt_state_recognized": pt["pt_state_recognized"],
         "pt_is_approximation": pt["is_approximation"],
         "total_capital_outlay": total_capital_outlay,
+        "average_monthly_outlay": average_monthly_outlay,
         "funding_deadline_hours_before_payroll": FUNDING_DEADLINE_HOURS_BEFORE_PAYROLL,
     }
