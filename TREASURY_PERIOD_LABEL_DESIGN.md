@@ -1,7 +1,8 @@
 # An annual figure labelled "Monthly", and a gate with no period at all — fix design
 
-**Status:** design only, **awaiting approval.** No code is changed. Decisions
-D-M1 to D-M4 (§6) are the owner's.
+**Status:** **D-M1 to D-M4 approved 2026-09-21 as recommended.** Backend
+implemented; the frontend labels are requested from the session that owns those
+files. §8 records the runs.
 
 **Why now.** Recorded as an open gap on 2026-09-15 while measuring the
 employer-NPS blast radius, with the owner's note that it errs safe and can queue
@@ -140,3 +141,20 @@ The export modal's component grid, which omits professional tax and so does not
 reconcile when PT is non-zero — raised by the frontend session on 2026-09-21 and
 either fixed there or recorded as its own gap. D-P5, one structure applied to
 every employee in an export list. Any change to when bulk-approve blocks.
+
+
+## 8. Implementation record (2026-09-21)
+
+| Step | Commit | Result |
+|---|---|---|
+| 1 tests, committed red | `a443ee5` | 629 run, 22 failing assertions across 3 of the 4 new tests |
+| 2 `average_monthly_outlay` | `91ad0e6` | 629 OK |
+| Sabotage: define it from net take-home instead of the total | — | 21 assertions fail; the February test still passes, because it is a fact about professional tax rather than about this field |
+
+**The February test passed in the red run too, and that is correct.** It asserts
+that February's professional tax exceeds a twelfth of the annual figure — a
+property of `annual_professional_tax()`, not of the new field. It is there to
+justify the name: if PT were twelve equal instalments, `monthly_outlay` would be
+the right name and `average` would be noise. A test that passes before and after
+is doing different work from one that flips, and it is worth keeping both kinds
+apart when reading a red run.

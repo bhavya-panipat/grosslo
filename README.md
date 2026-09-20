@@ -69,7 +69,10 @@ See "Isn't this what RazorpayX Payroll already does?" in
   and the employer's NPS remittance are summed into a single capital-outlay
   number, with a funding lead time — what treasury needs to have ready before
   payroll runs. The five components reconstruct the total, and the total equals
-  the structure's own CTC.
+  the structure's own CTC. **Every figure in it is annual**; the forecast also
+  reports `average_monthly_outlay`, a twelfth of the total, which is an average
+  month rather than any real one because professional tax is eleven base
+  instalments plus a higher February.
 - **Export**: a real RazorpayX Composite Payout payload (verified against
   RazorpayX's own API docs, not guessed) — nested `fund_account`/`contact`,
   amount in paise. The amount is **net pay**: the treasury forecast's take-home,

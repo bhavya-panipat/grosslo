@@ -133,6 +133,14 @@ all.** Three outcomes, most durable first:
 
 Refreshing it in place is the one option that guarantees you will be back.
 
+**Anchor to a commit a reader can actually fetch.** The point of naming a SHA is
+that someone else can check it; an unpublished SHA keeps the form of that and
+loses its purpose. When the commit you measured is not yet published, name a
+published one whose `tests/` tree object is identical — `git rev-parse <sha>:tests`
+on both — and say that is why. Found by the README session on 2026-09-21, which
+measured at an unpushed commit and anchored its sentence to the published one
+with the same tree.
+
 **Prefer an invariant that fails cheaply over a measurement that must be
 repeated.** README's eighteen per-file counts now sum to its stated total, so a
 half-updated edit is caught by arithmetic, with no suite run and no lock. That
