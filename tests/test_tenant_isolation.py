@@ -40,6 +40,8 @@ import review_queue
 
 review_queue.DB_SCHEMA = "test_tenant_isolation"
 
+from unittest.mock import patch
+
 import psycopg
 from psycopg.rows import dict_row
 from flask.testing import FlaskClient
@@ -258,6 +260,97 @@ class TestApplicationLayerIsolation(TenantIsolationTestCase):
         for bad in (None, "1", True):
             with self.assertRaises(review_queue.TenantContextMissing):
                 review_queue.list_submissions(bad)
+
+
+class TestForwardedHostNeedsBothSettings(TenantIsolationTestCase):
+    """
+    LOGIN_FIX_DESIGN.md §4/§4.1, decision D-L2. Behind a reverse proxy the
+    original Host arrives only as X-Forwarded-Host. This process believes it
+    ONLY when TRUST_FORWARDED_HOST is "1" AND the request comes from a peer in
+    TRUSTED_PROXY_IPS. Both default off, and neither is sufficient alone.
+
+    What is at stake is not only a login: the same resolution decides which
+    tenant an ANONYMOUS submission lands in, so a header believed in the wrong
+    environment would let anyone put a fabricated row into any tenant's queue.
+    """
+
+    SUBMISSION = {"source": "single", "row": {"ctc": 1_800_000, "rent_paid": 0,
+                                              "city": "metro", "nps_opted": False}}
+
+    def _submit(self, base_url, forwarded=None, remote_addr="127.0.0.1", **env):
+        client = _client_for(base_url)
+        headers = {"X-Forwarded-Host": forwarded} if forwarded else {}
+        with patch.dict(os.environ, env, clear=False):
+            for key in ("TRUST_FORWARDED_HOST", "TRUSTED_PROXY_IPS"):
+                if key not in env:
+                    os.environ.pop(key, None)
+            return client.post("/api/submissions", json=self.SUBMISSION, headers=headers,
+                               environ_base={"REMOTE_ADDR": remote_addr})
+
+    def _rows_in(self, tenant_id):
+        return sum(len(s["rows"]) for s in review_queue.list_submissions(tenant_id))
+
+    def test_by_default_a_forwarded_host_is_ignored_entirely(self):
+        before = self._rows_in(self.alpha)
+        resp = self._submit(NO_TENANT_HOST, forwarded="alpha.grosslo.app")
+        self.assertEqual(resp.status_code, 401, "a forwarded host was believed with no settings at all")
+        self.assertEqual(self._rows_in(self.alpha), before, "a row reached Alpha's queue")
+
+    def test_the_flag_alone_does_nothing(self):
+        # The rejected first draft of this design. If this passes while the
+        # peer check is gone, the flag has become sufficient on its own again.
+        resp = self._submit(NO_TENANT_HOST, forwarded="alpha.grosslo.app",
+                            TRUST_FORWARDED_HOST="1")
+        self.assertEqual(resp.status_code, 401)
+
+    def test_the_peer_list_alone_does_nothing(self):
+        resp = self._submit(NO_TENANT_HOST, forwarded="alpha.grosslo.app",
+                            TRUSTED_PROXY_IPS="127.0.0.1")
+        self.assertEqual(resp.status_code, 401)
+
+    def test_both_settings_and_a_listed_peer_resolve_the_forwarded_tenant(self):
+        before_alpha, before_beta = self._rows_in(self.alpha), self._rows_in(self.beta)
+        resp = self._submit(NO_TENANT_HOST, forwarded="alpha.grosslo.app",
+                            TRUST_FORWARDED_HOST="1", TRUSTED_PROXY_IPS="127.0.0.1,::1")
+        self.assertNotEqual(resp.status_code, 401, resp.get_data(as_text=True))
+        self.assertEqual(self._rows_in(self.alpha), before_alpha + 1)
+        self.assertEqual(self._rows_in(self.beta), before_beta,
+                         "the row landed in the wrong tenant's queue")
+
+    def test_an_unlisted_peer_is_not_believed(self):
+        resp = self._submit(NO_TENANT_HOST, forwarded="alpha.grosslo.app", remote_addr="10.1.2.3",
+                            TRUST_FORWARDED_HOST="1", TRUSTED_PROXY_IPS="127.0.0.1")
+        self.assertEqual(resp.status_code, 401)
+
+    def test_a_forwarded_host_naming_no_tenant_still_resolves_nothing(self):
+        for forwarded in ("localhost", "a.b.grosslo.app", "grosslo.app", "   "):
+            with self.subTest(forwarded=forwarded):
+                resp = self._submit(NO_TENANT_HOST, forwarded=forwarded,
+                                    TRUST_FORWARDED_HOST="1", TRUSTED_PROXY_IPS="127.0.0.1")
+                self.assertEqual(resp.status_code, 401)
+
+    def test_a_trusted_forwarded_host_overrides_the_proxys_own_host(self):
+        # What a real proxy produces: Host is the proxy's destination, and the
+        # tenant survives only in the forwarded header.
+        before = self._rows_in(self.beta)
+        resp = self._submit(ALPHA_HOST, forwarded="beta.grosslo.app",
+                            TRUST_FORWARDED_HOST="1", TRUSTED_PROXY_IPS="127.0.0.1")
+        self.assertNotEqual(resp.status_code, 401)
+        self.assertEqual(self._rows_in(self.beta), before + 1)
+
+    def test_reads_still_take_their_tenant_from_the_session_not_the_header(self):
+        # The property that bounds all of this: a believed header can choose
+        # where a submission LANDS, and can never reach another tenant's data.
+        self._seed_both()
+        client = self._logged_in(ALPHA_HOST)
+        with patch.dict(os.environ, {"TRUST_FORWARDED_HOST": "1",
+                                     "TRUSTED_PROXY_IPS": "127.0.0.1"}, clear=False):
+            body = client.get("/api/submissions", headers={"X-Forwarded-Host": "beta.grosslo.app"},
+                              environ_base={"REMOTE_ADDR": "127.0.0.1"}).get_json()
+        for submission in body["submissions"]:
+            for row in submission["rows"]:
+                self.assertEqual(row["tenant_id"], self.alpha,
+                                 "a forwarded host reached another tenant's rows")
 
 
 class TestRlsAsIndependentLayer(TenantIsolationTestCase):

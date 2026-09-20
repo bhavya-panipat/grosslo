@@ -164,6 +164,59 @@ def tenant_slug_from_host(host: str | None) -> str | None:
     return label
 
 
+def _trusted_proxy_peers() -> frozenset:
+    """
+    The peers whose X-Forwarded-Host this process will believe, from
+    TRUSTED_PROXY_IPS (comma-separated, exact matches against
+    request.remote_addr). Empty unless configured.
+
+    EXACT STRINGS, not CIDR ranges. That fits a local proxy on 127.0.0.1 and
+    does NOT fit a deployment whose proxy has a changing address or many
+    instances; such a deployment needs range support, which is deliberately not
+    built until something needs it (LOGIN_FIX_DESIGN.md §4).
+    """
+    raw = os.environ.get("TRUSTED_PROXY_IPS", "")
+    return frozenset(peer.strip() for peer in raw.split(",") if peer.strip())
+
+
+def resolution_host() -> str | None:
+    """
+    The host tenant resolution reads: normally the request's own Host.
+
+    A reverse proxy rewrites Host to its destination and forwards the original
+    as X-Forwarded-Host — measured against Next 15's rewrite proxy, which is
+    why development through it could not sign in at all
+    (LOGIN_FIX_DESIGN.md §1.1). This returns the forwarded value instead, but
+    ONLY when BOTH hold:
+
+      - TRUST_FORWARDED_HOST is exactly "1", and
+      - request.remote_addr is listed in TRUSTED_PROXY_IPS.
+
+    NEITHER IS SUFFICIENT ALONE, and both default to off. That is the whole
+    point (§4.1): the first draft of this design was a single flag, and a flag
+    switched on where the proxy does NOT scrub the header would let anyone
+    choose which tenant an anonymous submission lands in — a route whose own
+    docstring in app.py calls its contents attacker-controlled bank details.
+
+    WHAT THIS DOES NOT DO, stated because it would be easy to assume otherwise:
+    it does not verify that the named peer scrubs the header. Nothing here can.
+    It reduces the blast radius of a misconfiguration; it is not a check that
+    the header is honest. A deployment may enable it only where the terminating
+    proxy sets or overwrites X-Forwarded-Host and is the peer Flask sees.
+
+    Read from the environment per call rather than at import, so a deployment
+    (or a test) that sets these after this module loads still gets the
+    behaviour it configured.
+    """
+    if os.environ.get("TRUST_FORWARDED_HOST") == "1":
+        peers = _trusted_proxy_peers()
+        if peers and request.remote_addr in peers:
+            forwarded = (request.headers.get("X-Forwarded-Host") or "").split(",")[0].strip()
+            if forwarded:
+                return forwarded
+    return request.host
+
+
 def tenant_from_request():
     """
     Resolves the request's tenant from its subdomain, or None.
@@ -174,7 +227,7 @@ def tenant_from_request():
     """
     if "_resolved_tenant" in g:
         return g._resolved_tenant
-    slug = tenant_slug_from_host(request.host)
+    slug = tenant_slug_from_host(resolution_host())
     tenant = review_queue.get_tenant_by_slug(slug) if slug else None
     g._resolved_tenant = tenant
     return tenant
