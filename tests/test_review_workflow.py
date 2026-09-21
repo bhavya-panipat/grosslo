@@ -808,6 +808,52 @@ class TestExportApprovedRow(ReviewQueueTestCase):
         self.assertIsInstance(amount, int)
         self.assertAlmostEqual(amount / 100, body["payout_basis"]["net_monthly"], delta=0.005)
 
+    # --- EXPORT_EMPLOYEE_LIST_DESIGN.md: one structure describes one person ---
+    # Committed failing, before the refusal exists.
+
+    EXPORT_BODY = {
+        "ctc": 1_800_000, "rent_paid": 0, "city": "metro", "nps_opted": False,
+        "band_min": 1_700_000, "band_max": 1_900_000, "work_location": "karnataka",
+    }
+    EMPLOYEE = {"name": "One", "bank_account_number": "1234567890", "ifsc": "HDFC0000001"}
+
+    def _export(self, employees=..., **overrides):
+        body = dict(self.EXPORT_BODY, **overrides)
+        if employees is not ...:
+            body["employees"] = employees
+        return self.client.post("/api/export-razorpayx", json=body)
+
+    def test_two_employees_are_refused_because_one_structure_describes_one_person(self):
+        # Without this, both are paid the SAME amount from ONE person's CTC, and
+        # the treasury_forecast beside them covers one of the two.
+        second = dict(self.EMPLOYEE, name="Two", bank_account_number="9876543210")
+        resp = self._export(employees=[self.EMPLOYEE, second])
+        self.assertEqual(resp.status_code, 400, resp.get_data(as_text=True))
+        self.assertIn("one", resp.get_json()["error"].lower())
+
+    def test_one_employee_still_exports(self):
+        # The other half of the pair: the refusal must not be satisfied by
+        # breaking the case that works.
+        resp = self._export(employees=[self.EMPLOYEE])
+        self.assertEqual(resp.status_code, 200, resp.get_data(as_text=True))
+        body = resp.get_json()
+        self.assertEqual(len(body["payouts"]), 1)
+        self.assertGreater(body["payouts"][0]["amount"], 0)
+        self.assertAlmostEqual(body["treasury_forecast"]["average_monthly_outlay"] * 12,
+                               body["treasury_forecast"]["total_capital_outlay"], delta=0.12)
+
+    def test_an_empty_list_is_still_refused_as_before(self):
+        resp = self._export(employees=[])
+        self.assertEqual(resp.status_code, 400)
+
+    def test_omitting_employees_still_returns_the_forecast_with_no_payouts(self):
+        # The deliberate "check the guardrail before bank details exist" path.
+        resp = self._export()
+        self.assertEqual(resp.status_code, 200, resp.get_data(as_text=True))
+        body = resp.get_json()
+        self.assertNotIn("payouts", body)
+        self.assertIn("treasury_forecast", body)
+
     def test_the_other_export_route_pays_the_same_amount_for_the_same_input(self):
         # /api/export-razorpayx and the per-row export must not disagree about
         # what one person is paid.
