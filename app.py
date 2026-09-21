@@ -784,6 +784,27 @@ def api_export_razorpayx():
     if employees is not None:
         if not isinstance(employees, list) or not employees:
             return jsonify({"error": "employees, if supplied, must be a non-empty list of {name, bank_account_number, ifsc, ...}"}), 400
+        if len(employees) > 1:
+            # REFUSED, not supported (EXPORT_EMPLOYEE_LIST_DESIGN.md, D-E1).
+            # This route computes ONE structure from ONE ctc/rent/city/nps
+            # input. Applying it to a list paid every person the same amount,
+            # derived from a CTC at most one of them has, and returned a
+            # treasury_forecast covering ONE of them beside a payload
+            # disbursing to all — at ten employees, a funding figure a tenth of
+            # what the payload pays out.
+            #
+            # A real batch export needs per-employee compensation inputs, which
+            # is what /api/batch-audit's row shape already is. Refusing here
+            # keeps one meaning per route rather than growing a second batch
+            # path inside one whose premise is a single structure. A comment
+            # saying "send only one" would be a claim about intent; this is
+            # enforced every time the route runs.
+            return jsonify({
+                "error": "This export describes one employee: the payout amount comes from the "
+                         "single ctc/rent_paid/city/nps_opted structure in this request, so a "
+                         "second employee would be paid the first one's figure. Send one employee "
+                         "per request, each with their own compensation inputs.",
+            }), 400
         for e in employees:
             if not isinstance(e, dict) or not e.get("name") or not e.get("bank_account_number") or not e.get("ifsc"):
                 return jsonify({"error": "each employee requires name, bank_account_number, and ifsc"}), 400
