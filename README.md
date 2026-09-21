@@ -433,42 +433,59 @@ What is now verified, 2026-09-19, by that session:
   the page never got past login.
 
 **What is still unverified is behaviour with data.** The rows below say what
-has to be rendered and seen, and none of those checks has been done yet. They
-are listed together because they are one gap with several instances:
+has to be rendered and seen. Several have since been checked, in whole or in
+part — each row says exactly how far, rather than the table implying uniform
+status. They are listed together because they are one gap class with several
+instances, not because they are all in the same state:
 
 | File | Added in | Type-checked | What must still be rendered and seen |
 |---|---|---|
 | `frontend/components/finance/finance-flow.tsx` (`DecidedBy`) | Phase 1.2 | yes | Render a decided row and confirm the decider's name appears; render one with a NULL `decided_by_user_id` and confirm it shows as *Unattributed* rather than blank or, worse, attributed to someone |
-| `frontend/lib/api-types.ts` | Phase 2.1, 2.2, D1 | yes | Nothing further: declarations only (`stages_run`, `PipelineStage`, `rules_triggered`/`rules_total`, `tax_basis_flag`) |
+| `frontend/lib/api-types.ts` | Phase 2.1, 2.2, D1, login fix, treasury NPS, period labels | yes | Nothing further: declarations only (`stages_run`, `PipelineStage`, `rules_triggered`/`rules_total`, `tax_basis_flag`, `Permission`, `SessionResponse` and the auth response types, `nps_remittance_annual`, `treasury_basis_flag`, `average_monthly_outlay`) |
 | `frontend/components/ring-metric.tsx` | Phase 2.2 | yes | Confirm the Compliance ring shows the rule ratio beside the percentage, and that a response lacking those fields still renders the bare percentage rather than `undefined/undefined` |
 
 | `frontend/components/finance/finance-flow.tsx` (`TaxBasisBadge`, `RouteBadge`) | D1 (`1dc3b98`) | yes | **Partly seen, 2026-09-20**, by another session, end to end, against a current backend on a separate port with a throwaway tenant (cleaned up afterwards). A real submission's `tax_basis` was set to NULL, and the API served `tax_basis_flag`. A screenshot showed an `auto_pass_candidate` row with gold *"Fast-tracked"* and *"Computed before tax fix"*, not green *"Clean"*. **Not yet seen:** the badge on the other routes, and a legacy row with no `orchestration` showing the reason under *"Tax basis"* |
+| `frontend/components/finance/finance-flow.tsx` (`TreasuryBasisBadge`) | Treasury NPS fix (`646c5fa`) | yes | **Partly seen, 2026-09-21**, same pattern as `TaxBasisBadge` above and same residual: a real submission with `nps_remittance_annual` stripped from its stored forecast under RLS context served `treasury_basis_flag`, and the badge rendered on an `auto_pass_candidate` row with the reason surfacing via *Routing decision*. **Not yet seen:** other routes, and the legacy no-`orchestration` panel |
+| `frontend/components/optimize/razorpayx-export-modal.tsx` (funding grid) | Treasury NPS + PT fix (`646c5fa`, `17051fd`) | yes | **Seen, 2026-09-21**, via a live `/optimize` → export run: all five values (Net take-home, TDS escrow, EPFO challan, NPS remittance, State PT) rendered and summed exactly to the total, with a genuinely nonzero PT confirmed via `work_location: "karnataka"` at the API level. **Not pixel-screenshotted** — confirmed via DOM text (`get_page_text`), not a screenshot; the Browser pane went into a hidden state mid-run |
+| `frontend/components/optimize/executive-summary-card.tsx`, `frontend/components/finance/treasury-gate.tsx` (period-label relabel) | Period-label fix (`4a14439`) | yes | **Not yet rendered or seen.** Both are static string literals ("Total Annual Payroll Liability", detail line naming all five components; "Required Treasury Funding, annual (pending rows)"), structurally identical to other already-proven lines in the same components — but neither has actually been observed rendering. The Executive Summary card needs a CSV upload this session's browser tooling cannot drive (no file-input capability). The Treasury Gate's labelled line only renders in the `live: true` branch, which needs a real RazorpayX balance fetch to succeed — this session has no such credentials, and a fetch-mock attempt to force that branch didn't reach a working render within reasonable effort |
 
-Until each is checked, the honest description of this project is **"backend
-verified, UI surfaces type-checked, their behaviour with data unverified"**.
+Until every row is checked, the honest description of this project remains
+one of degrees, not a single blanket claim: some UI surfaces are backend-
+verified and seen rendering real data end to end (login, the tax- and
+treasury-basis badges on their one confirmed route, the export modal's
+funding grid), some are type-checked only (`DecidedBy`, `ring-metric.tsx`,
+the period-label relabel), and none is claimed as more than the row above it
+states.
 
-**The Finance/HR login does not work against current code for any tenant that
-has completed bootstrap.** Found 2026-09-20 by the session above, not yet fixed.
-`frontend/components/role-gate.tsx` still speaks the pre-Phase-1.2 protocol, and
-fails in two independent ways:
+**The Finance/HR login is fixed, 2026-09-21.** *(This section used to open "The
+Finance/HR login does not work against current code for any tenant that has
+completed bootstrap" — found 2026-09-20, closed the next day. Kept as history
+rather than deleted, since the failure mode is worth a future reader knowing
+about even once it can no longer be reproduced.)* `role-gate.tsx` spoke the
+pre-Phase-1.2 protocol — POSTing `{role, code}` (401 once a tenant's codes are
+retired) and checking `d.role === role` against a session shape that no longer
+has a `role` field — and is now `permission-gate.tsx`
+(`LOGIN_FIX_DESIGN.md`, D-L1 to D-L4 approved, `4097498` on `origin/main`):
+real email/password login, permissions read from the server rather than
+re-derived from a role name, and the bootstrap flow as a secondary path.
 
-1. It POSTs `{role, code}` to `/api/auth/login`. Once a tenant's access codes are
-   retired, the backend correctly answers 401, *"Shared access codes are no longer
-   used for this workspace"*. This was hit for real.
-2. It checks `d.role === role` against `GET /api/auth/session`, which now returns
-   `{user_id, tenant_id, roles}` with no `role` field. So the check cannot pass.
+The local-dev `Host`-forwarding gap found while designing this — Next's
+rewrite proxy doesn't forward the original `Host` to an absolute destination,
+so login and the anonymous *Submit correction* flow both answered "Unknown
+workspace" through the proxy — is also closed: `TRUST_FORWARDED_HOST=1`
+**and** a listed `TRUSTED_PROXY_IPS` peer are both required before
+`X-Forwarded-Host` is trusted, off by default (`3ef625a`).
 
-Separately, for local development, Next's rewrite proxy does not forward the
-original `Host` header to an absolute destination. `/api/auth/login` resolves
-the tenant from `Host`, so through the proxy it answers *"Unknown workspace"*.
-
-The backend's identity model was verified by its own tests. The page that uses
-it was never exercised against it, because no one could run Node here. The fix is
-feature work: an email/password form and a bootstrap flow. Tracked in
-`docs/PROJECT_STATUS.md`. `IDENTITY_DESIGN.md` §7 and
-`COMPLIANCE_BREADTH_DESIGN.md` reference this table rather than keeping their
-own copies — a second list would be the same drift problem those phases were
-written to remove.
+Verified end-to-end through the real Next proxy, not just type-checked:
+bootstrap on a fresh tenant, password login with both pages opening, an
+hr-only account correctly blocked from `/finance` (never shown the login
+form, per the design's *signed in, not permitted* state), a wrong password
+showing the generic message, sign-out, the anonymous submission succeeding
+through the proxy, and a dead backend showing the form with a notice instead
+of a permanently blank page. Tracked in `docs/PROJECT_STATUS.md`.
+`IDENTITY_DESIGN.md` §7 and `COMPLIANCE_BREADTH_DESIGN.md` reference this
+table rather than keeping their own copies — a second list would be the same
+drift problem those phases were written to remove.
 
 ## What's genuinely AI-native, and what isn't
 

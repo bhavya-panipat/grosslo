@@ -75,7 +75,6 @@ Owners are records and roles, not sessions. Sessions end; records don't.
 |---|---|---|---|---|
 | **`(Act 30 of 2025)` is still unverified — the removal closed the exposure, not the question.** *Added 2026-09-20 at the user's instruction, so that "handled by removing it" does not become the last anyone hears of it.* The number was struck from TE1–TE4, PE4 and R5 on 2026-09-14 (`3f717f9`), and the code comments at `legal_claims.py:311` and `compliance_rules.py:343` record why. What was never done is the verification itself: the Gazette check failed in one session — the Act's own entry was not located and the subject lines carried no act numbers, so the number has to be read out of a Gazette PDF. Two design docs still write it in prose (`COMPLIANCE_BREADTH_DESIGN.md` §238, `R1_TE4_RECORD_UPDATE_DESIGN.md`), which is harmless as long as nobody copies it back into a record. The short title and the 1 April 2026 commencement *are* verified from s. 1 (read 2026-09-13). | **Not fail-open today** — no record asserts the number, so nothing false is emitted. It becomes one the moment anyone writes it back in on the strength of these docs. | The legal-claims records (`legal_claims.py`, `compliance_rules.py`) and whoever next does a primary-source lookup; the design-doc prose is the same owner's. Decision: project owner. | Either verify it from a Gazette PDF and restore it to all six records in one commit, or decide it stays out permanently and strike it from the two design docs' prose so it cannot be copied back. Not to be done piecemeal: one record carrying it while five do not is the inconsistency the 2026-09-14 removal existed to avoid. | None formal; fold into the next primary-source lookup session. |
 | **The rationale guard: what is left after the fix.** *Updated 2026-09-20: items (1) and (4) below were implemented and verified; see the notes after each.* Steps 3–8 of `RATIONALE_GUARD_CITATION_DESIGN.md` shipped (`a98e83f` to `ef98fc2`, each suite- and sabotage-verified). Each rephrased line is now grounded only in its own flag's rationale; a rationale's citation digits no longer ground figures; and a line citing a section it was never supplied is rejected, at all four citing call sites. **Still open:** (1) any two rephrased lines that *contain no figures*, returned in swapped order, are still served, each flag carrying the other's reason. That covers any flag pair, R1 + R4 included, and the guardrail's checks too. *(Corrected 2026-09-16: this item first said "figure-free flags (e.g. R3 and R6)", which was measured to be too narrow.)* **Closed 2026-09-18** by one model call per flag (`9fd7bbf`, `84c8173`, `REPHRASING_ALIGNMENT_DESIGN.md`): the code sets the pairing, so no line can land on another flag. What remains of it is narrower: an *off-topic* line inside a flag's own call is still served (the (C) detector was deliberately not built); (2) an unparsed citation form ("s. 17(1)(h)", plurals) whose digits equal a real figure is not checked; (3) "Rs 2,025" in R1's own line (Act years deferred, decision 3); (4) `output_boundary.py` had the same citation/figure namespace problem, and one of its tests grounded a year by hand. **Closed 2026-09-20** (`bada9d4`..`866176e`, `OUTPUT_BOUNDARY_GROUNDING_DESIGN.md`): measuring it found it misjudged real AI output both ways. It now checks only declared model fields, grounds them per object, matches below 100 exactly, and is tested on real output. Its one residual — negotiate's lever text "formerly 80CCD2" grounding 80 and 2 — was **closed 2026-09-20** in `f104214` (user-approved emitted-text change): the lever now reads "(Section 124, formerly Section 80CCD(2))", `_grounded_figures(lever)` is empty, and a fabricated "2 lakh" in a negotiation point is now reported on real output (597 OK; the one-line sabotage fails exactly the 7 tests predicted). | **Fail-open.** The figure-bearing cases are closed: figures borrowed across flags, swapped lines with figures, citation-digit figures, and fabricated citations. (1) can still attach the wrong reason to a routing decision whenever the model phrases both lines without numbers, which is less narrow than first stated. | Numeric guard, `ai_layer.py`; `output_boundary.py` for (4). Decisions: project owner. | (1) is being designed in `REPHRASING_ALIGNMENT_DESIGN.md` (user-approved 2026-09-15), because a figure check cannot see it. (3) waits on the CA's ruling on packet question R1. (4) is done, including its residual. (2): decide whether to address. | None formal. |
-| **The frontend login is broken against current code.** `role-gate.tsx` POSTs `{role, code}` to `/api/auth/login`, which answers 401 once a tenant's codes are retired, and checks `session.role`, a field `GET /api/auth/session` no longer returns (`{user_id, tenant_id, roles}`). Found 2026-09-20 by the frontend session in a real end-to-end run, not by reading. For local development, Next's rewrite does not forward `Host`, so login through the proxy answers "Unknown workspace". | **No bootstrapped tenant can sign in through the UI.** The backend is correct; the page was never run against it (the node-on-`PATH` gap). | Frontend, `frontend/components/role-gate.tsx`. Decisions: project owner. | A design for an email/password login form and a bootstrap flow, plus Host handling for local development. | None formal. It is live now. |
 | **R1 cites s. 2(y) of the Code on Wages, 2019, whose commencement is not verified.** The text and Act No. 29 were read from India Code on 2026-09-14; India Code lists only a partial 18 Dec 2020 notification, not one for s. 2. OP1 records the same proposition. | A statutory rule whose provision may not yet be in force — unknown, not known wrong. | Legal-claim inventory: R1 in `compliance_rules.py`, and OP1. | A person with a browser finds the Gazette commencement notification for s. 2 of the Code on Wages. Found: record it and mark the citation checked. The Gazette's search needs a keyword with no hyphen and dates as `dd-Mon-yyyy`. | 2026-12-09 (OP1 is a claim) |
 | **R1's emitted text says "Code on Wages 2025"; its `instrument` says 2019. Added 2026-09-14: s. 2(y) is a deeming rule, and whether R1's predicate implements it depends on how allowances outside the exclusion list are read.** | A wrong year in user-facing text, pending a CA ruling. It also keeps one guard leak open (`RATIONALE_GUARD_CITATION_DESIGN.md` §4.6). | CA reviewer. Already tracked as packet question R1 (`docs/CA_REVIEW_PACKET.md`) and deliberately not restated here. | The CA rules on the packet question. | 2026-10-10 escalation trigger |
 
@@ -103,8 +102,20 @@ Phase 3 starts.
     is eleven base instalments plus a higher February, so no real month equals a
     twelfth. A test pins that February exceeds the average, which is what makes
     the word honest.
-  - **Frontend:** the card's and gate's labels are the frontend session's files,
-    requested rather than edited here.
+  - **Frontend, done 2026-09-21 03:24** (`4a14439`): `executive-summary-card.tsx`
+    relabelled *Total Annual Payroll Liability*, detail line corrected to name
+    all five components; `treasury-gate.tsx` relabelled *Required Treasury
+    Funding, annual (pending rows)*, comparison unchanged. `api-types.ts` gained
+    `average_monthly_outlay` for type accuracy, not surfaced. **Verified by
+    `tsc` only, not rendered** — both are static string literals, structurally
+    identical to other already-proven lines in the same components, but
+    neither was actually seen: the Executive Summary card needs a CSV upload
+    this session's browser tooling cannot drive (no file-input capability),
+    and the Treasury Gate's labelled line only renders once a live RazorpayX
+    balance fetch succeeds, which needs credentials this session doesn't have.
+    A fetch-mock attempt to force that render path didn't reach a pixel/DOM
+    confirmation within reasonable effort. Added to README's *Known
+    unverified surfaces* table rather than claimed closed.
 
 **Closed 2026-09-21 (later):**
 - ~~Treasury funding leaves out employer NPS~~ — fixed
@@ -125,8 +136,61 @@ Phase 3 starts.
     sourcing it from employer PF failed 20, and disabling the stored-row flag
     failed exactly its 2. Under the first, the field-presence test still passed —
     so the identities, not the field's existence, are what catch it.
-  - **Frontend:** `api-types.ts` and the export modal's component list are the
-    frontend session's files and were requested from it rather than edited here.
+  - **Frontend, done 2026-09-21 02:58** (`646c5fa`): `api-types.ts` gained
+    `nps_remittance_annual` and `treasury_basis_flag` (typed from the actual
+    backend return value — no `basis` key, unlike `tax_basis_flag`, since a
+    stored forecast either carries the term or predates it); `finance-flow.tsx`
+    gained a `TreasuryBasisBadge` alongside `TaxBasisBadge`, same gold caution
+    treatment, plus the legacy no-`orchestration` panel; the export modal's
+    grid gained NPS remittance. **A second gap found while fixing this one,
+    not left as a note**: the same grid also omitted `professional_tax_annual`,
+    so it only reconciled to the total when PT was 0 for a row's
+    `work_location` — fixed in the same session, 03:07 (`17051fd`).
+  - **Verified**: a real submission with `nps_remittance_annual` stripped from
+    its stored forecast under RLS context served `treasury_basis_flag`; the
+    badge rendered on an `auto_pass_candidate` row with the reason surfacing
+    via *Routing decision* (not yet seen on other routes, or the legacy panel
+    itself — same residual gap `TaxBasisBadge` already has). A live
+    `/optimize` → export run confirmed all five grid values (including a
+    genuinely nonzero PT via `work_location: "karnataka"`, ₹2,500) sum exactly
+    to the total. The 5-column layout was DOM-text confirmed, not
+    pixel-screenshotted — the Browser pane went into a hidden state mid-run.
+
+**Closed 2026-09-21 (login):**
+- ~~The frontend login is broken against current code~~ — fixed
+  (`LOGIN_FIX_DESIGN.md`, D-L1 to D-L4 approved). `role-gate.tsx` still spoke
+  the pre-Phase-1.2 protocol: it POSTed `{role, code}` to `/api/auth/login`
+  (401 once a tenant's codes are retired) and checked `session.role` against
+  `GET /api/auth/session`, which no longer returns that field. Replaced by
+  `permission-gate.tsx` — real email/password login, `permissions`
+  server-derived from `auth.ROLE_PERMISSIONS` (`GET /api/auth/session` gained
+  `permissions` and `display_name`, `ea63607`), the bootstrap flow as a
+  secondary path reachable only via a genuine `bootstrap_required` response,
+  and all five states named in the design (including *signed in, not
+  permitted* never showing the login form, and a failed session fetch
+  showing the form with a notice rather than a permanently blank page — a
+  real bug caught in review, not shipped as found).
+  - **The local-dev `Host`-forwarding gap is also closed**: Next's rewrite
+    proxy doesn't forward the original `Host` to an absolute destination, so
+    login (and the anonymous *Submit correction* flow, found while
+    designing this) answered "Unknown workspace" through the proxy.
+    `auth.tenant_slug_from_host` now reads `X-Forwarded-Host` when BOTH
+    `TRUST_FORWARDED_HOST=1` and the request's peer is in `TRUSTED_PROXY_IPS`
+    — neither alone does anything, specifically because a bare flag with no
+    peer check was the reviewed-and-rejected first draft (same "one
+    enforcement layer" risk `MULTI_TENANT_DESIGN.md` built RLS to catch,
+    applied here to a route whose own docstring calls its contents
+    attacker-controlled bank details) (`3ef625a`).
+  - **Verified end-to-end**, not just type-checked: bootstrap on a fresh
+    tenant, password login with both pages opening, an hr-only account
+    hitting the not-permitted state on `/finance`, a wrong password showing
+    the generic message, sign-out, the anonymous submission succeeding
+    through the proxy, and a dead backend showing the form with a notice —
+    all against the real backend, through the real Next proxy, with all test
+    data cleaned up afterward. `permission-gate.tsx` is typed on the real
+    `Permission` union (`api-types.ts`), not `string`, so a typo in a page's
+    `permission` prop fails at build rather than silently denying everyone.
+  - **Published**: `4097498` on `origin/main`.
 
 **Closed 2026-09-21:**
 - ~~The payout payload's amount is gross, not net~~ — fixed
