@@ -8,8 +8,18 @@ editing it rather than inferring from a plausible match.
 
 ## Each session pushes its own commits
 
-**Push only commits you wrote. Never push a range containing another session's
-work.**
+**Do not commit onto another session's unpushed tip. Wait for it to land, then
+stack yours on top.** Then: **push only commits you wrote, never a range
+containing another session's work.**
+
+The first rule is the load-bearing one, and it is a *committing* discipline,
+not a pushing one. "Each session pushes its own commits" is a property of the
+commit order: once commits interleave, no push can honour it. On 2026-09-21 the
+stack ran theirs → mine → theirs → mine → theirs, and every cleared commit was
+stranded behind an uncleared one belonging to a session whose user had not been
+asked yet. Nobody had done anything wrong at push time; the shape was already
+unfixable by then, and the only exits were a cherry-pick or publishing someone
+else's work.
 
 A branch push publishes *everything reachable*, not the commits you authored.
 If another session's commits sit underneath yours, `git push origin HEAD:main`
@@ -32,10 +42,12 @@ and your push; it has, by 14 seconds, and the push published a commit that had
 never been in a suite run. Another session has committed *on top of* a commit
 in the seconds between writing it and pushing it.
 
-If another session's unpublished work sits under yours, **wait for them to push
-first**, then push yours on top. Cherry-picking your own commits onto
-`origin/main` is the escape hatch; duplicates drop out by patch-id when their
-range later lands. Never push a range ending at a commit that is knowingly red —
+If another session's unpublished work already sits under yours, wait for them
+to push, then push yours on top. If your commits are interleaved with theirs,
+the separable order is gone: cherry-pick your own onto `origin/main` and let
+the duplicates drop out by patch-id when their range lands, or get their
+commits cleared and publish the range as one. Never push a range ending at a
+commit that is knowingly red —
 a test committed failing is a deliberate step in this repo's sequence, and
 publishing that state is worse than publishing an unverified one.
 
