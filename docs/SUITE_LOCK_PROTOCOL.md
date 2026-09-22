@@ -16,22 +16,38 @@ half the usual, plus `UniqueViolation` on `pg_namespace_nspname_index`,
 mkdir /tmp/grosslo-suite.lock        # atomic: succeeds for exactly one process
 ```
 
-- **It succeeded:** write an `owner` file naming your session, **a pid that
-  lives for the whole job**, and what you are running. Release when your whole
-  block of runs is done, not between runs.
+- **It succeeded:** write the `owner` file **immediately**, before anything
+  else — naming your session, **a pid that lives for the whole job**, and what
+  you are running. Until it exists, your lock is anonymous and nobody can queue
+  behind you or ask you anything. Release when your whole block of runs is done,
+  not between runs.
 - **It failed:** you do not have the lock. Read `owner`, queue behind whoever is
   named, and start nothing. Read the exit status; do not assume it.
+- **It failed and there is no `owner` file:** you still do not have the lock.
+  `mkdir` and the write are two steps, so you may simply have read in the gap —
+  wait a few seconds and read again. If it stays ownerless with no suite process
+  running, it is an abandoned lock from a session that died between the two
+  steps, and there is no one to ask. Say so to the other sessions *before*
+  clearing it, and name the lock's timestamp so anyone who does hold it can
+  object. Never write your own `owner` file into a lock directory you did not
+  create — that makes you the apparent holder of someone else's lock.
 
 Release, with the check that makes it safe:
 
 ```sh
-grep -q "pid=$$" /tmp/grosslo-suite.lock/owner && rm -rf /tmp/grosslo-suite.lock
+# MY_SESSION is the name you wrote into `owner` when you took the lock.
+# Match the SESSION NAME, not a pid: a pid can be dead while the job is alive.
+# If you match a pid at all, it must be the long-running shell's $$ — never a
+# child's, and never one from a command substitution.
+MY_SESSION="whatever you wrote at acquire"
+grep -qF "session=$MY_SESSION" /tmp/grosslo-suite.lock/owner \
+  && rm -rf /tmp/grosslo-suite.lock
 ```
 
 Put it on an `EXIT` trap so a crash releases the lock instead of leaving a
 genuinely stale one behind. The `grep` must match something that identifies
-**you** — a session name is safer than a pid, because a pid can be dead while
-the job is alive (below).
+**you**, and it must be something that stays true for the whole job — which a
+pid is not (below).
 
 ### The pid you write is the hard part
 
