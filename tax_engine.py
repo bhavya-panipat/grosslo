@@ -231,6 +231,30 @@ class SalaryStructure:
                 + self.employer_pf + self.employer_nps)
 
 
+def reconciliation_gap(structure: SalaryStructure) -> float:
+    """
+    The stated CTC minus the money this tool actually models.
+
+    Positive: the stated CTC carries something outside these five components —
+    gratuity, insurance premiums, a bonus provision. This is the ORDINARY state
+    of a correctly entered employee, not an error, because none of those are
+    modelled here.
+
+    Negative: the components exceed the stated CTC. That is an input error —
+    an extraction or a person has misread the offer letter — and no figure
+    derived from the row is trustworthy until it is resolved.
+
+    Not a second source of truth: it is the difference between two quantities
+    that both already exist. It exists because 'ctc' means two different things
+    in this codebase — optimize(), the band guardrail and R1 use the STATED
+    figure, while treasury_forecast(), the payout and the EPFO/NPS checks use
+    total(). They agree whenever a structure reconciles, which is exactly why
+    four sweeps missed the places that subtract one from the other.
+    See CTC_RECONCILIATION_DESIGN.md.
+    """
+    return round(structure.ctc - structure.total(), 2)
+
+
 def derive_pf(basic_annual: float, voluntary_full_basic: bool = True) -> float:
     """
     Employer PF = 12% of basic.
