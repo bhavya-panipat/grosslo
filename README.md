@@ -440,9 +440,9 @@ instances, not because they are all in the same state:
 
 | File | Added in | Type-checked | What must still be rendered and seen |
 |---|---|---|
-| `frontend/components/finance/finance-flow.tsx` (`DecidedBy`) | Phase 1.2 | yes | Render a decided row and confirm the decider's name appears; render one with a NULL `decided_by_user_id` and confirm it shows as *Unattributed* rather than blank or, worse, attributed to someone |
+| `frontend/components/finance/finance-flow.tsx` (`DecidedBy`) | Phase 1.2 | yes | **Seen, 2026-09-22**: a real approval through the UI showed *"Decided Owner (owner) · 9/22/2026, 5:05:33 PM"*; a second row with `decided_by_user_id` cleared to NULL under RLS context (simulating a pre-identity decision) showed *"Unattributed — decided as finance before this workspace had user accounts · ..."* on reload. Both states, not just one |
 | `frontend/lib/api-types.ts` | Phase 2.1, 2.2, D1, login fix, treasury NPS, period labels | yes | Nothing further: declarations only (`stages_run`, `PipelineStage`, `rules_triggered`/`rules_total`, `tax_basis_flag`, `Permission`, `SessionResponse` and the auth response types, `nps_remittance_annual`, `treasury_basis_flag`, `average_monthly_outlay`) |
-| `frontend/components/ring-metric.tsx` | Phase 2.2 | yes | Confirm the Compliance ring shows the rule ratio beside the percentage, and that a response lacking those fields still renders the bare percentage rather than `undefined/undefined` |
+| `frontend/components/ring-metric.tsx` | Phase 2.2 | yes | **Seen, 2026-09-22**: a real `/optimize` run showed *"Compliance 100% (6/6 rules)"*, the ratio alongside the percentage as designed. A fetch-mocked response with `rules_total`/`rules_triggered` stripped (the pre-2.2 shape — unreachable through today's live backend, which always populates them) showed a bare *"Compliance 100%"* with no detail suffix — confirmed by reading the rendered text directly, not `undefined/undefined` |
 
 | `frontend/components/finance/finance-flow.tsx` (`TaxBasisBadge`, `RouteBadge`) | D1 (`1dc3b98`) | yes | **Partly seen, 2026-09-20**, by another session, end to end, against a current backend on a separate port with a throwaway tenant (cleaned up afterwards). A real submission's `tax_basis` was set to NULL, and the API served `tax_basis_flag`. A screenshot showed an `auto_pass_candidate` row with gold *"Fast-tracked"* and *"Computed before tax fix"*, not green *"Clean"*. **Not yet seen:** the badge on the other routes, and a legacy row with no `orchestration` showing the reason under *"Tax basis"* |
 | `frontend/components/finance/finance-flow.tsx` (`TreasuryBasisBadge`) | Treasury NPS fix (`646c5fa`) | yes | **Partly seen, 2026-09-21**, same pattern as `TaxBasisBadge` above and same residual: a real submission with `nps_remittance_annual` stripped from its stored forecast under RLS context served `treasury_basis_flag`, and the badge rendered on an `auto_pass_candidate` row with the reason surfacing via *Routing decision*. **Not yet seen:** other routes, and the legacy no-`orchestration` panel |
@@ -451,11 +451,11 @@ instances, not because they are all in the same state:
 
 Until every row is checked, the honest description of this project remains
 one of degrees, not a single blanket claim: some UI surfaces are backend-
-verified and seen rendering real data end to end (login, the tax- and
-treasury-basis badges on their one confirmed route, the export modal's
-funding grid), some are type-checked only (`DecidedBy`, `ring-metric.tsx`,
-the period-label relabel), and none is claimed as more than the row above it
-states.
+verified and seen rendering real data end to end (login, `DecidedBy` in both
+its states, `ring-metric.tsx` in both its states, the tax- and treasury-basis
+badges on their one confirmed route, the export modal's funding grid), one is
+type-checked only with no live render at all (the period-label relabel, and
+precisely why), and none is claimed as more than the row above it states.
 
 **The Finance/HR login is fixed, 2026-09-21.** *(This section used to open "The
 Finance/HR login does not work against current code for any tenant that has
