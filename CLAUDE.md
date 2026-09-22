@@ -36,8 +36,8 @@ If another session's unpublished work sits under yours, **wait for them to push
 first**, then push yours on top. Cherry-picking your own commits onto
 `origin/main` is the escape hatch; duplicates drop out by patch-id when their
 range later lands. Never push a range ending at a commit that is knowingly red —
-tests committed failing are a deliberate step here (see below), and publishing
-that state is worse than publishing an unverified one.
+a test committed failing is a deliberate step in this repo's sequence, and
+publishing that state is worse than publishing an unverified one.
 
 ## Committing in a shared tree
 
@@ -86,21 +86,6 @@ a figure not traceable to the data that call site supplied, plus a second
 output-boundary layer that trusts no call site to have supplied a correct
 allow-set. Before changing anything in `tax_engine.py`, `optimizer.py`,
 `ai_layer.py` or `app.py`, read how the guard works, and run the suite after.
-
-## How changes are made here
-
-The sequence visible throughout the history is **scope → pin → fix → record**:
-
-1. **Scope** the gap in a `*_DESIGN.md`, numbering the decisions (`D-T1`,
-   `D-M3`, `D-E1`), and commit that before writing code.
-2. **Pin** the bug with a test that fails, committed failing and labelled so
-   in the subject — this is deliberate, and proves the test can detect the bug.
-3. **Fix** it, citing the decision IDs in the commit subject.
-4. **Record** the outcome in `docs/PROJECT_STATUS.md` and, where a user-visible
-   claim changed, in the README.
-
-Commit messages here are long and explain *why*, how the bug survived, and what
-it would have cost. Match that; a one-line subject is not enough.
 
 ## Claims in documentation must be checkable
 
