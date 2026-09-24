@@ -18,8 +18,7 @@ import unittest
 
 from tax_engine import SalaryStructure, reconciliation_gap
 from optimizer import optimize, best_regime_for_given_structure
-from app import _build_current_structure
-from ai_layer import negotiate
+from app import _build_current_structure, _build_optimize_response
 
 from tests.test_review_workflow import ReviewQueueTestCase, _client
 
@@ -232,33 +231,56 @@ class TestSiteBNegotiationDoesNotFabricateLeverage(unittest.TestCase):
                 self.assertGreater(s.total(), ctc)
                 self.assertLess(reconciliation_gap(s), 0.0)
 
+    def _pipeline(self, ctc, extracted):
+        """
+        The REAL path. An earlier version of these tests called negotiate()
+        directly with ctc=structure.total() and a recommendation built from the
+        same figure — that is, with the corrected arguments supplied by hand, so
+        the test passed with the defect fully present. It asserted nothing.
+        The route reaches negotiate() through the pipeline, and the pipeline is
+        where the wrong argument is chosen, so that is what has to be exercised.
+        """
+        response, raw = _build_optimize_response(
+            ctc, RENT, CITY, False, extracted, False, skip_ai=True)
+        structure = _build_current_structure(extracted, ctc, raw["recommended"].regime)
+        return response, structure
+
     def test_no_saving_is_offered_that_the_structure_cannot_deliver(self):
-        # Each of these structures is already optimal for the money it holds,
-        # so the honest answer is zero. The shipped figures were Rs 90,417.60,
-        # Rs 44,928.00 and Rs 3,61,670.40 respectively.
+        # Each of these structures is already optimal for the money it holds, so
+        # the honest answer is zero. Shipped today: Rs 90,417.60, Rs 44,928.00
+        # and Rs 3,61,670.40 — measured through this exact call, not recalled.
         for ctc, basic, hra in self.OVERFLOWING:
             with self.subTest(ctc=ctc):
-                s = _build_current_structure({"basic": basic, "hra": hra, "lta": 0},
-                                             ctc, "new")
-                current = best_regime_for_given_structure(s, RENT, CITY)
-                recommended = optimize(ctc=s.total(), rent_paid=RENT, city=CITY,
-                                       nps_opted=False)["recommended"]
-                result = negotiate(
-                    current_structure=s, current_best=current,
-                    recommended=recommended.structure,
-                    recommended_regime=recommended.regime,
-                    recommended_tax=recommended.tax_breakdown,
-                    ctc=s.total(), skip_ai=True,
-                )
-                self.assertEqual(result["total_annual_saving"],
-                                 _like_for_like_saving(s))
+                response, structure = self._pipeline(
+                    ctc, {"basic": basic, "hra": hra, "lta": 0})
+                self.assertEqual(response["negotiation"]["total_annual_saving"],
+                                 _like_for_like_saving(structure))
+
+    def test_the_response_says_the_input_disagrees_with_itself(self):
+        # Section 6.3: a negative gap is an input error, and this is the one
+        # place the tool should be loud — an offer letter whose components
+        # exceed its stated CTC has been misread, and nothing downstream of it
+        # is trustworthy until that is resolved.
+        for ctc, basic, hra in self.OVERFLOWING:
+            with self.subTest(ctc=ctc):
+                response, structure = self._pipeline(
+                    ctc, {"basic": basic, "hra": hra, "lta": 0})
+                self.assertTrue(response["components_exceed_stated_ctc"])
+                self.assertAlmostEqual(response["reconciliation_gap"],
+                                       reconciliation_gap(structure), places=2)
 
     def test_a_reconciling_extraction_is_unchanged(self):
-        # The both-states pair for Site B: the ordinary path must keep working.
-        s = _build_current_structure({"basic": 1_440_000, "hra": 720_000, "lta": 0},
-                                     3_600_000, "new")
-        self.assertAlmostEqual(s.total(), 3_600_000, places=2)
-        self.assertEqual(reconciliation_gap(s), 0.0)
+        # The both-states pair for Site B: the ordinary path keeps its real,
+        # genuine saving. Derived from the structure, not pinned to a figure.
+        extracted = {"basic": 1_440_000, "hra": 720_000, "lta": 0}
+        response, structure = self._pipeline(3_600_000, extracted)
+        self.assertEqual(reconciliation_gap(structure), 0.0)
+        self.assertFalse(response["components_exceed_stated_ctc"])
+        self.assertEqual(response["negotiation"]["total_annual_saving"],
+                         _like_for_like_saving(structure))
+        # And it is a real number, not an incidental zero — otherwise this
+        # both-states pair would pass even if the fix zeroed every saving.
+        self.assertGreater(response["negotiation"]["total_annual_saving"], 0)
 
 
 class TestSiteCTheCorrectionKeepsTheAuditedStructure(unittest.TestCase):
