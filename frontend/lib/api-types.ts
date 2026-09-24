@@ -294,8 +294,10 @@ export type BatchAuditResponse = {
     total_excess_contribution: number;
     total_unclaimed_savings: number;
     /** Rows whose components don't sum to their stated CTC. Information, not
-     *  an error count: for most rows the gap is the gratuity accrual. */
-    rows_not_reconciling: number;
+     *  an error count: for most rows the gap is the gratuity accrual.
+     *  Optional because BatchFlow restores audit results from
+     *  sessionStorage, which can hold one from before D-S2. */
+    rows_not_reconciling?: number;
   };
   penalty_scenario: PenaltyScenario;
 };

@@ -324,6 +324,19 @@ export default function BatchFlow() {
               submittedCount={auditResult.rows.length}
               rows={auditResult.rows}
             />
+            {/* D-S2: information, not an error count. For most rows the gap
+                is the gratuity accrual the stated CTC carries and this tool
+                doesn't model; unclaimed savings are computed from the listed
+                components either way. A batch where it's unexpectedly high
+                says something about the upload. `?? 0` because an audit
+                result restored from sessionStorage can predate the field. */}
+            {(auditResult.summary.rows_not_reconciling ?? 0) > 0 && (
+              <p className="-mt-2 px-1 text-xs text-neutral-500">
+                {auditResult.summary.rows_not_reconciling} of {auditResult.summary.total_rows} row
+                {auditResult.summary.total_rows === 1 ? "'s" : "s'"} components don&apos;t sum to the stated CTC — usually
+                gratuity or insurance, which aren&apos;t modelled. Savings above are computed from the listed components.
+              </p>
+            )}
             <AuditSummaryCard
               flaggedCount={auditResult.summary.flagged_count}
               epfoCapExceededCount={auditResult.summary.epfo_cap_exceeded_count}

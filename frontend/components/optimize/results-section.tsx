@@ -4,6 +4,7 @@ import ComplianceCard from "@/components/compliance-card";
 import ExplainCard from "@/components/explain-card";
 import CardShell from "@/components/card-shell";
 import RecommendationBanner from "@/components/optimize/recommendation-banner";
+import ComponentsExceedCtcBanner from "@/components/optimize/components-exceed-ctc-banner";
 import CapabilityStrip from "@/components/optimize/capability-strip";
 import CompositionBars from "@/components/optimize/composition-bars";
 import GuardrailPanel from "@/components/optimize/guardrail-panel";
@@ -35,6 +36,7 @@ export default function ResultsSection({
 
   return (
     <div className="flex flex-col gap-6">
+      <ComponentsExceedCtcBanner data={data} />
       <RecommendationBanner data={data} />
       <CapabilityStrip data={data} extractionRan={extractionRan} />
       <ExecutionTraceDrawer trace={executionTrace} />
