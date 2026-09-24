@@ -155,8 +155,9 @@ Phase 3 starts.
     where each reason sat in its own *Tax basis* / *Treasury basis* panel. A live
     `/optimize` → export run confirmed all five grid values (including a
     genuinely nonzero PT via `work_location: "karnataka"`, ₹2,500) sum exactly
-    to the total. The 5-column layout was DOM-text confirmed, not
-    pixel-screenshotted — the Browser pane went into a hidden state mid-run.
+    to the total. The 5-column layout was DOM-text confirmed at first, then
+    **screenshotted 2026-09-25**: five columns at 1024px, two at 375px, all
+    five values nonzero and summing to the total.
 
 **Closed 2026-09-21 (login):**
 - ~~The frontend login is broken against current code~~ — fixed
