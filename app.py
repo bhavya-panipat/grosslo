@@ -24,7 +24,7 @@ from optimizer import optimize, best_regime_for_given_structure, sensitivity_swe
 # actually deleted. (derive_nps below was already unused before 2.1; left
 # alone, since it is not this phase's to change.)
 from ai_layer import extract_from_text, flag_compliance, answer_query, evaluate_band_guardrail, EPFO_AGGREGATE_CEILING
-from tax_engine import SalaryStructure, derive_pf, derive_nps
+from tax_engine import SalaryStructure, derive_pf, derive_nps, reconciliation_gap
 from payroll_breakdown import treasury_forecast, employee_pf_monthly
 from penalty_exposure import build_scenario_table
 from execution_trace import trace_optimize_stage, trace_guardrail_stage
@@ -450,8 +450,14 @@ def api_batch_audit():
     Audits CURRENT (as-offered/as-is) structures — not a CTC to optimize
     from. For each row: best_regime_for_given_structure() gives the real
     tax on the structure as it stands today, optimize() gives the
-    theoretical best for the same CTC, the gap between them is
-    unclaimed_savings. evaluate_band_guardrail(), treasury_forecast(), and
+    theoretical best for THE SAME MONEY — structure.total(), not the stated
+    ctc column — and the gap between them is unclaimed_savings. Those two
+    are not the same figure: a real stated CTC carries gratuity and
+    insurance this tool does not model, so optimising from it would compare
+    the structure against a richer one and call the difference a saving
+    (D-S2, CTC_RECONCILIATION_DESIGN.md). reconciliation_gap is reported
+    per row rather than absorbed, and summary.rows_not_reconciling counts
+    the rows that carry one. evaluate_band_guardrail(), treasury_forecast(), and
     (skip_ai=True, deterministic-only) flag_compliance()+classify_row()
     all run on the same as-is structure. Every figure traces to an
     existing, already-tested function — no new tax/compliance logic here,
@@ -491,6 +497,7 @@ def api_batch_audit():
     regime_mismatch_count = 0
     statutory_violation_count = 0
     valid_row_count = 0
+    rows_not_reconciling = 0
 
     for i, row in enumerate(rows):
         if not isinstance(row, dict):
@@ -526,7 +533,19 @@ def api_batch_audit():
             continue
 
         current_best = best_regime_for_given_structure(structure, rent_paid, city)
-        optimal = optimize(ctc=structure.ctc, rent_paid=rent_paid, city=city, nps_opted=structure.nps_opted)
+        # D-S2: optimise from the money that is ACTUALLY THERE, not from the
+        # stated ctc column. current_best is the tax on the components as
+        # supplied; if the optimum were built for structure.ctc the subtraction
+        # below would cross two different amounts of money and report the
+        # difference as a saving. A real stated CTC carries gratuity and
+        # insurance this tool does not model, so the two legitimately differ for
+        # an ordinary correctly-entered employee — measured at 76-79% of the
+        # figure from Rs 18L up, and in the inverted case the whole tax bill was
+        # reported as available savings. See CTC_RECONCILIATION_DESIGN.md §2.
+        # Money we do not model cannot be re-split into basic and HRA, so it
+        # must not be in the optimiser's budget.
+        gap = reconciliation_gap(structure)
+        optimal = optimize(ctc=structure.total(), rent_paid=rent_paid, city=city, nps_opted=structure.nps_opted)
 
         unclaimed_savings = round(max(
             0.0,
@@ -563,6 +582,10 @@ def api_batch_audit():
         sum_monthly_epf += forecast["epfo_challan_annual"] / 12
         sum_monthly_tds += current_best["tax_breakdown"]["total_tax"] / 12
         valid_row_count += 1
+        # A batch where most rows carry a gap is a fact about the upload that
+        # whoever reads the totals should know — not an error count.
+        if gap != 0:
+            rows_not_reconciling += 1
         if excess_contribution > 0:
             epfo_cap_exceeded_count += 1
         if regime_mismatch:
@@ -584,6 +607,12 @@ def api_batch_audit():
             "current_regime": current_best["regime"],
             "current_tax": current_best["tax_breakdown"]["total_tax"],
             "unclaimed_savings": unclaimed_savings,
+            # Reported, not absorbed: for most rows this is roughly the gratuity
+            # accrual, and a row where it is something else is worth a look.
+            # ctc_basis says which CTC the figures above used, so the next
+            # person does not have to infer it from the code.
+            "reconciliation_gap": gap,
+            "ctc_basis": "modelled",
             "excess_contribution": excess_contribution,
             "regime_mismatch": regime_mismatch,
             "guardrail": guardrail,
@@ -607,6 +636,7 @@ def api_batch_audit():
             "statutory_violation_count": statutory_violation_count,
             "total_excess_contribution": round(total_excess_contribution, 2),
             "total_unclaimed_savings": round(total_unclaimed_savings, 2),
+            "rows_not_reconciling": rows_not_reconciling,
         },
         "penalty_scenario": build_scenario_table(sum_monthly_epf, sum_monthly_tds),
     })
