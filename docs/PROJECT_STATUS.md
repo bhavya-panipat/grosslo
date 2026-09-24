@@ -110,16 +110,13 @@ Phase 3 starts.
     relabelled *Total Annual Payroll Liability*, detail line corrected to name
     all five components; `treasury-gate.tsx` relabelled *Required Treasury
     Funding, annual (pending rows)*, comparison unchanged. `api-types.ts` gained
-    `average_monthly_outlay` for type accuracy, not surfaced. **Verified by
-    `tsc` only, not rendered** — both are static string literals, structurally
-    identical to other already-proven lines in the same components, but
-    neither was actually seen: the Executive Summary card needs a CSV upload
-    this session's browser tooling cannot drive (no file-input capability),
-    and the Treasury Gate's labelled line only renders once a live RazorpayX
-    balance fetch succeeds, which needs credentials this session doesn't have.
-    A fetch-mock attempt to force that render path didn't reach a pixel/DOM
-    confirmation within reasonable effort. Added to README's *Known
-    unverified surfaces* table rather than claimed closed.
+    `average_monthly_outlay` for type accuracy, not surfaced. First recorded
+    as *verified by `tsc` only, not rendered*; **both seen rendering and
+    screenshotted 2026-09-22** — the Executive Summary card via a CSV upload
+    driven from page script (a `File` attached through `DataTransfer`), the
+    Treasury Gate's `live` branch via a patched balance fetch. The balance
+    was mocked, so that proves the label, not a real RazorpayX balance.
+    Details in README's *Known unverified surfaces* table.
 
 **Closed 2026-09-21 (later):**
 - ~~Treasury funding leaves out employer NPS~~ — fixed
@@ -153,8 +150,9 @@ Phase 3 starts.
   - **Verified**: a real submission with `nps_remittance_annual` stripped from
     its stored forecast under RLS context served `treasury_basis_flag`; the
     badge rendered on an `auto_pass_candidate` row with the reason surfacing
-    via *Routing decision* (not yet seen on other routes, or the legacy panel
-    itself — same residual gap `TaxBasisBadge` already has). A live
+    via *Routing decision*. **Residual closed 2026-09-22:** both badges also
+    seen on an `escalate` row and on a legacy row with no `orchestration`,
+    where each reason sat in its own *Tax basis* / *Treasury basis* panel. A live
     `/optimize` → export run confirmed all five grid values (including a
     genuinely nonzero PT via `work_location: "karnataka"`, ₹2,500) sum exactly
     to the total. The 5-column layout was DOM-text confirmed, not
