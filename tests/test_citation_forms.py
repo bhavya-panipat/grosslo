@@ -157,6 +157,17 @@ class TestWhatMustNotBecomeACitation(unittest.TestCase):
         self.assertFalse(_citations_unsupplied(
             "The page loads in 30 sec. 5 at most.", SUPPLIED))
 
+    def test_plural_expansion_does_not_swallow_the_words_after_it(self):
+        # "[0-9A-Z]+" under IGNORECASE matches ordinary words, so an unguarded
+        # plural expansion reads "Sections 392 and the rest" as citing Section
+        # THE and rejects the line — the fix introducing a new false rejection.
+        # Measured while writing step 3; pinned here because a measurement in a
+        # commit message does not survive the next edit.
+        self.assertFalse(_citations_unsupplied(
+            "Sections 392 and 192 are the ones that matter.", SUPPLIED))
+        self.assertFalse(_citations_unsupplied(
+            "Sections 392 and the rest are irrelevant.", SUPPLIED))
+
     def test_a_bare_designator_stays_a_figure(self):
         # D-C4, deliberate: recognising this would mean treating every number
         # as a possible citation.
