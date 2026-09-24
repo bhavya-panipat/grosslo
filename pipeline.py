@@ -45,6 +45,7 @@ from optimizer import (optimize, best_regime_for_given_structure,
                        optimization_value_pct)
 from ai_layer import (explain_result, flag_compliance, negotiate,
                       compliance_pct, compliance_ratio, ai_coverage_pct)
+from tax_engine import reconciliation_gap
 
 
 @dataclass
@@ -116,6 +117,20 @@ def current_structure_stage(ctx: PipelineContext) -> None:
     if isinstance(ctx.current_extracted, dict):
         ctx.current_structure = ctx.build_current_structure(
             ctx.current_extracted, ctx.ctc, ctx.result["recommended"].regime)
+    # D-S2 §6.3. Always present, so a consumer never has to distinguish "this
+    # input agrees with itself" from "this response predates the field".
+    #
+    # A POSITIVE gap is ordinary: the stated CTC carries gratuity or insurance
+    # this tool does not model. A NEGATIVE one is an input error — the
+    # components exceed what the offer letter says the job pays, which means
+    # the extractor or a person misread it, and nothing derived from the row is
+    # trustworthy until that is resolved. The clamp in
+    # _build_current_structure() stays, because a negative special allowance is
+    # nonsense; what was missing is anyone being told that it fired.
+    gap = (reconciliation_gap(ctx.current_structure)
+           if ctx.current_structure is not None else 0.0)
+    ctx.response["reconciliation_gap"] = gap
+    ctx.response["components_exceed_stated_ctc"] = gap < 0
 
 
 def explain_stage(ctx: PipelineContext) -> None:
@@ -149,13 +164,28 @@ def negotiate_stage(ctx: PipelineContext) -> None:
         return
     current_best = best_regime_for_given_structure(
         ctx.current_structure, ctx.rent_paid, ctx.city)
+    # D-S2 Site B. negotiate() subtracts the recommended structure's tax from
+    # this structure's, and calls the difference money the candidate can ask
+    # for. Both terms must therefore describe the same amount of pay.
+    #
+    # ctx.result["recommended"] is built from ctx.ctc, the STATED figure. When
+    # the offered structure does not total that — see _build_current_structure,
+    # whose max(0.0, ...) clamp lets extracted components exceed it without
+    # limit — comparing against it fabricates leverage outright: measured at
+    # Rs 3,61,670 offered on a structure whose real saving is zero. This is
+    # advice someone repeats to their employer, so the comparison is rebuilt
+    # from the money actually in the structure whenever the two differ.
+    modelled = ctx.current_structure.total()
+    comparison = (ctx.result if modelled == ctx.ctc else
+                  optimize(ctc=modelled, rent_paid=ctx.rent_paid, city=ctx.city,
+                           nps_opted=ctx.nps_opted))
     ctx.response["negotiation"] = negotiate(
         current_structure=ctx.current_structure,
         current_best=current_best,
-        recommended=ctx.result["recommended"].structure,
-        recommended_regime=ctx.result["recommended"].regime,
-        recommended_tax=ctx.result["recommended"].tax_breakdown,
-        ctc=ctx.ctc,
+        recommended=comparison["recommended"].structure,
+        recommended_regime=comparison["recommended"].regime,
+        recommended_tax=comparison["recommended"].tax_breakdown,
+        ctc=modelled,
         skip_ai=ctx.skip_ai,
     )
 

@@ -7,6 +7,7 @@
       "guard_triggered": false
     },
     "compliance_checked_against": "as_offered",
+    "components_exceed_stated_ctc": false,
     "ctc": 900000,
     "explanation": {
       "ai_backed": false,
@@ -74,6 +75,7 @@
       "taxable_income": 722200.0
     },
     "recommended_regime": "new",
+    "reconciliation_gap": 0.0,
     "stages_run": [
       "optimize",
       "current_structure",
@@ -91,6 +93,7 @@
       "guard_triggered": false
     },
     "compliance_checked_against": "as_offered",
+    "components_exceed_stated_ctc": false,
     "ctc": 1800000,
     "explanation": {
       "ai_backed": false,
@@ -158,6 +161,7 @@
       "taxable_income": 1494400.0
     },
     "recommended_regime": "new",
+    "reconciliation_gap": 0.0,
     "stages_run": [
       "optimize",
       "current_structure",
@@ -182,6 +186,7 @@
       "guard_triggered": false
     },
     "compliance_checked_against": "as_offered",
+    "components_exceed_stated_ctc": false,
     "ctc": 2000000,
     "explanation": {
       "ai_backed": false,
@@ -252,6 +257,7 @@
       "taxable_income": 1486000.0
     },
     "recommended_regime": "new",
+    "reconciliation_gap": 0.0,
     "stages_run": [
       "optimize",
       "current_structure",
@@ -269,6 +275,7 @@
       "guard_triggered": false
     },
     "compliance_checked_against": "as_offered",
+    "components_exceed_stated_ctc": false,
     "ctc": 2000000,
     "explanation": {
       "ai_backed": false,
@@ -339,6 +346,7 @@
       "taxable_income": 1486000.0
     },
     "recommended_regime": "new",
+    "reconciliation_gap": 0.0,
     "stages_run": [
       "optimize",
       "current_structure",
@@ -369,6 +377,7 @@
       "guard_triggered": false
     },
     "compliance_checked_against": "as_offered",
+    "components_exceed_stated_ctc": false,
     "ctc": 4000000,
     "explanation": {
       "ai_backed": false,
@@ -436,6 +445,7 @@
       "taxable_income": 3122000.0
     },
     "recommended_regime": "new",
+    "reconciliation_gap": 0.0,
     "stages_run": [
       "optimize",
       "current_structure",
@@ -460,6 +470,7 @@
       "guard_triggered": false
     },
     "compliance_checked_against": "as_offered",
+    "components_exceed_stated_ctc": true,
     "ctc": 1200000,
     "explanation": {
       "ai_backed": false,
@@ -481,8 +492,8 @@
         "LTA"
       ],
       "guard_triggered": false,
-      "points": "Your current structure and the recommended structure differ on: basic salary, HRA, LTA. Restructuring along these lines (staying on the new regime) is projected to save Rs 113,100 per year in tax, with your total CTC unchanged. Consider asking HR whether these components can be adjusted within their existing payroll policy.",
-      "total_annual_saving": 113100.0
+      "points": "Your current structure and the recommended structure differ on: basic salary, HRA, LTA. Restructuring along these lines (staying on the new regime) is projected to save Rs 2,336 per year in tax, with your total CTC unchanged. Consider asking HR whether these components can be adjusted within their existing payroll policy.",
+      "total_annual_saving": 2336.26
     },
     "new_regime_best": {
       "basic_pct": 0.5,
@@ -531,6 +542,7 @@
       "taxable_income": 851600.0
     },
     "recommended_regime": "new",
+    "reconciliation_gap": -508000.0,
     "stages_run": [
       "optimize",
       "current_structure",
@@ -548,6 +560,7 @@
       "guard_triggered": false
     },
     "compliance_checked_against": "recommended",
+    "components_exceed_stated_ctc": false,
     "ctc": 1800000,
     "explanation": {
       "ai_backed": false,
@@ -608,6 +621,7 @@
       "taxable_income": 1202400.0
     },
     "recommended_regime": "new",
+    "reconciliation_gap": 0.0,
     "stages_run": [
       "optimize",
       "current_structure",
@@ -625,6 +639,7 @@
       "guard_triggered": false
     },
     "compliance_checked_against": "as_offered",
+    "components_exceed_stated_ctc": false,
     "ctc": 2400000,
     "explanation": {
       "ai_backed": false,
@@ -696,6 +711,7 @@
       "taxable_income": 1769200.0
     },
     "recommended_regime": "new",
+    "reconciliation_gap": 0.0,
     "stages_run": [
       "optimize",
       "current_structure",

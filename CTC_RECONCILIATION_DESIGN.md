@@ -206,9 +206,12 @@ truth:** it is the difference between two quantities that both already exist.
 
 ### 6.3 Site B
 
-- The clamp stops hiding the overflow. When components exceed the stated CTC,
-  `_build_current_structure()` keeps the real components and records the
-  negative gap rather than pinning special allowance at zero and pretending.
+- **The clamp stays.** *(Corrected during implementation: this bullet first said
+  the clamp should stop hiding the overflow, which misdescribed it. A negative
+  special allowance is nonsense, so `max(0.0, …)` is the right arithmetic — and
+  the components are not lost either, since only special allowance is affected.
+  What was actually missing is that **nobody was told it had fired**.)* So the
+  clamp is kept and the response records the negative gap instead.
 - `negotiate()` receives `ctc=structure.total()`, so its subtraction is
   like-for-like.
 - **When the gap is negative, the response says the input disagrees with itself**
