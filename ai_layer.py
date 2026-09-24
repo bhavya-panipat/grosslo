@@ -211,7 +211,12 @@ referencing their actual numbers (CTC, rent, basic split). \
 CRITICAL RULE: you must not introduce any rupee figure, percentage, or tax \
 amount that is not already present in the JSON you're given. If you want to \
 state a number, copy it exactly from the input. Do not compute anything. Do \
-not round differently than the input. Return plain text only, no markdown."""
+not round differently than the input. Return plain text only, no markdown.
+
+DO NOT CITE STATUTE. You are given no sections, schedules or rules, so any you \
+name would be your own invention. Explain the arithmetic, not the law: say \
+"the standard deduction", never "the standard deduction under Section 16". \
+Replies that cite a provision are discarded."""
 
 
 def _extract_numbers(text: str) -> list[float]:
@@ -534,7 +539,16 @@ def explain_result(optimizer_result: dict, rent_paid: float, city: str, skip_ai:
             )
             candidate = response.content[0].text.strip()
             # numeric guard: every number mentioned must be traceable to input
-            guard_triggered = _numbers_ungrounded(candidate, allowed_numbers)
+            #
+            # And no citation guard is needed beyond an empty supplied list: this
+            # route hands the model no sections, so EVERY reference it writes is
+            # unsupplied by construction (CITATION_FORM_COVERAGE_DESIGN.md §1.3,
+            # D-C3). This was the widest of the three fail-open cases and the
+            # only one that needed no exotic spelling: "the standard deduction
+            # under Section 16" was served here, because 16 is below the
+            # skip_below floor and nothing else looked for a citation at all.
+            guard_triggered = (_numbers_ungrounded(candidate, allowed_numbers)
+                               or _citations_unsupplied(candidate, []))
             if not guard_triggered:
                 explanation = candidate
                 ai_backed = True
