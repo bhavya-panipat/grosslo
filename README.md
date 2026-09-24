@@ -935,6 +935,36 @@ future plans:
 
 ## What broke during development (and what that caught)
 
+- **Three figures subtracted across two different amounts of money**, until
+  2026-09-25 (`CTC_RECONCILIATION_DESIGN.md`, D-S2). Each computed the tax on a
+  real structure and subtracted the tax on an optimum built for **a different
+  amount of pay**, then reported the difference as money someone could capture.
+  - **The root cause was a word.** `ctc` meant two things: `optimize()`, the
+    band guardrail and R1 used the **stated** CTC, while `treasury_forecast()`,
+    the payout and the EPFO/NPS checks used `SalaryStructure.total()` — the five
+    components actually modelled. The two agree whenever a structure reconciles.
+    A real stated CTC carries gratuity and insurance this tool does not model,
+    so they diverge for an **ordinary, correctly entered employee**.
+  - **How it survived four sweeps:** every earlier check ran on structures that
+    reconcile, where the two definitions are the same number. The defect is
+    invisible exactly where the suite looked.
+  - **What it cost.** `/api/batch-audit`'s "Discovered Annual Tax Inefficiency"
+    was understated 76–79% in the ordinary gratuity case, and where the CTC
+    column was *lower* than the components it reported an employee's entire
+    ₹93,756 tax bill as available savings. Worse, `negotiate()` offered
+    **₹3,61,670 of negotiating leverage on a structure whose real saving is
+    zero** — advice a candidate repeats to their employer. And the correction
+    flow silently reclassified ₹69,264 of gratuity as taxable special allowance,
+    so it corrected a structure the audit never displayed.
+  - **The numeric guard did not catch the negotiation figure, and was not
+    failing.** The figure was *supplied*, so it was grounded, and the guard
+    passed prose asserting it. **The guard certifies provenance, never truth** —
+    worth stating plainly, because "the numeric guard covers the AI surface" is
+    otherwise a reasonable thing to believe and is no protection here.
+  - **The fix:** optimise from the money that is actually there;
+    `reconciliation_gap` reported per row rather than absorbed; a supplied
+    special allowance honoured instead of rebuilt. Routing, the funding gate and
+    the payout amount were verified untouched, by tests rather than by argument.
 - **The treasury forecast funded everything except the employer's NPS**, until
   2026-09-21 (`TREASURY_NPS_OUTLAY_DESIGN.md`). The figure reduced to cash plus
   employer PF, so Required Treasury Funding was short by 5.0% of the true amount

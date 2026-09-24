@@ -8,7 +8,9 @@ Its purpose is to be the single place someone can read to know where a
 multi-phase effort with real human dependencies actually stands, without
 reconstructing it from separate closing reports.
 
-_Last updated: 2026-09-19, after the employer-NPS fix was implemented (D1, steps 0–8).
+_Last updated: 2026-09-25, after the CTC reconciliation fix (D-S2, all three sites).
+Before that, 2026-09-22, after the two neighbouring-route sweeps opened D-S1 to D-S5.
+Before that, 2026-09-19, after the employer-NPS fix was implemented (D1, steps 0–8).
 Before that, 2026-09-15, after the D1 approvals and blast-radius check
 (`TAX_ENGINE_EMPLOYER_NPS_DESIGN.md` §8). Earlier the same day, after the R1/TE4 record updates
 (`R1_TE4_RECORD_UPDATE_DESIGN.md`). Before that, 2026-09-14, after the R5 citation
@@ -73,7 +75,6 @@ Owners are records and roles, not sessions. Sessions end; records don't.
 
 | Gap | Severity | Owner | Next action | Deadline |
 |---|---|---|---|---|
-| **`/api/batch-audit`'s `unclaimed_savings` compares two different amounts of money.** The current tax is computed on the components as supplied; the "optimal" tax is computed for the **stated `ctc` column**, and nothing requires the two to describe the same money — the route checks `ctc > 0` and `basic > 0` and never reconciles them. Found 2026-09-22 by the sweep in `NEIGHBOURING_ROUTE_CLAIM_SWEEP.md`. Not a malformed-input case: a real CTC containing gratuity or insurance, which this tool does not model, produces the gap by itself. | **Bidirectional and unbounded.** Measured: with a statutory gratuity accrual inside the stated CTC the reported saving is **79% below** the like-for-like figure from ₹24L up; with the `ctc` column understated it reported **₹93,756 of savings that do not exist** — the entire tax bill. This is the headline "Discovered Annual Tax Inefficiency" on the batch executive summary. Same defect class as the four totals fixed this week. **Scoped 2026-09-22 (`CTC_RECONCILIATION_DESIGN.md`): there are three sites, not one, and the worst is not the one that was found.** Site B is `negotiate()`'s `total_annual_saving`, reached through `/api/optimize` and `/api/submissions` — `_build_current_structure()`'s `max(0.0, …)` clamp lets an extracted structure over-reconcile without limit, and the saving shown to the user is then **entirely fabricated**: ₹3,61,670 offered as negotiating leverage where the real figure is ₹0. That is advice someone acts on in a conversation, not a dashboard total. The numeric guard does not catch it and is not failing — the figure is supplied, so it is grounded; the guard certifies provenance, never truth. Site C: the correction flow's `_build_current_structure()` discards the audited row's `special_allowance` and rebuilds it, silently absorbing the gratuity gap into taxable pay, so a fix to Site A alone would put the audit and the correction on different structures. | `app.py` `api_batch_audit`, `_build_current_structure`; `ai_layer.negotiate`; the unenforced reconciliation assumption is R8's territory, and R8 is a candidate. Decisions D-S2a–D-S2e: project owner. | **Design written and awaiting approval: `CTC_RECONCILIATION_DESIGN.md`.** Blast radius measured over 432 cases: 56.9% of rows change, 23.6% flip between clean and flagged, 3.0% flip `regime_mismatch`; worst overstatement +₹1,44,768, worst understatement −₹31,824. Verified **not** reached: `orchestration.route`, the Clean Rate metric, `treasury_forecast` and the funding gate, the payout amount, the maker-checker gate. | None formal. |
 | **The tax/treasury basis flags reach the Finance screen but not the exported payload.** `review_queue._row_to_dict()` attaches `tax_basis_flag` and `treasury_basis_flag` to every row it returns, and `/api/submissions/<id>/rows/<i>/export` reads its row through `get_submission()` — so it **holds both flags and reads neither**. `app.py` does not contain the string `tax_basis` anywhere. Verified end to end 2026-09-22: a row forced to the pre-fix basis exports 200 with no trace of the flag in the payload. | **The one surface the flag does not reach is the one that gets acted on.** D1-4 and D-T3 built the read-time mechanism so a figure someone may act on says when its basis is superseded; a payment instruction is that document. The route already carries `WARNING_DO_NOT_UPLOAD` in body and header, so the mechanism exists and is unused. | `app.py` `api_export_approved_row`. Decision D-S3: project owner. | Carry the flag and its reason text into the payload, by the placeholder-account precedent. **Not** a refusal — D1-7(b) already settled that the reasons say so rather than the route blocking, and a new gate on approved work is a product decision. | None formal. |
 | **The per-row export payload mixes two computation bases, and two names overstate their content.** `treasury_forecast`, `payouts` and `payout_basis` are recomputed fresh at export; `guardrail` is the one stored at submission time. They agree while the engine is unchanged and diverge exactly when it is not — as on 2026-09-19, when the NPS fix changed the recommendation in 111 of 1,140 cases. Separately: the route docstring promises a revision XLSX "current vs. corrected" and the workbook has **no current column** (`current` is passed in and discarded); `summary.total_rows` in batch-audit is the valid-row count, not the submitted count. | **Low today, and the names are lower.** The mixed basis needs a pre-fix row still awaiting export to bite. `total_rows` has one consumer that already uses it correctly, as "Processed Records: N / M". | `app.py`; `salary_revision_export.py`. Decisions D-S4 (label vs. recompute) and D-S5 (the two names): project owner. | D-S5 is the cheap half and can go first: correct the docstring to match the file, rename `total_rows` to `valid_row_count`. D-S4 recommendation is **label, not recompute** — recomputing silently replaces the verdict a human approved, which erodes the maker-checker gate as a side effect. Recorded as the least certain call in the sweep. | None formal. |
 | **`epfo_challan_annual` is named for a challan it does not fully compute.** It sums the employer's PF share and the employee's; a real EPF challan also carries EDLI and administrative charges, and nothing in this repository mentions either (`grep -ri` returns nothing). Found 2026-09-21 by the deliberate sweep in `EXPORT_NUMERIC_CLAIM_SWEEP.md`, not by an incident. | A funding figure lower than a real challan, by components whose rates are not established here. Same defect class as the three totals fixed this week. | Treasury path, `payroll_breakdown.py`. Decision D-S1: project owner. | A person with a browser establishes each missing component from a primary source — the rates must not be written from memory (`docs/PRIMARY_SOURCE_LOOKUP_TASK.md` describes the method). Cheaper half available first: rename the field to what it actually sums. | None formal. |
@@ -90,6 +91,50 @@ tax-engine double count. That double count was the most severe open item until i
 was fixed (closed below). No remaining row is a wrong tax figure. Of what remains,
 the owner asked on 2026-09-15 for the payout gross/net gap to be scoped before
 Phase 3 starts.
+
+**Closed 2026-09-25 (the CTC reconciliation, D-S2):**
+- ~~Three sites subtracted across two different amounts of money~~ —
+  `CTC_RECONCILIATION_DESIGN.md`, D-S2a to D-S2e approved as recommended.
+  The root cause was that `ctc` meant two things: `optimize()`, the band
+  guardrail and R1 used the **stated** figure while `treasury_forecast()`, the
+  payout and the EPFO/NPS checks used `SalaryStructure.total()`. They agree
+  whenever a structure reconciles, which is why four sweeps missed the places
+  that subtracted one from the other. A real stated CTC carries gratuity and
+  insurance this tool does not model, so ordinary valid input diverges.
+  - **Site A**, `/api/batch-audit` (`2215dd6`): optimises from
+    `structure.total()`. Rows gain `reconciliation_gap` and `ctc_basis`; the
+    summary gains `rows_not_reconciling`. The figure was understated 76–79% in
+    the ordinary gratuity case and, inverted, reported an employee's entire
+    ₹93,756 tax bill as available savings.
+  - **Site B**, `negotiate()` (`1c7c393`): the comparison is rebuilt from the
+    money actually in the structure. This was the severe one — ₹3,61,670 of
+    negotiating leverage offered on a structure whose real saving is zero, in
+    advice a candidate repeats to their employer. **The numeric guard did not
+    catch it and was not failing:** the figure was supplied, so it was
+    grounded. The guard certifies provenance, never truth.
+  - **Site C**, `_build_current_structure()` (`f1e2cff`): a supplied
+    `special_allowance` is honoured and only an absent one balanced, so the
+    correction flow stops reclassifying ₹69,264 of gratuity as taxable pay and
+    the audit and the correction describe the same structure.
+  - **Containment held as designed** (§5), pinned by tests rather than
+    asserted: `orchestration.route`, the Compliance Clean Rate metric,
+    `treasury_forecast` and the funding gate, the payout amount and
+    `payout_basis`, the EPFO ceiling check and the maker-checker gate are all
+    untouched.
+  - **The characterization baseline moved, deliberately.** Its own
+    `extraction_mismatch_components_exceed_ctc` case — written for exactly this
+    scenario — was pinning ₹1,13,100 of fabricated leverage as correct output.
+    Every changed value was enumerated before regenerating: 16 additive field
+    lines plus that one case's two values. **Fourth time in this project a test
+    asserted the defect, and the second time a baseline did.**
+  - **D-S2e deliberately not decided:** whether R1's 50%-of-CTC floor measures
+    against the stated or the modelled CTC is a legal question, and stays with
+    the CA packet's existing R1 question rather than being settled inside an
+    arithmetic fix.
+  - **Outstanding:** `api-types.ts` and the frontend surfaces (the frontend
+    session's files, requested). The executive summary card's *"Discovered
+    Annual Tax Inefficiency"* detail line still says *"the optimal split"*
+    without saying of what, and that figure now generally reads higher.
 
 **Closed 2026-09-21 (period labels):**
 - ~~An annual figure is labelled "Monthly"~~ — `treasury_forecast()` gained
