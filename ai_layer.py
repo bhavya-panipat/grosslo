@@ -278,9 +278,47 @@ def _is_reference(match) -> bool:
     return bool(match.group("cue")) or bool(re.search(r"[A-Za-z(]", match.group("desig")))
 
 
+# PLURALS (D-C2): "Sections 392 and 124" names two references and was parsed as
+# neither, so a reply citing two things it was given was rejected, and a reply
+# citing two inventions was refused only because their digits happened to be
+# ungrounded — the right outcome from the wrong mechanism, which disappears the
+# moment the digits are real. Rather than teach one pattern to match a list, a
+# plural is rewritten into the singular forms it means and the existing grammar
+# does the rest: one definition of a reference, still.
+#
+# Designators here must start with a digit. Without that, "[0-9A-Z]+" under
+# IGNORECASE matches ordinary words, so "Sections 392 and the rest" would parse
+# "the" as a designator and reject the line for citing Section THE. Roman-numeral
+# schedules ("Schedules III and IV") are therefore out of scope; the supplied
+# strings use the singular "Schedule III", which the main grammar already parses.
+_PLURAL_DESIGNATOR = r"[0-9][0-9A-Z]*(?:\([0-9A-Z]+\))*"
+_PLURAL_CITATION = re.compile(
+    r"\b(Sections|Schedules|Rules|Forms)\s+"
+    r"(" + _PLURAL_DESIGNATOR + r"(?:\s*(?:,|and|&)\s*" + _PLURAL_DESIGNATOR + r")+)"
+    r"(?![0-9A-Z(])",
+    re.IGNORECASE,
+)
+
+
+def _expand_plural_citations(text: str) -> str:
+    """
+    "Sections 392 and 124" -> "Section 392 and Section 124".
+
+    Only ever used upstream of the grammar. The rewritten text is never shown to
+    anyone: the stripped text exists solely to be handed to _extract_numbers, so
+    the substitution changing the text's shape costs nothing.
+    """
+    def expand(m):
+        singular = m.group(1)[:-1]
+        designators = re.split(r"\s*(?:,|and|&)\s*", m.group(2), flags=re.IGNORECASE)
+        return " and ".join("%s %s" % (singular, d) for d in designators if d)
+    return _PLURAL_CITATION.sub(expand, text)
+
+
 def _references(text: str):
     """Every match in `text` that _is_reference accepts, in order."""
-    return (m for m in _CITATION_REFERENCE.finditer(text) if _is_reference(m))
+    return (m for m in _CITATION_REFERENCE.finditer(_expand_plural_citations(text))
+            if _is_reference(m))
 
 
 def _citation_key(match) -> tuple:
@@ -322,7 +360,7 @@ def _strip_supplied_citations(text: str, citations) -> str:
     supplied = _supplied_references(citations)
     return _CITATION_REFERENCE.sub(
         lambda m: " " if _is_reference(m) and _citation_key(m) in supplied else m.group(0),
-        text,
+        _expand_plural_citations(text),
     )
 
 

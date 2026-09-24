@@ -92,13 +92,29 @@ class TestWhatOnlyLooksLikeASuppliedReferenceIsStillChecked(unittest.TestCase):
         self.assertFalse(_numbers_ungrounded(
             text, set(), skip_below=0, citations=["Section 80CCD(2)"]))
 
-    def test_the_named_residual_rejections_are_kept(self):
-        # Design §4: kept on purpose. If either starts passing, the grammar
-        # widened, and that is a decision to make explicitly.
-        for text in ("Sections 392 and 192 apply.",
-                     "Under Section 392 of the Income-tax Act, 2025."):
-            with self.subTest(text=text):
-                self.assertTrue(_numbers_ungrounded(text, ALLOWED, citations=SUPPLIED))
+    def test_the_remaining_named_residual_rejection_is_kept(self):
+        # Design §4: kept on purpose. If this starts passing, the grammar
+        # widened, and that is a decision to make explicitly. The Act year in
+        # "of the Income-tax Act, 2025" is read as the figure 2025 — deferred,
+        # decision 3, and still deferred.
+        self.assertTrue(_numbers_ungrounded(
+            "Under Section 392 of the Income-tax Act, 2025.", ALLOWED, citations=SUPPLIED))
+
+    def test_a_plural_naming_only_supplied_sections_is_now_served(self):
+        # This half WAS the other residual in the test above, pinned so that
+        # widening the grammar would be a decision rather than a side effect.
+        # The decision was taken 2026-09-25 (D-C2, CITATION_FORM_COVERAGE_DESIGN.md):
+        # a plural is expanded into the singulars it means. Both 392 and 192 are
+        # supplied — 192 by the "(formerly Section 192)" half of the same string.
+        self.assertFalse(_numbers_ungrounded(
+            "Sections 392 and 192 apply.", ALLOWED, citations=SUPPLIED))
+
+    def test_a_plural_that_smuggles_in_an_unsupplied_section_is_still_rejected(self):
+        # Without this, exempting plurals wholesale would pass the test above.
+        # 394 was never supplied, so the reference is not exempt and its digits
+        # are checked like any other number.
+        self.assertTrue(_numbers_ungrounded(
+            "Sections 392 and 394 apply.", ALLOWED, citations=SUPPLIED))
 
     def test_a_bare_string_is_rejected_rather_than_silently_exempting_nothing(self):
         with self.assertRaises(TypeError):
