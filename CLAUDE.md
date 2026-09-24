@@ -99,6 +99,44 @@ output-boundary layer that trusts no call site to have supplied a correct
 allow-set. Before changing anything in `tax_engine.py`, `optimizer.py`,
 `ai_layer.py` or `app.py`, read how the guard works, and run the suite after.
 
+## Fixing a stored computed value: decide about pre-fix rows in the same design
+
+`/api/submissions` computes a row once and stores the result; the Finance queue
+and the export routes then **read stored values, not fresh ones**. So a
+correctness fix ships clean for new rows and leaves historical rows silently on
+the old, wrong basis.
+
+This has now happened three times — `tax_basis` (D1-5), `treasury_basis` (D-T3)
+and the CTC reconciliation (D-S2) — and the third was found by a *different*
+session, while it was typing the response fields as optional. It is a standing
+property of the write-once/read-many pattern, not a fresh consequence to
+rediscover per fix.
+
+**So: any correctness fix to a value that gets stored must contain an explicit
+decision about pre-fix rows, in its own design document, before implementation.**
+Not a section added afterwards when someone notices.
+
+**The decision requires the affected population to be measured, and "no flag"
+is a legitimate answer.** Do not rank severity by argument and let that set
+urgency — this project's practice is that a severity claim is not accepted until
+it is measured, and the measurement has changed the answer before. Where to
+look, because the obvious store is not the only one:
+
+- the Postgres `submission_rows` table, per tenant;
+- **the pre-port SQLite `review_queue.db`** (git-ignored, still on disk), which
+  `scripts/migrate_sqlite_to_postgres.py` would copy in verbatim, basis column
+  absent;
+- whether the affected field is stored at all — a stateless route's figures
+  (`/api/batch-audit`) have no history to flag.
+
+D-S2 measured zero affected rows in both stores and the set cannot grow, since
+every row written after the fix is on the corrected basis. A flag with an empty
+population is a badge that can never fire, and D1-4 §8.2 already rejected
+flagging unaffected rows on the grounds that it teaches people to ignore the
+flag. D1-5's population was not empty — 2 of the 5 SQLite rows carried employer
+NPS — which is why the same question got the opposite answer. **The difference
+was measured, not reasoned.**
+
 ## Claims in documentation must be checkable
 
 The standing concern in this project is a claim that asserts its own
