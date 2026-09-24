@@ -377,7 +377,7 @@ company's review queue.
 
 Backend:
 ```bash
-python3 -m unittest discover -s tests   # 625 tests, all pass with no API key set
+python3 -m unittest discover -s tests   # 633 tests, all pass with no API key set
 python3 app.py 8000                     # serves the API at http://127.0.0.1:8000
 ```
 
@@ -1139,14 +1139,14 @@ future plans:
 
 ## Test coverage
 
-625 tests across 19 files, all passing with no skips — measured at
-commit `10c9ea6` with `python3 -B -m unittest discover -s tests`, not
+633 tests across 19 files, all passing with no skips — measured at
+commit `ee76e4d` with `python3 -B -m unittest discover -s tests`, not
 estimated. Re-run it yourself to confirm. The commit is part of the claim:
 `tests/` changes often here, so a bare number goes stale silently, and if
 you are on a later commit you should trust your own run over this sentence.
 
 Note that counting `def test_` in the source undercounts the suite: at
-`10c9ea6` that gives 619, while the runner reports 625. The six-test
+`ee76e4d` that gives 627, while the runner reports 633. The six-test
 difference is deliberate —
 `TestAnswerQueryRejectsSectionsItNeverSupplied` in
 `tests/test_query_guard_citations.py` subclasses
@@ -1177,7 +1177,7 @@ parent tests with the membership check in place.
   confirmed-zero distinguished from an unrecognized `work_location`, and
   `treasury_forecast()`'s net-disbursement identity holding with PT
   folded in as a fourth term).
-- **61 in `tests/test_review_workflow.py`** — the maker-checker flow end
+- **65 in `tests/test_review_workflow.py`** — the maker-checker flow end
   to end: submission persistence, approval writes the correct
   simulated-not-dispatched status, rejection requires and stores a
   reason, the diff view's before/after values match a real optimizer run
@@ -1217,7 +1217,7 @@ parent tests with the membership check in place.
   rather than hitting a local stub.
 
 The fourteen files the list above predated, which together are most of the
-suite. Counts at `10c9ea6`:
+suite. Counts at `ee76e4d`:
 
 - **91 in `tests/test_compliance_rules.py`** — the rule set as data (Phase
   2.2): that the count is derived rather than declared, that active and
@@ -1249,9 +1249,11 @@ suite. Counts at `10c9ea6`:
   set, with one model call per flag.
 - **10 in `tests/test_usage_tracking.py`** — that every model call is accounted
   for, that usage is recorded, and that no behaviour changed.
-- **6 in `tests/test_treasury_outlay.py`** — the treasury forecast funding the
-  employer's NPS contribution, and stored forecasts predating that term being
-  flagged at read time rather than silently carrying the old meaning.
+- **10 in `tests/test_treasury_outlay.py`** — the treasury forecast funding the
+  employer's NPS contribution, stored forecasts predating that term being
+  flagged at read time rather than silently carrying the old meaning, and the
+  annual figures being labelled annual, with the average monthly outlay defined
+  beside the forecast that produces it.
 - **9 in `tests/test_pipeline_baseline.py`** — the Phase 2.1 characterization
   baseline, asserted against a fixture committed before the restructure began.
 - **8 in `tests/test_employer_nps_statute.py`** — employer NPS pinned to the

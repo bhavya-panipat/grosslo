@@ -653,8 +653,8 @@ features added one at a time.
 
 ## Test coverage
 
-625 tests across 19 files, passing with no `ANTHROPIC_API_KEY` set,
-measured at commit `10c9ea6`
+633 tests across 19 files, passing with no `ANTHROPIC_API_KEY` set,
+measured at commit `ee76e4d`
 (every AI-layer function has a deterministic fallback, so the full suite
 exercises real logic either way — see README.md's "Test coverage" for the
 full per-file breakdown, including the fourteen files not listed here):
@@ -671,7 +671,7 @@ full per-file breakdown, including the fourteen files not listed here):
   slabs, the February-bump annual ceiling, Delhi's confirmed-zero vs.
   an unrecognized state, and the treasury-forecast net-disbursement
   identity with PT included).
-- **61** in `tests/test_review_workflow.py` — the maker-checker flow end
+- **65** in `tests/test_review_workflow.py` — the maker-checker flow end
   to end, including the dedup-collision fix (name+CTC alone false-positives
   across multiple hires at an identical comp band; now folds in the
   already-existing optional email field), `orchestration.route` on
