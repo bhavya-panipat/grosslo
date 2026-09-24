@@ -195,10 +195,18 @@ class TestCitationsUnsuppliedHelper(unittest.TestCase):
         self.assertTrue(ai_layer._citations_unsupplied("Under Section 17(1)(h).", []))
         self.assertFalse(ai_layer._citations_unsupplied("No citation here.", []))
 
-    def test_an_unparsed_form_is_outside_this_check(self):
-        # Design §4.7 limit, pinned so a widened grammar is a visible decision.
-        self.assertFalse(ai_layer._citations_unsupplied(
+    def test_an_abbreviated_form_is_now_inside_this_check(self):
+        # Was test_an_unparsed_form_is_outside_this_check, which pinned the §4.7
+        # limit so that widening the grammar would be a visible decision rather
+        # than a side effect. The decision was taken 2026-09-25 (D-C1,
+        # CITATION_FORM_COVERAGE_DESIGN.md), so the tripwire has done its job and
+        # now pins the new behaviour. The pair is what makes it a real test:
+        # R5 supplies Section 17(1)(h), so the SAME abbreviation is exempt for
+        # (h) and flagged for (i) — a different provision, one letter apart.
+        self.assertTrue(ai_layer._citations_unsupplied(
             "It is a perquisite under s. 17(1)(i).", [self.R5]))
+        self.assertFalse(ai_layer._citations_unsupplied(
+            "It is a perquisite under s. 17(1)(h).", [self.R5]))
 
     def test_a_bare_string_is_rejected_rather_than_silently_supplying_nothing(self):
         with self.assertRaises(TypeError):
@@ -314,13 +322,28 @@ class TestSectionsNeverSuppliedAreStillChecked(_Guards, unittest.TestCase):
             "Aggregate employer PF + NPS of Rs 840,000 exceeds the Rs 750,000/year "
             "ceiling; the excess is taxable under Section 17(1)(i)."))
 
-    def test_an_abbreviated_citation_the_grammar_cannot_parse_fails_closed(self):
-        # Design §5.4, a cost accepted on purpose: "s. 17(1)(h)" is not a
-        # recognised reference, so its 17 and 1 are checked, and they are no
-        # longer grounded. If this starts passing, the grammar widened; that
-        # should be a decision, not a side effect.
-        self.assertRejected(self.compliance(
+    def test_an_abbreviated_citation_of_what_was_supplied_is_now_served(self):
+        # Was ..._the_grammar_cannot_parse_fails_closed, pinning the §5.4 cost:
+        # "s. 17(1)(h)" was not a recognised reference, so its 17 and 1 were
+        # read as ungrounded figures and a correct line was thrown away. That
+        # was accepted on purpose and pinned so the widening would be a
+        # decision; the decision was taken 2026-09-25 (D-C1). R5's rationale
+        # cites Section 17(1)(h), so this line cites exactly what it was given.
+        self.assertServed(self.compliance(
             "The excess over Rs 7.5L is a taxable perquisite under s. 17(1)(h)."))
+
+    def test_an_abbreviated_citation_of_a_neighbouring_provision_still_fails(self):
+        # The other half, without which the test above would also pass if
+        # abbreviations were exempted wholesale: 17(1)(i) was never supplied.
+        self.assertRejected(self.compliance(
+            "The excess over Rs 7.5L is a taxable perquisite under s. 17(1)(i)."))
+
+    def test_a_form_the_grammar_still_cannot_parse_fails_closed(self):
+        # The residual kept by D-C4: a bare designator is indistinguishable from
+        # a figure, so it stays a figure and the line is rejected. Recorded, not
+        # widened.
+        self.assertRejected(self.compliance(
+            "The excess over Rs 7.5L is a taxable perquisite; 17(1)(h) applies."))
 
 
 class TestAFabricatedCitationIsRejectedEvenWhenItsDigitsAreReal(_Guards, unittest.TestCase):

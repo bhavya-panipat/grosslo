@@ -240,16 +240,57 @@ def _extract_numbers(text: str) -> list[float]:
 #
 # ONE PATTERN PARSES BOTH SIDES — the citations supplied to the model and the
 # model's reply — so the two can never disagree about what a reference is.
+#
+# ABBREVIATIONS (CITATION_FORM_COVERAGE_DESIGN.md, D-C1): the model may write
+# what it was given as "u/s 124" or "under s. 124". Until 2026-09-25 those were
+# not references at all, so _citations_unsupplied had nothing to test and served
+# "breaches the cap u/s 14" while rejecting the identical "under Section 14" —
+# fail-open, a fabricated statutory authority. Widening the keyword list cannot
+# widen the exemption: stripping blanks a reference only if its key was actually
+# supplied, and the key canonicalises every section spelling to "section", so
+# "u/s 124" is exempt exactly when Section 124 was supplied for that call.
 _CITATION_REFERENCE = re.compile(
-    r"\b(Section|Schedule|Rule|Form|Sl\.\s*No\.)\s+"
-    r"([0-9A-Z]+(?:\([0-9A-Z]+\))*)"
+    r"(?:\b(?P<cue>under|per|vide|see)\s+)?"
+    r"(?:\b(?P<word>Section|Schedule|Rule|Form|Sl\.\s*No\.)\s+"
+    r"|\b(?P<abbrev>u/s|ss?\.|sec\.)\s*)"
+    r"(?P<desig>[0-9A-Z]+(?:\([0-9A-Z]+\))*)"
     r"(?![0-9A-Z(])(?![.,]\d)",
     re.IGNORECASE,
 )
 
+# "s.", "ss." and "sec." are also ordinary English. "sec." abbreviates seconds,
+# so "the page loads in 30 sec. 5 at most" must not become a citation — reading
+# it as one would report the line as citing something unsupplied, trading the
+# fail-open for a new false rejection. They count as a reference only when
+# something else marks them: a cue word before ("under s. 14"), or a designator
+# no duration ever has ("s. 80C", "s. 17(1)(h)"). "u/s" is unambiguous on its
+# own. A plain "sec. 5" with neither is left alone, and its 5 stays a figure.
+_UNAMBIGUOUS_ABBREV = {"u/s"}
+_SECTION_SPELLINGS = {"section", "s.", "ss.", "sec.", "u/s"}
+
+
+def _is_reference(match) -> bool:
+    if match.group("word"):
+        return True
+    abbrev = match.group("abbrev").lower()
+    if abbrev in _UNAMBIGUOUS_ABBREV:
+        return True
+    return bool(match.group("cue")) or bool(re.search(r"[A-Za-z(]", match.group("desig")))
+
+
+def _references(text: str):
+    """Every match in `text` that _is_reference accepts, in order."""
+    return (m for m in _CITATION_REFERENCE.finditer(text) if _is_reference(m))
+
 
 def _citation_key(match) -> tuple:
-    return re.sub(r"\s+", "", match.group(1)).lower(), match.group(2).upper()
+    keyword = re.sub(r"\s+", "", match.group("word") or match.group("abbrev")).lower()
+    # One key per section, whatever it was called. Without this, a reply citing
+    # "u/s 124" would not match the supplied "Section 124" and would be
+    # rejected as unsupplied — the false rejection, wearing the fix's clothes.
+    if keyword in _SECTION_SPELLINGS:
+        keyword = "section"
+    return keyword, match.group("desig").upper()
 
 
 def _supplied_references(citations) -> set:
@@ -263,7 +304,7 @@ def _supplied_references(citations) -> set:
         # nothing, and silently exempt nothing — a quiet version of the exact
         # defect this exists to fix. Rejected rather than coerced.
         raise TypeError("citations must be a collection of strings, not a str")
-    return {_citation_key(m) for c in citations for m in _CITATION_REFERENCE.finditer(c)}
+    return {_citation_key(m) for c in citations for m in _references(c)}
 
 
 def _strip_supplied_citations(text: str, citations) -> str:
@@ -280,7 +321,8 @@ def _strip_supplied_citations(text: str, citations) -> str:
     """
     supplied = _supplied_references(citations)
     return _CITATION_REFERENCE.sub(
-        lambda m: " " if _citation_key(m) in supplied else m.group(0), text
+        lambda m: " " if _is_reference(m) and _citation_key(m) in supplied else m.group(0),
+        text,
     )
 
 
@@ -296,12 +338,12 @@ def _citations_unsupplied(text: str, citations) -> bool:
     check rejects the citation itself. It enforces what every citing prompt
     already says: cite only what you were given.
 
-    Limit: it sees only references the grammar parses. "s. 17(1)(h)" or
-    "Sections 392 and 192" are not checked here, and fall back to the figure
-    check.
+    Limit: it sees only references the grammar parses. Abbreviated forms are
+    parsed since 2026-09-25 (D-C1); "Sections 392 and 192" is not, and falls
+    back to the figure check. A bare designator never will be (D-C4).
     """
     supplied = _supplied_references(citations)
-    return any(_citation_key(m) not in supplied for m in _CITATION_REFERENCE.finditer(text))
+    return any(_citation_key(m) not in supplied for m in _references(text))
 
 
 def _grounded_figures(rationale: str) -> set:
