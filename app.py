@@ -331,6 +331,14 @@ def _build_current_structure(extracted: dict, ctc: float, regime_for_nps: str) -
     extraction explicitly found an NPS figure — offer letters rarely state
     this, and assuming an unstated benefit would overstate the "current"
     baseline in the user's favor.
+
+    Special allowance is honoured when the caller supplies one and balanced
+    against `ctc` only when it is absent (D-S2 Site C). Two callers with
+    genuinely different inputs share this function: extraction, which knows
+    the named components and not the residue, and the batch correction flow,
+    which knows the whole structure because the audit just displayed it.
+    Balancing unconditionally served the first and silently rewrote the
+    second.
     """
     basic = extracted.get("basic")
     if basic is None or basic <= 0:
@@ -341,7 +349,21 @@ def _build_current_structure(extracted: dict, ctc: float, regime_for_nps: str) -
     if employer_pf is None:
         employer_pf = derive_pf(basic)
     employer_nps = 0.0  # see docstring: not assumed unless stated
-    special_allowance = max(0.0, ctc - basic - hra - lta - employer_pf - employer_nps)
+    # D-S2 Site C. A supplied special allowance is honoured; only an absent one
+    # is balanced. The correction flow posts the audited row's components back
+    # here, including this one, and recomputing it absorbed the row's
+    # reconciliation gap into special allowance — taxable pay — so the
+    # correction worked on a structure the audit never displayed. Measured:
+    # Rs 69,264 of gratuity silently reclassified on the Rs 36L row.
+    #
+    # `is None`, not falsiness: 0 is a real value a correction can carry, and
+    # `or`-style defaulting would rebalance it. Extraction supplies no special
+    # allowance and so keeps balancing exactly as before — the clamp still
+    # applies there, because a negative special allowance is nonsense.
+    supplied_special = extracted.get("special_allowance")
+    special_allowance = (
+        float(supplied_special) if supplied_special is not None
+        else max(0.0, ctc - basic - hra - lta - employer_pf - employer_nps))
     return SalaryStructure(
         ctc=ctc, basic=basic, hra=hra, lta=lta,
         special_allowance=special_allowance,
