@@ -50,7 +50,12 @@ export default function ExecutiveSummaryCard({
       icon: TrendingUp,
       label: "Discovered Annual Tax Inefficiency",
       value: inr(totalTaxInefficiency),
-      detail: "Gap between current structures and the optimal split, summed",
+      // The optimum is built from the components each row lists
+      // (structure.total()), not its stated CTC column: a stated CTC carries
+      // gratuity and insurance nobody can re-split into basic and HRA, and
+      // optimising from it compared two different amounts of money
+      // (CTC_RECONCILIATION_DESIGN.md, D-S2 Site A).
+      detail: "Current tax minus the best split of each row's own listed components (not its stated CTC), summed",
     },
   ];
 

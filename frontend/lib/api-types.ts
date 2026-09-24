@@ -90,6 +90,13 @@ export type OptimizeResponse = {
   // structure, same call /api/export-razorpayx makes) — absent on plain
   // /api/optimize responses, which have no review-queue row to fund.
   treasury_forecast?: TreasuryForecast;
+  /** Stated CTC minus the money the structure actually models (D-S2).
+   *  Positive is ordinary (gratuity, insurance); negative means the components
+   *  exceed the stated CTC — an input error, flagged by
+   *  components_exceed_stated_ctc. Optional only because submission rows
+   *  stored before D-S2 lack both; every response produced since has them. */
+  reconciliation_gap?: number;
+  components_exceed_stated_ctc?: boolean;
 };
 
 export type SensitivityPoint = {
@@ -267,6 +274,11 @@ export type BatchAuditRow = {
   // page-specific definition of "is this row clean." See
   // OrchestrationDecision below.
   orchestration?: OrchestrationDecision;
+  /** Stated CTC minus the modelled components (D-S2). Reported, not
+   *  absorbed: unclaimed_savings is computed from the modelled figure. */
+  reconciliation_gap?: number;
+  /** Which CTC the row's figures used — always "modelled" (structure.total()). */
+  ctc_basis?: "modelled";
   error?: string;
 };
 
@@ -281,6 +293,9 @@ export type BatchAuditResponse = {
     statutory_violation_count: number;
     total_excess_contribution: number;
     total_unclaimed_savings: number;
+    /** Rows whose components don't sum to their stated CTC. Information, not
+     *  an error count: for most rows the gap is the gratuity accrual. */
+    rows_not_reconciling: number;
   };
   penalty_scenario: PenaltyScenario;
 };
