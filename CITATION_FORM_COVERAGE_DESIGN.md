@@ -142,7 +142,62 @@ fabrication tests fail; drop the designator-adjacency requirement and confirm
 the `"30 sec."` test fails; remove the `explain_result` guard call and confirm
 its own test fails.
 
-## 6. What this does not settle
+## 6. Implementation record
+
+Every run in a clean worktree at a named commit, `python3 -B`, cache cleared,
+`caffeinate -dimsu`, under the `/tmp/grosslo-suite.lock` protocol
+(`docs/SUITE_LOCK_PROTOCOL.md`). The concurrent session's own runs were 672 at
+the same period; see the note on that number below.
+
+| step | commit | suite |
+|---|---|---|
+| 1, tests committed knowingly red | `57960bd` | **9 failing methods, 9 predicted**, every control green |
+| 2, abbreviations (D-C1) | `c0fd79b` | **672: exactly the 5 remaining reds**, all steps 3–4, no regressions |
+| 3, plurals (D-C2) | `a6ab47d` | **674: exactly the 3 remaining reds**, all step 4 |
+| 4, `explain_result` (D-C3) | `9a869c2` | **674 OK** |
+| the prose test step 3 had only measured | `452d30e` | **675 OK, no skips**, 158.3s test time against 158.3s wall |
+
+| sabotage on `452d30e` | predicted | failed |
+|---|---|---|
+| **S1**: disable the abbreviation branch | 9 methods, named in advance | **8 of those 9** — see below |
+| **S2**: make abbreviations unconditional (drop the cue/designator requirement) | only `test_seconds_are_not_a_section` | exactly that |
+| **S3**: remove `explain_result`'s membership call | only `test_an_explanation_that_cites_a_section_is_refused_red`, with the prompt test still green | exactly that |
+
+**The prediction that was wrong, and why it is worth more than the ones that were
+right.** S1 was predicted to fail nine methods and failed eight.
+`test_an_abbreviated_citation_of_a_neighbouring_provision_still_fails` ("s.
+17(1)(i)", never supplied) kept passing with abbreviations disabled — because at
+the rationale sites `skip_below=0`, so 17 and 1 are checked as figures and are
+ungrounded. The line is refused either way. That test is therefore **not a
+detector for the abbreviation mechanism**: it is protected by two layers and
+cannot distinguish them. It stays, because it pins the behaviour a user sees, but
+S1 is what proves the membership half, and the pair in
+`TestCitationsUnsuppliedHelper` is what separates (h) from (i) at the helper
+level where only one layer exists.
+
+**A run discarded, and the skip mystery from 2026-09-20 closed.** The first
+attempt at the `452d30e` green run reported `OK (skipped=2)` after 7050 seconds of
+wall clock for 158 seconds of test time: the machine slept through it despite
+`caffeinate -dimsu`, so it was discarded and re-run. Its two skips name their own
+reason — `test_razorpayx_client` skipping on `No network reachability to
+RazorpayX ... Connection refused`. That is the same `skipped=2` recorded as
+**unexplained** in `OUTPUT_BOUNDARY_GROUNDING_DESIGN.md` §7 and in
+`docs/SUITE_LOCK_PROTOCOL.md`. It was never a sleep artefact: those two tests
+skip themselves when the network is unreachable, which a sleeping machine
+guarantees but does not uniquely cause. Both places should say so instead of
+carrying a mystery.
+
+**On the 672 the concurrent session measured.** Static count at `f1e2cff` was 664
+methods; at `c0fd79b`, 666. A run at `c0fd79b` reports 672 — the difference is the
+deliberate `+6` from `TestAnswerQueryRejectsSectionsItNeverSupplied` subclassing
+its sibling, the same reconciliation the README session documented. So a tree
+without this work runs 670, and that session's 672 included two of my
+then-uncommitted tests: its run was from the shared tree, so its *count*
+corresponded to no commit. Its attribution of the 5 failures was right; the
+number was not a commit's number. Its baseline regeneration in that window is
+worth re-verifying at a commit for the same reason.
+
+## 7. What this does not settle
 
 - **Whether the model ever writes these forms.** Everything above is measured on
   the guard, not on model output. The guard's job is to hold regardless, and a

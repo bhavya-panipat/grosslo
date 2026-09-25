@@ -229,7 +229,13 @@ discarded and re-run. Check the wall clock against unittest's own elapsed time:
 `time.perf_counter` does not advance while the machine is asleep, so a slept run
 reports a plausible duration and only the wall clock shows the gap. The lost
 tip run also reported `OK (skipped=2)`; the clean re-run skips nothing, and the
-two skips are unexplained — recorded as unexplained rather than guessed at.
+two skips were unexplained — recorded as unexplained rather than guessed at.
+**Explained 2026-09-25** (`CITATION_FORM_COVERAGE_DESIGN.md` §6): a slept run
+five days later reported the same `skipped=2` and named its reason —
+`test_razorpayx_client` skips itself on `No network reachability to RazorpayX
+... Connection refused`. Never a sleep artefact: a sleeping machine guarantees
+an unreachable network but is not the only thing that does. Read the skip
+reasons, not just the count; the runner prints them.
 
 | step | commit | suite (vs parent, by test-ID diff) |
 |---|---|---|
