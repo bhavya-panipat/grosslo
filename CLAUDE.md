@@ -116,11 +116,9 @@ rediscover per fix.
 decision about pre-fix rows, in its own design document, before implementation.**
 Not a section added afterwards when someone notices.
 
-**The decision requires the affected population to be measured, and "no flag"
-is a legitimate answer.** Do not rank severity by argument and let that set
-urgency — this project's practice is that a severity claim is not accepted until
-it is measured, and the measurement has changed the answer before. Where to
-look, because the obvious store is not the only one:
+**The decision requires the affected population to be measured** (see *Measure
+the population before ranking severity* below) **and "no flag" is a legitimate
+answer.** Where to look, because the obvious store is not the only one:
 
 - the Postgres `submission_rows` table, per tenant;
 - **the pre-port SQLite `review_queue.db`** (git-ignored, still on disk), which
@@ -136,6 +134,41 @@ flagging unaffected rows on the grounds that it teaches people to ignore the
 flag. D1-5's population was not empty — 2 of the 5 SQLite rows carried employer
 NPS — which is why the same question got the opposite answer. **The difference
 was measured, not reasoned.**
+
+## Measure the population before ranking severity
+
+**Measure the actual affected population before deciding severity, urgency, or
+whether a mitigation is warranted. A plausible severity argument is not
+sufficient on its own.**
+
+This is general — it is not about basis flags, and not about stored values. It
+applies to any claim that something matters more or less than something else.
+
+It reads as obvious and is easy to skip, because a severity argument usually
+*sounds* like analysis. Two cases where it changed the answer:
+
+- **D1's own recommendation.** A 36-case grid found no recommendation changes
+  and the design said so. A 1,140-case sweep then found **111 changed cases**,
+  every one of them missed. The grid was not wrong about the cases it covered; it
+  was too coarse to see the effect, and the conclusion drawn from it was false.
+- **D-S6.** The case for flagging pre-D-S2 stored rows was that the figure is
+  user-facing advice, and so "a stronger case than the tax figures had." That is
+  a ranking by argument. Measured, the affected population was **zero in both
+  stores**, and the recommendation reversed to *no flag*. The same five SQLite
+  rows gave D1-5 a non-empty population and D-S6 an empty one — same store, same
+  question, opposite answers, and only the measurement distinguished them.
+
+Corollaries worth stating, because each has gone wrong here:
+
+- **Keep magnitude separate from population.** "Up to ₹3,61,670 wrong" and "how
+  many rows are wrong" are different measurements, and quoting the first when
+  asked for the second overstates without saying anything false.
+- **Name where you looked.** A population measured in one store is a measurement
+  of that store. D-S2 would have reported zero and been wrong if the pre-port
+  SQLite file had held a matching row, and only D1's written inventory said to
+  look there.
+- **A measured zero is a decision, not a dismissal.** Record what would change
+  it, so it does not become permanent by default.
 
 ## Claims in documentation must be checkable
 
