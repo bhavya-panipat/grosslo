@@ -104,6 +104,32 @@ runs of the same job. A session that applied the rule correctly and acted on it
 would have collided with the holder's second run. The rule tells you a lock
 *might* be abandoned; only the holder can tell you it is.
 
+### The holder's own duty: release on a clock, not on liveness
+
+Everything above is written for the session that wants the lock, and it all asks
+one question — *is the holder alive?* That question has the wrong shape for the
+holder's side, because **"held" and "held by something worth waiting for" are
+different properties, and liveness only tests the first.**
+
+On 2026-09-25 the citation-forms session held this lock from 03:10 to 19:34. One
+of its runs slept through the night: 7050 seconds of wall clock for 158 seconds
+of test time. The holder was genuinely live the entire time, its owner file was
+correct, and every mechanical test in this document correctly reported "not
+stale". A peer queued behind it for sixteen hours and was right to — clearing it
+would have been wrong by these rules, and waiting was wrong in every other sense.
+Nothing here was violated. This document simply had no opinion about duration.
+
+**So cap the hold. A couple of hours, then release and re-queue, whether or not
+your job is alive.** A sleeping machine, a wedged run and a finished job somebody
+forgot to release are indistinguishable from outside, and all three look "live".
+If you are holding the lock and cannot say what it is doing *right now*, release
+it. The queuer's rules stay exactly as they are — ask, never clear — which only
+works if holders do not sit on it for hours.
+
+Duration is also the holder's own alarm: a run that has outlasted its own
+expected time by an order of magnitude has almost certainly slept, and should be
+discarded rather than reported. See the wall-clock check below.
+
 **The principle underneath all four**, which is the part worth carrying to other
 problems: each mechanism infers a global fact from a local observation taken a
 moment ago. A clear `pgrep`, an acknowledgement received, a dead pid, an idle
@@ -121,11 +147,20 @@ The lock stops collisions. It does not make a run valid.
 - **Run with `python3 -B`**, and clear `~/Library/Caches/com.apple.python` if
   anything looks inconsistent (`LEGAL_CLAIM_INVENTORY_DESIGN.md` §9).
 - **Hold sleep off with `caffeinate -dimsu`.** `caffeinate -i` is not enough on
-  battery: two runs were lost to sleep, and a third reported a skip count that
-  appeared only in the slept run. A run whose test time and wall-clock time
-  disagree has slept; check `pmset -g log` and discard it.
+  battery: two runs were lost to sleep that way. `-dimsu` is not absolute either
+  — a run under it slept through 7050 seconds of wall clock for 158 seconds of
+  test time on 2026-09-25. A run whose test time and wall-clock time disagree has
+  slept; check `pmset -g log` and discard it. That is the check, not the flag.
 - **Report the commit, the window and the count**, so another session can tell a
   real change in the count from an artefact.
+- **Print skip REASONS, not just the count.** A bare `OK (skipped=2)` appeared
+  only in slept runs and was recorded here and in
+  `OUTPUT_BOUNDARY_GROUNDING_DESIGN.md` §7 as an unexplained artefact of sleep.
+  It was not: with reasons printed, both are `test_razorpayx_client` skipping on
+  `No network reachability to RazorpayX ... Connection refused`. A sleeping
+  machine guarantees an unreachable network but is not the only thing that does,
+  and the count alone cannot tell you which you are looking at. Print
+  `result.skipped`; the mystery lasted five days because nobody did.
 
 ## Numbers that describe the suite
 

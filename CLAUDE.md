@@ -81,9 +81,33 @@ caffeinate -dimsu python3 -B -m unittest discover -s tests
 `caffeinate -i` alone does not hold on battery and has silently invalidated
 runs. Compare the wall clock against unittest's own reported elapsed time:
 `time.perf_counter` does not advance across sleep, so a slept run still prints
-a plausible duration and can still print `OK`. Record the skip count, not just
-`OK`. The suite passes with no `ANTHROPIC_API_KEY` set — every AI-layer
-function has a deterministic fallback.
+a plausible duration and can still print `OK`. Record the skip count **and its
+reasons**, not just `OK` — a bare `skipped=2` was carried as an unexplained
+mystery for five days and was only ever `test_razorpayx_client` skipping on an
+unreachable network. The suite passes with no `ANTHROPIC_API_KEY` set — every
+AI-layer function has a deterministic fallback.
+
+## Release the lock on a clock, not on liveness
+
+**Cap how long you hold the suite lock. A few hours, then release and re-queue,
+whether or not your job is still alive.**
+
+Every staleness rule in `docs/SUITE_LOCK_PROTOCOL.md` asks *is the holder
+alive?*, because the traps that cost people live runs were all false positives —
+a dead pid beside a healthy suite, a legitimate holder in an edit gap. Those
+rules are right and they are not enough, because **"held" and "held by something
+worth waiting for" are different properties, and liveness only tests the first.**
+
+On 2026-09-25 this session held the lock from 03:10 to 19:34. A run slept through
+the night — 7050 seconds of wall clock for 158 seconds of test time — so the
+holder was genuinely live the whole time and every mechanical test correctly
+reported "not stale". A peer queued behind it for sixteen hours and was right to.
+Nothing in the protocol was violated; the protocol had no opinion about duration.
+
+So: liveness is necessary, duration is the other half. If you are holding the
+lock and cannot say what it is doing right now, release it. A sleeping machine,
+a wedged run and a finished job you forgot to release are indistinguishable from
+outside, and all three look "live".
 
 ## The one architecture rule
 
