@@ -303,7 +303,84 @@ verified:
 7. README and `docs/PROJECT_STATUS.md`: close the D-S2 row, record that a
    headline figure moved and in which direction.
 
-## 10. Not in scope
+## 10. Implementation record (2026-09-25)
+
+Commits are the cherry-picked range on `origin/main`; the shared-tree SHAs they
+were authored at differ and are not cited here for that reason.
+
+| Step | Commit | Result |
+|---|---|---|
+| 1 tests, all three sites, committed red | `bddf3bd` | ERROR — the module failed to import, hiding every assertion. A weak red, so step 2 was split out to expose it |
+| 2 `reconciliation_gap()` alone, no caller | `6afb81e` | assertion-level red across Sites A and C, as intended |
+| — Site B tests corrected | `64c9dbf` | **they had asserted nothing** (below) |
+| 3 Site A, the batch-audit basis | `939e3f7` | every Site A test passes, containment pins hold |
+| 4 Site B, the negotiation comparison | `e521d5b` | Site B passes; the baseline moved on one case |
+| 5 Site C, the supplied special allowance | `6e7427a` | all three sites pass |
+| 6 docs | `8afe5cd`, `d4d1cdf`, `44c8f62`, `cdf5db7` | — |
+
+**Verified: 651 tests OK, no failures, no skips, at `cdf5db7`.** 158.18s of test
+time against 171s of wall clock. Static count is 645 `def test_` methods; the
+six-test difference is the deliberate subclassing in
+`tests/test_query_guard_citations.py`, already documented in the README.
+
+### 10.1 The intermediate test counts in the commit messages are not anchored
+
+Steps 3 to 6 cite "672 tests" (and step 3 "651"). **Those runs happened in the
+shared working tree while a concurrent session had uncommitted test files in it,
+so the totals correspond to no commit anyone can check out** — the exact fault
+the *Claims in documentation must be checkable* rule in `CLAUDE.md` exists to
+prevent, committed while quoting that rule elsewhere. The failure *attribution*
+in those messages was correct: every failure named belonged to the other
+session's knowingly-red step-1 tests. The count was not.
+
+**The one anchored number is the 651 above.** Corrected here rather than by
+amending the commits, so the record shows the mistake and its correction rather
+than only the corrected state.
+
+### 10.2 The baseline was regenerated in that window, and is re-verified
+
+`tests/fixtures/pipeline_baseline.json` was regenerated against that same
+unanchorable tree. Re-verified at a real commit with
+`python3 scripts/capture_pipeline_baseline.py --check` at `cdf5db7`: **8 cases,
+no drift, nothing missing, nothing added.** The fixture was also hand-written
+with `json.dump(..., indent=2, sort_keys=True)` plus a trailing newline, which is
+byte-for-byte what that script produces — checked after the fact, having not
+noticed the script existed at the time.
+
+### 10.3 Sabotages
+
+| Sabotage | Predicted | Actual |
+|---|---|---|
+| Site A: restore `optimize(ctc=structure.ctc)` | 4 | **4** — three gratuity subtests and the inverted case. The gap field, `ctc_basis`, the summary count and the containment test all still passed |
+| Site B: revert `negotiate_stage` to the stated CTC | 4 | **4** — three fabrication subtests and the baseline case |
+| Site C: `or`-style defaulting instead of `is None` | 1 | **1** — the explicit-zero test alone |
+| Site C: honour supplied but never balance | 9 | **8** — see below |
+
+**The Site C miss is the informative one.** I expected all seven
+extraction-bearing baseline cases to fail; six did.
+`extraction_mismatch_components_exceed_ctc` did not, because its components
+already exceed the stated CTC, so the clamp had already forced special allowance
+to zero and the sabotage is a no-op there. **The over-reconciling case is
+invisible to a sabotage of the balancing logic precisely because balancing never
+had anything to do there** — which is also why that case sat in the fixture
+pinning a fabricated figure for as long as it did.
+
+### 10.4 Two tests of mine that asserted nothing
+
+Both are recorded because the suite's own reds are what caught them, not review.
+
+- **The Site B tests as first committed** called `negotiate()` directly with
+  `ctc=structure.total()` and a recommendation built from the same figure — the
+  corrected arguments, supplied by hand. They passed with the defect fully
+  present. The red run showing them green is what exposed it. Rewritten to go
+  through `_build_optimize_response()`, where the wrong argument is actually
+  chosen.
+- **`test_the_optimum_is_built_from_the_money_that_is_actually_there`** asserts a
+  property of `optimize()` itself, so it survives the Site A sabotage. Kept as a
+  statement that `optimize()` reconciles exactly, but it is not what catches this
+  defect, and the commit message says so.
+
+## 11. Not in scope
 
 R8 and band cost neutrality; the s. 124 cap's DA base and government-employer
 rate (TE4's recorded divergences); D-S1's EDLI and administrative charges; D-S3
