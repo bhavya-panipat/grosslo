@@ -377,7 +377,7 @@ company's review queue.
 
 Backend:
 ```bash
-python3 -m unittest discover -s tests   # 633 tests, all pass with no API key set
+python3 -m unittest discover -s tests   # 685 tests, all pass with no API key set
 python3 app.py 8000                     # serves the API at http://127.0.0.1:8000
 ```
 
@@ -1139,15 +1139,28 @@ future plans:
 
 ## Test coverage
 
-633 tests across 19 files, all passing with no skips — measured at
-commit `ee76e4d` with `python3 -B -m unittest discover -s tests`, not
-estimated. Re-run it yourself to confirm. The commit is part of the claim:
-`tests/` changes often here, so a bare number goes stale silently, and if
-you are on a later commit you should trust your own run over this sentence.
+685 tests across 23 files, all passing with no skips.
 
-Note that counting `def test_` in the source undercounts the suite: at
-`ee76e4d` that gives 627, while the runner reports 633. The six-test
-difference is deliberate —
+**Every figure in this section is generated, not hand-maintained.**
+`scripts/generate_test_counts_md.py` counts the suite with unittest's own
+loader and rewrites the numbers here and in `FINOS_PROJECT_BRIEF.md`;
+`tests/test_doc_test_counts.py` fails if the committed figures do not match,
+so they cannot drift and cannot disagree between the two files. Regenerate
+with:
+
+```bash
+python3 scripts/generate_test_counts_md.py
+```
+
+The descriptions are hand-written and the generator never touches them. It
+refuses to run if a test file has no entry, because appending a bare number
+for a file nobody has described is how this section went wrong before: it
+read "150 tests total across five files", said it had been "counted directly
+from the test methods in the repo, not estimated", invited the reader to
+confirm — and was 465 tests out of date by the time anyone did.
+
+Note that counting `def test_` in the source undercounts the suite by six,
+which is why the generator uses the loader rather than a static parse.
 `TestAnswerQueryRejectsSectionsItNeverSupplied` in
 `tests/test_query_guard_citations.py` subclasses
 `TestAnswerQueryServesAnswersThatCiteWhatItSupplied`, re-running its six
@@ -1231,16 +1244,28 @@ suite. Counts at `ee76e4d`:
   two companies in use simultaneously with zero leakage, asserted at the
   application layer and again at RLS as an independent layer, plus per-tenant
   payout source accounts and audit-log isolation.
-- **40 in `tests/test_rationale_guard_citations.py`** — that citation digits
+- **42 in `tests/test_rationale_guard_citations.py`** — that citation digits
   are not grounding: a section number in a rationale must not license
   restating that number as a figure, and grounding can only narrow.
 - **27 in `tests/test_output_boundary.py`** — the second enforcement layer for
   the numeric guard, which trusts no call site to have supplied a correct
   allow-set, including against real AI-backed responses.
-- **24 in `tests/test_query_guard_citations.py`** — the guard's citation-token
+- **26 in `tests/test_query_guard_citations.py`** — the guard's citation-token
   exemption: supplied references are not figures, what only looks like one is
   still checked, and an answer citing what was actually supplied is served
   rather than spuriously rejected.
+- **20 in `tests/test_citation_forms.py`** — the citation forms the grammar
+  does not parse (`CITATION_FORM_COVERAGE_DESIGN.md`). `_CITATION_REFERENCE` is
+  the single definition of what a citation *is*, so a form outside its keyword
+  list was not "a citation we cannot match" but not a citation at all, leaving
+  `_citations_unsupplied` nothing to test: `under Section 14` was rejected as
+  fabricated while `u/s 14` was served. Every row of the design's §1 tables is
+  pinned, three of the four defects being fail-open.
+- **18 in `tests/test_ctc_reconciliation.py`** — D-S2: never subtract across two
+  different amounts of money, at the three sites that did. Every expected value
+  is derived by calling `optimize()` with the structure's own modelled total —
+  the argument the design says it should have had — rather than copied from a
+  run, which would have pinned the bug on the days the bug was present.
 - **23 in `tests/test_identity.py`** — Phase 1.2's exit criteria: the
   permission matrix driven by every role against every guarded route,
   cross-tenant user isolation, and that guard order cannot reintroduce the bug.
@@ -1261,6 +1286,17 @@ suite. Counts at `ee76e4d`:
   cases where the fix changes the advice.
 - **7 in `tests/test_pipeline_stages.py`** — that every declared stage actually
   runs, and that a dropped stage fails by name.
+- **8 in `tests/test_overstating_names.py`** — D-S5: two names that described
+  more than their content, found by the deliberate sweep in
+  `NEIGHBOURING_ROUTE_CLAIM_SWEEP.md` rather than by an incident. Neither was an
+  arithmetic error: `/api/batch-audit`'s `summary.total_rows` was the *valid*-row
+  count while malformed rows still appeared in `rows[]` carrying an `error`, and
+  `api_export_approved_row`'s docstring promised a "current vs. corrected" XLSX
+  that has no current column at all.
+- **2 in `tests/test_doc_test_counts.py`** — that the figures in this very
+  section match what the generator produces, and that generation leaves the
+  hand-written descriptions alone. Without it, "generated" would only mean
+  "generated at some point".
 - **3 in `tests/test_execution_trace.py`** — the POLICY_GATE stage returned by
   `/api/guardrail`, which nothing covered before.
 
