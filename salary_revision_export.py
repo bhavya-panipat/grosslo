@@ -46,8 +46,19 @@ FIELD_LABELS = {
 def build_salary_revision_workbook(rows: list[dict]) -> Workbook:
     """
     rows: [{"employee_name": str, "ctc": float,
-            "current": {basic, hra, lta, special_allowance, employer_pf, employer_nps},
             "corrected": {basic, hra, lta, special_allowance, employer_pf, employer_nps}}, ...]
+
+    Corrected values only. This shape listed a "current" key until D-S5, and
+    nothing here ever read it — the word appeared in this module exactly once,
+    in that line. A caller that still passes one is accepted and it is ignored,
+    which a test pins, so an old caller does not break.
+
+    **This is not a decision that the workbook should stay corrected-only.**
+    Whether a Bulk Salary Revision sheet ought to show current beside corrected
+    is a product question about the template, recorded in
+    NEIGHBOURING_ROUTE_CLAIM_SWEEP.md §2.3 and not settled by correcting a name.
+    What D-S5 fixed is that the route's docstring described a comparison this
+    file does not contain.
     Only flagged employees (audit mode's excess-contribution or
     unclaimed-savings rows) should be passed in — this doesn't decide who
     needs revising, it only formats whoever the caller already identified.

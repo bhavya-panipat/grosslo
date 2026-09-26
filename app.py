@@ -1181,8 +1181,12 @@ def api_export_approved_row(submission_id, row_index):
     re-enter anything. Which kind depends on what the row actually is,
     not on which page it happened to be submitted from:
     - A row with a current_structure is a correction (came from the audit
-      mode's "Submit correction") -> a Bulk Salary Revision XLSX, current
-      vs. corrected, via salary_revision_export.py.
+      mode's "Submit correction") -> a Bulk Salary Revision XLSX of the
+      CORRECTED structure, via salary_revision_export.py. It is not a
+      current-vs-corrected comparison: the workbook has no current column,
+      and this docstring claimed one until D-S5. Whether a revision sheet
+      ought to show both is a product question, deliberately not decided by
+      a naming fix — see NEIGHBOURING_ROUTE_CLAIM_SWEEP.md §2.3.
     - A row with no current_structure is a new hire -> a RazorpayX
       Composite Payout payload, via the same _build_composite_payout()
       /api/export-razorpayx already uses. Requires bank_account_number
@@ -1208,10 +1212,13 @@ def api_export_approved_row(submission_id, row_index):
 
     if inp.get("current_structure"):
         # Correction path -> Salary Revision XLSX.
+        # No "current" key: the workbook never read it (D-S5). Passing it made
+        # the docstring's current-vs-corrected claim look supported, which is
+        # how that claim survived. `current_structure` is still what selects
+        # this path above — it is only the dead argument that goes.
         wb = build_salary_revision_workbook([{
             "employee_name": row.get("employee_name") or f"Row {row_index + 1}",
             "ctc": inp["ctc"],
-            "current": inp["current_structure"],
             "corrected": recommended_structure_dict,
         }])
         buf = io.BytesIO()
