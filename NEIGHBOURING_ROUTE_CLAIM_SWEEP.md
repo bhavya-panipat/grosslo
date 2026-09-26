@@ -229,9 +229,90 @@ docstring is what overstates, and the passed-in `current` is dead data.
 | **D-S2** | `unclaimed_savings` compares tax across two different amounts of money (B1). Fix, or constrain the input? | **Constrain the input, and say what the figure means.** Compute the optimum from `structure.total()` rather than the stated `ctc`, so both sides describe the same money — and report the reconciliation gap on the row instead of silently absorbing it, since a gap is real information about the offer letter. Changing the comparison moves a headline figure in both directions, so it needs its own design, its own before/after measurement across the CTC range, and its own sabotage. **Not to be folded into anything else.** |
 | **D-S3** | The basis flags don't reach the exported payload (X2). Carry them, or refuse the export? | **Carry them, don't refuse.** A pre-fix row is not unexportable — its figure may well be right, and D1-7(b) already settled that the reasons say so rather than the route blocking. The payload should carry `tax_basis_flag` and the same reason text the queue shows, by the `WARNING_DO_NOT_UPLOAD` precedent already in this route. Refusing would be a new gate on approved work, which is a product decision and not this one. |
 | **D-S4** | X1's mixed bases: recompute the guardrail at export, or serve the stored one and label it? | **Label, don't recompute — and this is the one I am least sure of.** Recomputing makes the payload internally consistent but silently replaces the verdict a human approved with one nobody reviewed, which is the maker-checker gate eroding by a side effect. Labelling keeps the approved verdict and says when it was computed. If the owner reads the gate differently, this flips. |
-| **D-S5** | The two overstating names (B3 `total_rows`, X3 "current vs. corrected"). | **Correct both, and they are the cheap half of this sweep.** The docstring is a one-line correction to match the file. `total_rows` has one consumer that already uses it correctly, so renaming it to `valid_row_count` is safe today and gets cheaper never. |
+| **D-S5** | ~~The two overstating names (B3 `total_rows`, X3 "current vs. corrected").~~ **Approved and done 2026-09-26 — see §7.** | **Correct both, and they are the cheap half of this sweep.** The docstring is a one-line correction to match the file. `total_rows` has one consumer that already uses it correctly, so renaming it to `valid_row_count` is safe today and gets cheaper never. |
 
 ## 5. Not in scope
 
 Any code change; any change to what the guardrail does, to who approves a
 payout, or to when bulk-approve blocks; the D-S1 primary-source lookup.
+
+*(§5 describes the sweep itself, which changed no code. D-S5's implementation is
+§7 below.)*
+
+## 7. D-S5 implementation record (2026-09-26)
+
+Approved as recommended. **The names were the cheap half and they stayed cheap:
+no figure moved, and no behaviour changed.**
+
+| Step | Commit | Result |
+|---|---|---|
+| Tests, committed failing | `09ef004` | 8 run, 1 failure and 2 errors — all part 1 |
+| Part 1, the rename | `5beaab3` | **683 tests OK** |
+| Part 2, the docstrings and the dead argument | `f8c99fa` | **683 tests OK**, verified at that commit |
+
+**Verified: 683 tests OK, no failures, no skips, at `f8c99fa`.** 156.8s of test
+time against 170s of wall clock. Static count is 677 `def test_` methods, plus
+the six subclassed tests in `tests/test_query_guard_citations.py`, which is 683 —
+so the runner and the source agree. Anchored to a commit rather than quoted bare,
+and measured in a worktree outside the shared tree, so no other session's
+uncommitted files were in it. *(The docs commit that follows changes no code, so
+this run stands for it too.)*
+
+**The run happened at this commit's pre-rebase identity, and the SHAs above were
+rewritten to match.** This branch was rebased onto `origin/main` after the run,
+which gave every commit a new SHA and left the ones cited here pointing at
+objects no longer reachable — the same unanchored-claim fault as D-S2 §10.1, in a
+new disguise. The result still holds because the two commits rebased over
+(`eed209e`, `96c0d26`) are documentation only: no file the suite executes
+changed, so the tree the tests ran against is the tree at `f8c99fa`. **Worth
+knowing generally: a rebase silently invalidates every SHA a commit's own
+documentation cites, and nothing warns you.**
+
+**Five of the eight tests passed in the red run, by design.** Part 2 is a
+docstring correction, so its tests pin what the workbook *actually contains* —
+the exact column list, no current-named column on any sheet, the corrected
+values in the cells, and the accepted-but-ignored case. They never flip. A test
+that never flips does different work from one that does, and mixing the two
+makes a red run unreadable.
+
+**Pinned by content, not by docstring text**, on purpose: a docstring assertion
+breaks on rewording, a content assertion breaks only if the file changes — which
+is the thing the docstring is supposed to describe.
+
+### 7.1 Why the false claim survived
+
+The route docstring promised current-vs-corrected and **the caller passed a
+`current` key**, so anyone checking the docstring against the call site found
+agreement and stopped. `build_salary_revision_workbook()` never read it. The
+dead argument is removed for that reason rather than for tidiness: **dead data
+that makes a false statement look sourced is worse than dead data.**
+
+### 7.2 Sabotage
+
+| Sabotage | Predicted | Actual |
+|---|---|---|
+| Emit `total_rows` alongside `valid_row_count` | 1 | **1** — the test asserting the rename is a rename. Nothing else in 683 tests notices, which is why that test exists |
+
+### 7.3 What this deliberately did not decide
+
+- **Whether the workbook should show current beside corrected.** That is a
+  product question about matching RazorpayX's real Bulk Salary Revision
+  template, which `salary_revision_export.py`'s own honesty label already says
+  has never been checked against a live account. Recorded in both docstrings so
+  the next reader does not mistake "corrected-only" for a considered template
+  decision.
+- **B3's one live consumer stays correct.** `batch-flow.tsx` reads the field as
+  `processedCount` against the uploaded row count and renders *"Processed
+  Records: N / M"* with a throughput percentage, which surfaces the gap the name
+  hid. The rename was for the next caller, not a repair.
+
+### 7.4 Coordination
+
+The frontend half — `api-types.ts`, `processedCount`, and the
+`rows_not_reconciling` line that reads the field twice — is the frontend
+session's, landing immediately behind this. It reads
+`valid_row_count ?? total_rows`, which covers audit results restored from
+`sessionStorage` that predate the rename. **That case was theirs to spot, not
+mine**, and it is why nothing here emits both names: a transitional alias would
+have put two names for one value into the API, which is the second source of
+truth this project does not allow and which §7.2's test now forbids.
