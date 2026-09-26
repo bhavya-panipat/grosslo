@@ -169,6 +169,42 @@ class TestGroundingRules(unittest.TestCase):
                          "rationale": "Basic is below the 50% floor."}}
         self.assertEqual(ob.ungrounded_findings(payload), [])
 
+    def test_a_section_that_declares_ai_fields_is_checked_even_without_the_flag(self):
+        # docs/PROJECT_STATUS.md's ai_backed row. Discovery was keyed on
+        # ai_backed alone, so a section that declared WHICH fields are
+        # model-authored but omitted the boolean was invisible: the check it
+        # asked for was silently not performed. The declaration is the thing
+        # that says "model text lives here", so it is what discovery follows.
+        payload = {"metrics": {"total_tax": 120_000},
+                   "c": {"ai_fields": ["message"],
+                         "message": "You could save 7,77,777 a year."}}
+        findings = ob.ungrounded_findings(payload)
+        self.assertEqual([f.path for f in findings], ["c.message"], findings)
+
+    def test_a_flag_with_no_declaration_is_checked_strictly_not_skipped(self):
+        # I wrote this test expecting a hole here — a section claiming model
+        # text while naming no fields, silently unchecked — and measured the
+        # opposite: ungrounded_findings already inspects every string in an
+        # undeclared section, grounded response-wide. So the asymmetry is
+        # deliberate and only ONE direction was broken. Pinned as it is, so a
+        # later "simplification" that skips undeclared sections fails here.
+        payload = {"metrics": {"total_tax": 120_000},
+                   "c": {"ai_backed": True,
+                         "message": "You could save 7,77,777 a year."}}
+        findings = ob.ungrounded_findings(payload)
+        self.assertEqual([(f.path, f.number) for f in findings],
+                         [("c.message", 777777.0)], findings)
+
+    def test_a_deterministic_section_declaring_nothing_is_still_not_checked(self):
+        # The control that stops the fix from becoming "check everything".
+        # ai_backed False and no declaration is the deterministic fallback, and
+        # its figures are grounded in the rule, not the response.
+        payload = {"metrics": {"total_tax": 120_000},
+                   "c": {"ai_backed": False,
+                         "rationale": "Basic is below the 50% floor."},
+                   "d": {"reasons": ["R1 (High) — Basic is below the floor."]}}
+        self.assertEqual(ob.ungrounded_findings(payload), [])
+
     def test_booleans_do_not_enter_the_allow_set(self):
         # bool is a subclass of int, so a True anywhere deterministic would
         # otherwise ground every stray "1" in model text.

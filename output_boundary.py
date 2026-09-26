@@ -53,9 +53,37 @@ from ai_layer import (_citations_unsupplied, _extract_numbers, _grounded_figures
 # can carry model text already declares itself with this key, so a new one is
 # inspected automatically BECAUSE it declares itself.
 #
-# The cost of that choice, named: a section that OMITS the flag is invisible
-# here. Tracked as its own follow-up rather than absorbed into this module.
+# The cost of that choice, once named here as "a section that OMITS the flag is
+# invisible": measured 2026-09-26 and only half true, so both halves are now
+# written down. A section with ai_backed True and NO declaration is checked more
+# strictly, not less — every string, grounded response-wide (see
+# ungrounded_findings). The broken direction was the other one: a section that
+# DECLARED ai_fields while omitting the boolean was skipped entirely, so the
+# check it explicitly asked for was silently not performed. Discovery therefore
+# follows the declaration as well as the flag: `ai_fields` says model text lives
+# here, which is the same statement the flag makes, and either is enough.
+#
+# What remains, and it cannot be fixed from inside this module: a section that
+# declares NEITHER is still invisible, because nothing in a payload distinguishes
+# model text from deterministic text. orchestration["reasons"] is that case
+# today — it copies flag["message"] verbatim, and is covered only incidentally,
+# because the origin section travels beside it. See docs/PROJECT_STATUS.md.
 AI_MARKER = "ai_backed"
+AI_DECLARATION = "ai_fields"
+
+
+def _declares_model_text(node: dict) -> bool:
+    """
+    True if this section says it carries model-authored text, by EITHER
+    statement it can make: the ai_backed flag, or an ai_fields declaration.
+
+    Two keys said the same thing and only one was consulted, so a section could
+    declare which of its fields a model wrote and be skipped for want of a
+    boolean. Reading both means the statements cannot disagree about whether a
+    section is inspected — the same reasoning that made one regex parse both
+    sides of the citation grammar.
+    """
+    return node.get(AI_MARKER) is True or bool(node.get(AI_DECLARATION))
 
 # Matches the inline guard. Rupee figures are rounded for display, and a
 # stricter rule would fail on honest formatting rather than on ungrounded
@@ -152,7 +180,7 @@ def _ai_section_paths(payload) -> list:
 
     def visit(node, path=""):
         if isinstance(node, dict):
-            if node.get(AI_MARKER) is True:
+            if _declares_model_text(node):
                 found.append(path)
             for key, value in node.items():
                 visit(value, f"{path}.{key}" if path else key)
@@ -332,7 +360,7 @@ def _ai_sections(payload) -> list:
 
     def visit(node, path=""):
         if isinstance(node, dict):
-            if node.get(AI_MARKER) is True:
+            if _declares_model_text(node):
                 found.append((path, node))
             for key, value in node.items():
                 visit(value, f"{path}.{key}" if path else key)
