@@ -377,7 +377,7 @@ company's review queue.
 
 Backend:
 ```bash
-python3 -m unittest discover -s tests   # 685 tests, all pass with no API key set
+python3 -m unittest discover -s tests   # 688 tests, all pass with no API key set
 python3 app.py 8000                     # serves the API at http://127.0.0.1:8000
 ```
 
@@ -1139,7 +1139,7 @@ future plans:
 
 ## Test coverage
 
-685 tests across 23 files, all passing with no skips.
+688 tests across 23 files, all passing with no skips.
 
 **Every figure in this section is generated, not hand-maintained.**
 `scripts/generate_test_counts_md.py` counts the suite with unittest's own
@@ -1247,7 +1247,7 @@ suite. Counts at `ee76e4d`:
 - **42 in `tests/test_rationale_guard_citations.py`** — that citation digits
   are not grounding: a section number in a rationale must not license
   restating that number as a figure, and grounding can only narrow.
-- **27 in `tests/test_output_boundary.py`** — the second enforcement layer for
+- **30 in `tests/test_output_boundary.py`** — the second enforcement layer for
   the numeric guard, which trusts no call site to have supplied a correct
   allow-set, including against real AI-backed responses.
 - **26 in `tests/test_query_guard_citations.py`** — the guard's citation-token
