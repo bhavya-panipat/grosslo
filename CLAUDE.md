@@ -202,10 +202,31 @@ fact without a Gazette check, and a README sentence reading "counted directly
 from the test methods in the repo, not estimated" that had drifted from 150 to
 615 while still inviting the reader to re-run and confirm.
 
-So: never write a bare test count, or any measured number, without the commit
-it was measured at — and name a commit a reader can actually fetch. When you
-find a stale number, do not refresh it in place. Delete it if it is rhetorical,
-anchor it to a commit if it is a verification claim, pin it as historical if it
-is a record of what was true then. Refreshing in place guarantees a repeat.
-Prefer an invariant that fails cheaply: the README's per-file test counts sum
-to the stated total, so a half-updated edit is caught without running anything.
+**The test counts in `README.md` and `FINOS_PROJECT_BRIEF.md` are generated. Do
+not correct one by hand** — run `python3 scripts/generate_test_counts_md.py`.
+`tests/test_doc_test_counts.py` fails if the committed figures are not what the
+generator produces, so a hand edit will be caught. It counts with unittest's own
+loader, because parsing `def test_` undercounts by six (a deliberate TestCase
+subclass in `tests/test_query_guard_citations.py` re-runs its parent's tests).
+Adding a test file requires describing what it covers: the generator refuses to
+run while any test file has no entry, because a bare number appended for an
+undescribed file is how that section went wrong before.
+
+For any other measured number, in descending order of durability:
+
+1. **Generate it**, as above and as `compliance_rules.md` does, with a `--check`
+   mode and a test asserting the committed copy matches. This is the only option
+   that cannot rot.
+2. **Delete it**, if the number is rhetorical. "The other 261 tests cannot catch
+   this" became "the other tests cannot catch this" and lost nothing.
+3. **Anchor it** to a commit a reader can actually fetch, if it is a verification
+   claim that cannot be generated. Anchored, it can only become
+   not-yet-re-measured rather than silently wrong.
+4. **Pin it as historical**, if it records what was true then — dated, and named
+   as such.
+
+**Never refresh a stale number in place.** That is what guarantees a repeat: the
+test count went 150 → 615 → 625 → 633 in a week, and each correction was already
+out of date when it was pushed. Prefer an invariant that fails cheaply — the
+per-file counts sum to the stated total, which caught a half-updated edit with no
+suite run at all.
