@@ -1210,6 +1210,19 @@ def api_export_approved_row(submission_id, row_index):
     recommended_regime = computed["recommended_regime"]
     recommended_structure_dict = computed[f"{recommended_regime}_regime_best"]["structure"]
 
+    # D-S3. review_queue._row_to_dict() already attaches these to every row it
+    # returns, and this route read neither — so the warning reached the Finance
+    # queue and not the artefact that gets acted on. Read here, before the two
+    # branches, because both produce something a person acts on.
+    #
+    # Nothing is recomputed and nothing stored is rewritten (D1-4, D-T3), and the
+    # route does not refuse: D1-7(b) settled that the reasons say so rather than
+    # the route blocking, and a new gate on work a human has approved would be a
+    # product decision. The flag says the figure MAY be wrong, not that it is.
+    basis_flags = {name: row[name] for name in ("tax_basis_flag", "treasury_basis_flag")
+                   if row.get(name)}
+    basis_warnings = [flag["reason"] for flag in basis_flags.values()]
+
     if inp.get("current_structure"):
         # Correction path -> Salary Revision XLSX.
         # No "current" key: the workbook never read it (D-S5). Passing it made
@@ -1220,7 +1233,7 @@ def api_export_approved_row(submission_id, row_index):
             "employee_name": row.get("employee_name") or f"Row {row_index + 1}",
             "ctc": inp["ctc"],
             "corrected": recommended_structure_dict,
-        }])
+        }], basis_warnings=basis_warnings)
         buf = io.BytesIO()
         wb.save(buf)
         buf.seek(0)
@@ -1233,6 +1246,14 @@ def api_export_approved_row(submission_id, row_index):
             mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
         response.headers["X-Template-Honesty-Label"] = TEMPLATE_HONESTY_LABEL.replace("—", "-")
+        if basis_warnings:
+            # Beside the Read Me rows, not instead of them. The file is what
+            # survives being saved; the header is what a tool inspecting the
+            # response can see. Same two-surface treatment the template label
+            # and the source-account placeholder already get.
+            # Latin-1 only in header values, the same constraint those work around.
+            response.headers["X-Basis-Superseded"] = " | ".join(
+                w.replace("—", "-").replace("₹", "Rs ") for w in basis_warnings)
         return response
 
     # New-hire path -> RazorpayX Composite Payout payload.
@@ -1275,6 +1296,14 @@ def api_export_approved_row(submission_id, row_index):
         )],
         "payout_basis": _payout_basis(recommended.structure, recommended.tax_breakdown, forecast),
     }
+    # D-S3. Only when the row carries one, so a consumer never has to tell "no
+    # flag" from "this response predates the field" by reading a null. In the
+    # body rather than only a header: headers are dropped by every tool that
+    # reformats a payload, and a payment instruction's caveats have to travel
+    # with it.
+    if basis_flags:
+        payload.update(basis_flags)
+        payload["WARNING_BASIS_SUPERSEDED"] = " ".join(basis_warnings)
     if using_placeholder:
         # Loud in the body, and again in a header so the warning survives being
         # piped, saved, or handed on — the same two-surface treatment

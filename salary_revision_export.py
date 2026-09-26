@@ -26,6 +26,8 @@ optimizer's own output for the flagged employee, passed in already
 computed — this module only formats it into the workbook shape.
 """
 
+from __future__ import annotations
+
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 
@@ -43,7 +45,8 @@ FIELD_LABELS = {
 }
 
 
-def build_salary_revision_workbook(rows: list[dict]) -> Workbook:
+def build_salary_revision_workbook(rows: list[dict],
+                                   basis_warnings: list[str] | None = None) -> Workbook:
     """
     rows: [{"employee_name": str, "ctc": float,
             "corrected": {basic, hra, lta, special_allowance, employer_pf, employer_nps}}, ...]
@@ -52,6 +55,12 @@ def build_salary_revision_workbook(rows: list[dict]) -> Workbook:
     nothing here ever read it — the word appeared in this module exactly once,
     in that line. A caller that still passes one is accepted and it is ignored,
     which a test pins, so an old caller does not break.
+
+    basis_warnings: reason text for figures computed on a superseded basis
+    (D-S3). Optional and defaulted, so every existing caller is unaffected. When
+    supplied, each entry becomes a row in the Read Me sheet under a bold heading
+    — in the file rather than only on the response, because a saved workbook
+    outlives its headers. Absent when there is nothing to say.
 
     **This is not a decision that the workbook should stay corrected-only.**
     Whether a Bulk Salary Revision sheet ought to show current beside corrected
@@ -78,6 +87,20 @@ def build_salary_revision_workbook(rows: list[dict]) -> Workbook:
     readme.row_dimensions[6].height = 40
     readme["A8"] = "No live upload to RazorpayX occurs anywhere in this codebase. This file must be reviewed and uploaded manually, the same way any Bulk Salary Revision file would be."
     readme["A8"].alignment = Alignment(wrap_text=True)
+
+    # D-S3. Written into the FILE, not only onto the response, because a saved
+    # workbook outlives its headers — and this is the one caveat that is about
+    # the figures rather than the template shape. Absent when there is nothing to
+    # say: an always-present warning row would train people to skip the sheet,
+    # which is the argument D1-4 §8.2 made against flagging unaffected rows.
+    if basis_warnings:
+        readme["A10"] = "FIGURE BASIS WARNING — the corrected values below may have been computed on a superseded basis:"
+        readme["A10"].font = Font(bold=True)
+        for offset, warning in enumerate(basis_warnings):
+            cell = readme[f"A{11 + offset}"]
+            cell.value = warning
+            cell.alignment = Alignment(wrap_text=True)
+            readme.row_dimensions[11 + offset].height = 40
 
     header_fill = PatternFill(start_color="F0ECE4", end_color="F0ECE4", fill_type="solid")
     header_font = Font(bold=True)
