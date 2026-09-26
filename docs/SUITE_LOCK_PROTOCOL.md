@@ -49,6 +49,35 @@ genuinely stale one behind. The `grep` must match something that identifies
 **you**, and it must be something that stays true for the whole job — which a
 pid is not (below).
 
+### The check must GATE the run, not report on it
+
+Everything above is about reading the lock correctly. That is not sufficient, and
+the way it fails is banal: on 2026-09-26 a session read the lock correctly,
+printed `HELD` with the owner's name, **and then ran anyway**, because the
+acquire and the work were sequenced with `;` instead of gated with `&&`. A lock
+that reports instead of gating is a comment.
+
+So the acquire and the run must be in one chain with no path around it:
+
+```sh
+mkdir /tmp/grosslo-suite.lock \
+  && printf 'session=%s\n' "$MY_SESSION" > /tmp/grosslo-suite.lock/owner \
+  && <the run>
+```
+
+Or block until it is free, which cannot be skipped by accident either:
+
+```sh
+until mkdir /tmp/grosslo-suite.lock 2>/dev/null; do sleep 20; done
+trap 'grep -qF "session=$MY_SESSION" /tmp/grosslo-suite.lock/owner \
+      && rm -rf /tmp/grosslo-suite.lock' EXIT
+```
+
+The general form, which is the part worth carrying elsewhere: a safety check
+whose result is printed rather than *depended on* protects nothing. If reading
+the check and acting on it are two statements, something will eventually run
+between them — and the something is usually you, in a hurry.
+
 ### The pid you write is the hard part
 
 **Recording a pid that outlives the job is the whole point, and both sessions
