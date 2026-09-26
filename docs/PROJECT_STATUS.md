@@ -8,7 +8,8 @@ Its purpose is to be the single place someone can read to know where a
 multi-phase effort with real human dependencies actually stands, without
 reconstructing it from separate closing reports.
 
-_Last updated: 2026-09-25, after the CTC reconciliation fix (D-S2, all three sites).
+_Last updated: 2026-09-26, adding the addition-spec section below.
+Before that, 2026-09-25, after the CTC reconciliation fix (D-S2, all three sites).
 Before that, 2026-09-22, after the two neighbouring-route sweeps opened D-S1 to D-S5.
 Before that, 2026-09-19, after the employer-NPS fix was implemented (D1, steps 0–8).
 Before that, 2026-09-15, after the D1 approvals and blast-radius check
@@ -64,6 +65,31 @@ Every remaining step needs a person, not more code.
 | **2026-10-10** | CA packet escalation trigger — if no reviewer engaged, escalate finding one | Not started |
 | **2026-11-09** | Check-in on the build-block date, 30 days out | Pending |
 | **2026-12-09** | An unverified claim becomes build-blocking | **14 claims unverified.** Three are verified: PT1 and PT4 through a file that had already done the work, and **TE4 through the repeatable browser method** — CBDT's section browser and its parallel-reading Compare — on 2026-09-14. Verified is not cleared: TE4 still carries an unreviewed finding and an unreviewed divergence. *(Until 2026-09-15 this row said the method had cleared no claim yet.)* |
+
+## The addition spec (batch 1): what is not built
+
+_Added 2026-09-26._ `ADDITION_SPEC_BATCH1.md` (revised after review,
+`c54b525`, 2026-09-13) was mentioned by no other document in the repository. As a
+result, four of its items sat at "nothing in code" for thirteen days with no
+owner and no row here. The spec itself calls that "permanent by never being
+anyone's task". This section is that row. Checked against `origin/main` and
+confirmed with every session working in the repository on 2026-09-26.
+
+**Shipped:** Tier 1, replaced by the output-boundary check
+(`OUTPUT_BOUNDARY_DESIGN.md`, `8c17114`; grounding in
+`OUTPUT_BOUNDARY_GROUNDING_DESIGN.md`), and Tier 3.1's cost tracking (`1b6e7d4`,
+`tests/test_usage_tracking.py`). **Removed by the review:** Tier 2.2, because the
+inventory holds no deadline data to derive a calendar from. **Tracked elsewhere:**
+the spec's `ai_backed` follow-up is now a row under *Open gaps* below. Tier 6 still
+needs its own design documents before anything starts.
+
+| Item | Status | Blocked on | Owner | Next action |
+|---|---|---|---|---|
+| **2.1** Forward-looking workforce cost modelling | Not started. **Held by the project owner, 2026-09-26.** | It builds on the treasury-forecast logic, which kept finding bugs through 2026-09-25 (payout gross/net, treasury basis, the export refusal, D-S2). Building on it now would make every new defect there a question about this feature too. | Build: unassigned. Start decision: project owner. | Start only after a quiet stretch, of at least a day, with no new treasury or forecast defect. Design doc first, however short. It must name every existing function the feature calls unchanged, with before-and-after test counts. |
+| **2.3** Compensation health score | Not started. | Nothing. | Unassigned. | Design note first, carrying the review's two points: the claim-inventory term is global by decision, so it is identical for every tenant and cannot tell two companies apart; and "over time" has to be replayed from `submissions.created_at`, because no metrics series exists. |
+| **4.1** CA packet delivery | Not built. | **No reviewer has been identified.** Delivery is not the bottleneck; a pipe to an address nobody has is not progress. | Project owner (engaging a reviewer). | None until a reviewer exists. Tied to the **2026-10-10** escalation date in *Dates outstanding*. |
+| **5.1** Audit-trail analytics | Not started. The only related code is the raw, tenant-filtered `/api/audit-log` from 2026-09-01, which no page calls. | Nothing. | Unassigned. | Scoped by the review to what the log holds: compliance and guardrail trends, and computation activity. Who reviewed which rule, and how fast claims get verified, live in git history, so answer those from git rather than adding a second write path. |
+| **3.1, second half:** a multi-turn tax copilot | **Deferred by the project owner, 2026-09-26.** | A deliberate decision. `answer_query` is stateless and single-turn, so this would be a new capability, not a plumbing change. | Project owner. | None. The owner will raise it. It needs its own decision and design doc if it is ever wanted. |
 
 ## Open gaps: owner and next action
 
