@@ -285,7 +285,14 @@ export type BatchAuditRow = {
 export type BatchAuditResponse = {
   rows: BatchAuditRow[];
   summary: {
-    total_rows: number;
+    /** Rows that parsed and were audited — not the submitted count, which is
+     *  rows.length. Was named total_rows until D-S5. Optional only because
+     *  BatchFlow restores audit results from sessionStorage, which can hold
+     *  one from before the rename. */
+    valid_row_count?: number;
+    /** @deprecated Pre-D-S5 name of valid_row_count; present only on audit
+     *  results restored from sessionStorage. */
+    total_rows?: number;
     clean_count: number;
     flagged_count: number;
     epfo_cap_exceeded_count: number;

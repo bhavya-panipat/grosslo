@@ -207,6 +207,11 @@ export default function BatchFlow() {
   // This only batches the ACTION of sending already-flagged rows to
   // Finance; every row still gets its own individual approve/reject
   // decision once it lands in the queue — nothing here skips review.
+  // D-S5: the backend renamed summary.total_rows to valid_row_count — it
+  // always counted valid rows, never submitted ones. Read the old name too,
+  // because an audit result restored from sessionStorage can predate it.
+  const validRowCount = auditResult?.summary.valid_row_count ?? auditResult?.summary.total_rows ?? 0;
+
   const flaggedIndices = (auditResult?.rows ?? [])
     .filter((r) => !r.error && ((r.unclaimed_savings ?? 0) > 0 || (r.excess_contribution ?? 0) > 0))
     .map((r) => r.row_index)
@@ -320,7 +325,7 @@ export default function BatchFlow() {
             className="mt-8 flex flex-col gap-6"
           >
             <ExecutiveSummaryCard
-              processedCount={auditResult.summary.total_rows}
+              processedCount={validRowCount}
               submittedCount={auditResult.rows.length}
               rows={auditResult.rows}
             />
@@ -332,8 +337,8 @@ export default function BatchFlow() {
                 result restored from sessionStorage can predate the field. */}
             {(auditResult.summary.rows_not_reconciling ?? 0) > 0 && (
               <p className="-mt-2 px-1 text-xs text-neutral-500">
-                {auditResult.summary.rows_not_reconciling} of {auditResult.summary.total_rows} row
-                {auditResult.summary.total_rows === 1 ? "'s" : "s'"} components don&apos;t sum to the stated CTC — usually
+                {auditResult.summary.rows_not_reconciling} of {validRowCount} row
+                {validRowCount === 1 ? "'s" : "s'"} components don&apos;t sum to the stated CTC — usually
                 gratuity or insurance, which aren&apos;t modelled. Savings above are computed from the listed components.
               </p>
             )}
