@@ -650,7 +650,13 @@ def api_batch_audit():
     return jsonify({
         "rows": results,
         "summary": {
-            "total_rows": valid_row_count,
+            # D-S5: named for what it counts. Malformed rows appear in
+            # rows[] carrying an error and are not counted here, so
+            # "total_rows" described the submitted batch and held the
+            # valid subset. Its one consumer already read it correctly,
+            # as processedCount against the uploaded count, so this is a
+            # rename for the next caller rather than a repair.
+            "valid_row_count": valid_row_count,
             "clean_count": clean_count,
             "flagged_count": valid_row_count - clean_count,
             "epfo_cap_exceeded_count": epfo_cap_exceeded_count,

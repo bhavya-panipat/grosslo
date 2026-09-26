@@ -177,7 +177,7 @@ class TestSiteATheBatchAuditRoute(ReviewQueueTestCase):
         g2, _ = _gratuity_row(2_400_000, name="G2")
         body = self._audit([_reconciling_row(1_200_000), g1, g2])
         self.assertEqual(body["summary"]["rows_not_reconciling"], 2)
-        self.assertEqual(body["summary"]["total_rows"], 3)
+        self.assertEqual(body["summary"]["valid_row_count"], 3)
 
 
 class TestSiteAContainment(ReviewQueueTestCase):

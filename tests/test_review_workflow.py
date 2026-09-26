@@ -1075,7 +1075,7 @@ class TestBatchAuditExceptionBreakdown(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         summary = resp.get_json()["summary"]
 
-        self.assertEqual(summary["total_rows"], 3)
+        self.assertEqual(summary["valid_row_count"], 3)
         self.assertEqual(summary["clean_count"], 1)
         self.assertEqual(summary["flagged_count"], 2)
         self.assertEqual(summary["epfo_cap_exceeded_count"], 1)
