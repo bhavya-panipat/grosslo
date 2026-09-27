@@ -152,6 +152,33 @@ reason and only one of them is load-bearing. If this is ever revisited, revisit
 it on the closed-set property — and note that a restored pre-fix store breaks
 that property, which is what the trigger conditions exist to catch.)*
 
+#### Correction (2026-09-27): the set is closed against the API path only
+
+**The claim above — that the affected set cannot grow whatever the volume — is
+false as written, and was an inference rather than a check.** Verified at the
+owner's instruction by enumerating every write path for `submission_rows`, not by
+reasoning from the primary one:
+
+| Write path | Runs post-fix logic? |
+|---|---|
+| `review_queue.create_submission()` — the only `INSERT INTO submission_rows` in the codebase (`review_queue.py:1192`), whose sole production caller is `app.py:1084`; every other caller is a test | **Yes.** It writes `tax_basis` **from the engine module constant, never from the caller**, so a row through this path always carries the basis of the code that computed it |
+| `scripts/migrate_sqlite_to_postgres.py::_copy()` — **its own dynamic INSERT**, bypassing `create_submission` entirely | **No.** It copies a fixed explicit column list that **omits `tax_basis`**, and the SQLite source has no such column (verified with `PRAGMA table_info`) |
+
+No other route, script, admin action or migration writes a row.
+
+**So a row written *after* the fix, by the migration, is not on the corrected
+basis.** The set is closed against the API and open against the migration — and
+this document was carrying both *"the set is closed"* and *"running the migration
+is a trigger condition"* at once without noticing they contradict. **The trigger
+is the true claim; the closed-set property was overstated.**
+
+**The failure is safe for the flag mechanism, and that is the salvage.** Because
+the migration omits `tax_basis`, a migrated row reads NULL, which
+`_tax_basis_flag()` treats as pre-fix — so exactly those rows get flagged. The
+fail-closed default is doing the work the closed-set claim was wrongly credited
+with.
+
+
 ## 5. What would make this live
 
 The same triggers as `STORED_ROW_BASIS_FLAG_DESIGN.md` §4, and they are why
