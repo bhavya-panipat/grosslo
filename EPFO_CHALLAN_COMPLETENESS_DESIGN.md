@@ -132,6 +132,30 @@ into the CA question (§8, D-C5), not settled here.
 - **EDLI:** 0.5% (D-C5) of `min(basic / 12, ceiling for the month)`, always
   (para 5(1)).
 
+### 4.2a One implementation of the arithmetic, not two
+
+*(Added after the tenancy session's review, which found this.)*
+`workforce_forecast.py` does **not** call `treasury_forecast()`. It builds its own
+monthly lines (`epfo_challan = employer_pf + employee_pf`, and its own total).
+Adding the overheads to `treasury_forecast()` alone would make the two modules
+**disagree about what an employee costs**. The test that would catch it is the
+cross-module check at `tests/test_workforce_forecast.py:65`, which is exactly
+the one this design first listed as "to retarget". Retargeting it would have
+shipped the disagreement silently.
+
+So the arithmetic lives in **one function in `payroll_breakdown.py`**:
+`monthly_statutory_overheads(basic_monthly, year, month, pf_on_full_basic)`,
+returning EDLI and admin charges for one month, on the per-component bases of
+§3.1 and the dated ceiling of §4.3. `treasury_forecast()` sums it over twelve
+months at the compute-date ceiling (D-C1). `workforce_forecast.py` calls it for
+each employed month, adds `edli`, `epf_admin` and `statutory_overheads` to its
+`LINES`, and includes them in its EPF challan and its total. A part-year cohort
+therefore gets overheads only for the months it is employed, at each month's own
+ceiling, and EDLI's cap and admin's full base interact with the ceiling
+correctly per month, rather than being prorated from an annual figure.
+
+**`workforce_forecast.py` is in this change's file list.**
+
 ### 4.3 A dated ceiling, replacing the constant
 
 `PF_WAGE_CEILING_BASIC` becomes a function of the month:
@@ -204,9 +228,19 @@ taking effect, not a regression, and each retargeted assertion must say so.
 **Blast radius, counted at `6087a51`:** five assertions of the identity in four
 files. They are `tests/test_treasury_outlay.py:49` and `:149` (whose docstring
 explains why the pin is arithmetic about what CTC means),
-`tests/test_ctc_reconciliation.py:202`, `tests/test_employer_nps_statute.py:130`,
-and `tests/test_workforce_forecast.py:65`, which compares the forecast to
-`treasury_forecast()` and must move in step with it. Two other sites read the
+`tests/test_ctc_reconciliation.py:202` (whose **comment** also becomes wrong,
+"follows the real components, and always did", and is rewritten, not only its
+number), `tests/test_employer_nps_statute.py:130`,
+and `tests/test_workforce_forecast.py:65`. **That fifth one is not a
+CTC-identity assertion and is not retargeted.** It is a cross-module consistency
+check, and it is the guard for §4.2a. For the five CTC components it stays
+exactly as it is. For the overheads it compares the two modules through the
+shared function. It **pins, rather than hides, the one designed difference**:
+over a full FY 2026-27, the workforce forecast uses each month's dated ceiling
+(₹15,000 through 16 September 2026), while `treasury_forecast()` uses the
+compute-date ceiling (D-C1). So they differ on EDLI, and on admin charges where
+PF is not on full basic, by an amount the test computes from the shared
+function, not a remembered number. Two other sites read the
 field without asserting the identity and do not change:
 `tests/test_finos.py:963` (with PT against without) and
 `tests/test_review_workflow.py:1013` (positive). D-T1's argument, that
@@ -234,6 +268,10 @@ and makes the two overheads the only named exception.
   test-file descriptions for the count generator.
 
 ## 7. Not in scope
+
+Nothing further: **`tests/test_funding_figure_source_of_truth.py`** (D-S7, added
+since `6087a51`) compares payloads against storage, so both sides move together,
+and it adds no identity assertion (confirmed by the tenancy session).
 
 EPS versus EPF account split (the total is unaffected); DA; any change to what
 `optimize()` recommends; payouts' own net amounts (EDLI and admin are employer
