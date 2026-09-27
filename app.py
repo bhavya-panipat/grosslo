@@ -1343,6 +1343,12 @@ def api_export_approved_row(submission_id, row_index):
     # (NEIGHBOURING_ROUTE_CLAIM_SWEEP.md). So each part says where it came from
     # and when. This describes the payload; it does not decide D-S7, which is
     # about the Finance gate funding against the STORED forecast.
+    #
+    # These labels describe CURRENT behaviour, not an intended design. D-S7's
+    # recommendation is to serve treasury_forecast from storage (the gate
+    # already sums the stored one); if it is ruled that way, the
+    # treasury_forecast label here flips to stored_at_submission. That change
+    # is the ruling taking effect, not a regression.
     exported_at = datetime.now(timezone.utc).isoformat()
     recomputed = {"source": "recomputed_at_export", "computed_at": exported_at}
     payload["computation_basis"] = {

@@ -423,10 +423,11 @@ provision says is not judging that the implementation is right.
 
 ---
 
-# PENDING LOOKUP — D-S1: what an EPF challan carries beyond the PF shares
+# LOOKUP — D-S1: what an EPF challan carries beyond the PF shares (PARTLY DONE)
 
 *Added 2026-09-28, when the owner ruled D-S1: **record now, fix after a
-primary-source lookup** (`EXPORT_NUMERIC_CLAIM_SWEEP.md`). Not started.*
+primary-source lookup** (`EXPORT_NUMERIC_CLAIM_SWEEP.md`). The rates are
+established; four points are still open. See PARTIAL OUTCOME below.*
 
 **Why:** `payroll_breakdown.treasury_forecast()`'s `epfo_challan_annual` sums the
 employer's and the employee's PF shares and nothing else. A real EPF challan
@@ -466,3 +467,40 @@ correctness fix to a **stored** computed value, since submission rows store thei
 implementation, with the population measured (`CLAUDE.md`, *Fixing a stored
 computed value*). The optional rename to `pf_contributions_annual` also touches
 stored rows and was not taken on 2026-09-28.
+
+## PARTIAL OUTCOME — 2026-09-28
+
+Read on EPFO's own site in an ordinary browser, twice and independently: first
+by the tenancy session, then re-read by the frontend session. No PDF was opened,
+and nothing came from memory.
+
+| Component | Finding | Source |
+|---|---|---|
+| EDLI contribution | **0.5% of wages, employer only**: *"Employers contribute 0.5% of wages, with no deduction from employees."* | `epfo.gov.in/insurance-scheme-edli/`, page text |
+| EPF administrative charges | **0.50% of pay.** Circular titled *"Reduction in the rate of Administrative Charges from 0.65% to 0.50% of the pay"*, WSU, dated 29/05/2018 per the tenancy session's reading | `epfo.gov.in/circulars/` listing; PDF `WSU_AdmnCharges_4570.pdf` not read |
+| EDLI administrative charges | **Not levied.** Circular titled *"… Non levy of Administrative charges towards EDLI scheme, 1976"*, WSU, 22/03/2017 per the tenancy session | Same listing; PDF `WSU_FA_ADmCharges_33959-2.pdf` not read |
+
+**What the rates alone say:** `epfo_challan_annual` understates a real challan by
+roughly 1.0% of the relevant pay (0.5% EDLI plus 0.50% EPF admin). That is an
+approximation until the open points below are settled, and it is not to be
+implemented as a flat 1%.
+
+**Still open, and these are what a correct fix depends on:**
+
+1. **Effective dates.** Taken from circular titles and dates, not the circular
+   bodies. Whether anything later superseded either circular was not checked
+   beyond the listing search.
+2. **A minimum administrative charge per establishment.** If a floor exists, a
+   percentage-only implementation is wrong for small employers. EPFO's site
+   search did not surface one, and absence from a search is not evidence of
+   absence.
+3. **The wage base, and whether it is capped.** The EDLI page says "wages" and
+   the circular says "pay", without defining either there. The existing PF
+   treatment in this codebase has its own ceiling, so the question is not idle.
+4. **The in-force instrument**: the EPF & MP Act, 1952 schemes, or the Code on
+   Social Security, 2020. This is the same commencement question as R1.
+
+Points 1–3 need the two circular PDFs read. **Downloading them needs the owner's
+permission**, which was requested by the tenancy session and not yet given.
+Point 4 needs India Code or a practitioner.
+
