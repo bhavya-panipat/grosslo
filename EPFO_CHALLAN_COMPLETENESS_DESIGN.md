@@ -76,6 +76,18 @@ That makes the field's name true, which D-S1's optional rename was reaching for,
 without renaming a stored field. `total_capital_outlay` rises by the two
 components, on top of CTC.
 
+**The two are also reported together as `statutory_overheads_annual`**, so the
+identity can be **retargeted rather than deleted** (§5). A total that could
+exceed `total()` with nothing to check the excess against would be unconstrained.
+That is how the employer-NPS omission survived until D-T1: four identity tests
+passed because nothing constrained the total. *(Raised by the tenancy session,
+which built the identity pin.)*
+
+**Direction: this makes the funding gate more conservative, never less.** It
+adds real employer costs the gate was not funding. The treasury-NPS bug (D-T1)
+was the opposite: a missing component made the gate permissive. So this is not
+another treasury total change of the same severity.
+
 ### 4.2 The PF-wage base
 
 `basic / 12`. Dearness allowance is not modelled anywhere in this tool, which is
@@ -89,8 +101,10 @@ according to D-C2.
 ₹25,000 from October 2026. **September 2026 is prorated by days**, 16 at ₹15,000
 and 14 at ₹25,000, exactly as the FAQ's Q7 illustration does. The ceiling goes
 into the legal-claim inventory as a claim with a citation, so drift is caught.
-**Prerequisite:** read S.O. 5109(E) itself. The FAQ is not the notification,
-and this becomes load-bearing the moment the fix ships (Open gaps row).
+**Prerequisite:** read S.O. 5109(E) itself. The FAQ is not the notification.
+**This design and the stale-ceiling Open gaps row are the same piece of work**,
+not cross-references: the fix cannot ship with the ceiling unsettled, and the
+ceiling's only live consequence is this fix.
 
 ### 4.4 Which month an annual forecast uses
 
@@ -128,8 +142,13 @@ ships:** every row submitted between now and then will store a pre-fix forecast.
 So D-C4 is decided on the population at ship time, re-measured then, not on
 today's zero.
 
-With D-S7 (the stored figure is canonical, approved), a stored pre-fix forecast
-would be what the export serves, which is what makes D-C4 matter.
+**The D-S7 interaction is not symmetric** (tenancy session). With D-S7a
+approved, the stored figure is canonical. For rows computed **after** this fix,
+both the funding gate and the export see the overheads and agree. For rows
+stored **before** it, both agree on the **old, understated** figure. That is
+consistent, but low by the overheads. It is the trade `FUNDING_FIGURE_SOURCE_OF_TRUTH_DESIGN.md`
+§5 already names, and the D-S3 basis-warning channel is how such a row would say
+so if D-C4 flags it.
 
 ## 5. What changes, deliberately
 
@@ -139,9 +158,21 @@ modal's funding grid, the batch audit's liability total, the workforce forecast'
 total cash need, and `penalty_scenario`'s arrears base (which inherits
 `epfo_challan_annual`). The identity every treasury test asserts,
 `total_capital_outlay == SalaryStructure.total()`, becomes
-`== SalaryStructure.total() + edli + admin`. That is the ruling taking effect,
-not a regression, and each retargeted assertion must say so. The workforce
-forecast's identity test (`tests/test_workforce_forecast.py`) moves with it.
+`== SalaryStructure.total() + statutory_overheads_annual`. That is the ruling
+taking effect, not a regression, and each retargeted assertion must say so.
+
+**Blast radius, counted at `6087a51`:** five assertions of the identity in four
+files. They are `tests/test_treasury_outlay.py:49` and `:149` (whose docstring
+explains why the pin is arithmetic about what CTC means),
+`tests/test_ctc_reconciliation.py:202`, `tests/test_employer_nps_statute.py:130`,
+and `tests/test_workforce_forecast.py:65`, which compares the forecast to
+`treasury_forecast()` and must move in step with it. Two other sites read the
+field without asserting the identity and do not change:
+`tests/test_finos.py:963` (with PT against without) and
+`tests/test_review_workflow.py:1013` (positive). D-T1's argument, that
+`total()` equalling the outlay proves a component is inside CTC, still holds
+for the five CTC components. The retargeted identity keeps it true for them,
+and makes the two overheads the only named exception.
 
 ## 6. Tests, including the ones that make the claims checkable
 
