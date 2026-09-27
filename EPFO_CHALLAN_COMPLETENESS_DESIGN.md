@@ -2,7 +2,7 @@
 
 **Status:** design only. No code is changed. **D-C1, D-C3 and D-C4 approved by
 the owner, 2026-09-28. D-C2 resolved from the primary source the same day, and
-it split** (§3.1). **Implementation waits on D-C5, ruled "wait"**: the rate notifications under the 2026 schemes, not yet located (§8).
+it split** (§3.1). **Implementation waits on D-C5's admin-charge half.** The EDLI rate is found (S.O. 3581(E)); the admin-charge notification under the 2026 scheme is not (§8).
 
 **Rulings already made by the owner, 2026-09-28:**
 - D-S1: record now, fix after a primary-source lookup. The lookup is
@@ -123,7 +123,8 @@ another treasury total change of the same severity.
 
 `basic / 12`. Dearness allowance is not modelled anywhere in this tool, which is
 an existing, recorded scope limit. The Code defines "wages" in s. 2(88), which is
-the same kind of definition R1's open question turns on. Basic-only is carried
+a definition of the same kind as the one R1's open question turns on (R1's is
+in the Code on Wages, 2019, s. 2(y); a different code). Basic-only is carried
 into the CA question (§8, D-C5), not settled here.
 
 - **Admin charges:** 0.5% (D-C5) of `basic / 12`, **uncapped when PF is paid on
@@ -287,4 +288,4 @@ costs, not deductions from pay); the ungated re-export the tenancy session found
 | **D-C2b** | EDLI contribution: capped or full? | **RESOLVED from the primary source 2026-09-28: capped**, always. EDLI Scheme, 2026, para 5(1). |
 | **D-C3** | The ₹500 establishment minimum. | **APPROVED 2026-09-28.** Label it everywhere; apply it nowhere in the first version. |
 | **D-C4** | Pre-fix stored forecasts. | **APPROVED 2026-09-28.** Decide at ship time on the re-measured population. |
-| **D-C5** | **The rates.** Both 2026 schemes fix their percentage by separate notification (EPF para 29(1); EDLI para 5(2)), and neither notification was located. The admin charge's 0.50% and ₹500 minimum rest on S.O. 2011(E), made under the **1952** scheme. The EDLI 0.5% rests on EPFO's scheme page and its September 2026 FAQ. | **RULED by the owner 2026-09-28: wait for the notifications.** A figure cited to the FAQ would be a labelled but unconfirmed legal figure, the pattern rejected on D-W3 and in D-C2's removed fallback. The wait covers **both** rates: the admin charge's Gazette grounding is under the old scheme, so under the 2026 scheme it is in the same position as EDLI's. Next action: find the notifications under EPF Scheme 2026 para 29(1) and EDLI Scheme 2026 para 5(2) (Gazette, Ministry of Labour, from June 2026). The CA packet §4 asks the same question. |
+| **D-C5** | **The rates.** Both 2026 schemes fix their percentage by separate notification (EPF para 29(1); EDLI para 5(2)). | **RULED "wait for the notifications" (2026-09-28). HALF RESOLVED the same day by a Gazette search:** **EDLI: found**, S.O. 3581(E), one-half per cent of wages from 29 June 2026, under s. 16(1)(c). **EPF admin charges: not found** in the Ministry of Labour's or EPFO's listings for May to September 2026. The last Gazette rate, S.O. 2011(E) (0.50%, ₹500 minimum), was made under the 1952 scheme. Whether it continues through the Code's s. 164(2)(a) savings clause is in the CA packet §4. **Implementation still waits**, on the admin-charge half. EDLI alone is not shipped, because a partial challan would be the same class of understatement D-S1 exists to fix. |

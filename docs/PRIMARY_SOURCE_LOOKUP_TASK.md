@@ -448,9 +448,12 @@ administrative charges, if separately levied):**
 2. any minimum or fixed amount per challan;
 3. **the instrument that sets it, and whether that instrument is in force.** The
    schemes framed under the EPF & MP Act, 1952 are expected to be relevant. The
-   Code on Social Security, 2020 may have displaced them, and that is **the same
-   commencement question R1 has for the Code on Wages**, so it must be settled
-   from a source, not assumed either way.
+   Code on Social Security, 2020 may have displaced them. That is **a
+   commencement question of the same kind as R1's, under a different code**
+   (R1's is the Code on Wages, 2019), so it must be settled from a source, not
+   assumed either way. *(Wording corrected 2026-09-28: this first said "the same
+   commencement question", which would have let one code's answer be read across
+   to the other.)*
 
 **Where:** EPFO's own site, and India Code for the Acts and schemes. Search
 inside those sites, not the open web. Practitioner pages still quote superseded
@@ -527,7 +530,8 @@ itself**, so these readings are of the notification text, not of a summary.
    circulars listing's search, which is not proof of absence.
 6. **The in-force instrument.** Both notifications rest on the EPF & MP Act, 1952
    and its schemes. Whether the Code on Social Security, 2020 has displaced them is
-   the same commencement question R1 has, and needs India Code or a practitioner.
+   a commencement question of R1's kind, under a different code, and needs India
+   Code or a practitioner.
 
 ## The wage-ceiling FAQ, read — 2026-09-28
 
@@ -588,8 +592,11 @@ for example, ss. 7Q and 14B, which three tracked penalty claims in
 `legal_claims.py` cite. The same Gazette listing has evidence the other way: a
 9 September 2026 notification amending the pattern of investment was issued under
 the 1952 Act's s. 17(3)(a). So which provisions of the 1952 Act still apply is
-**open**. It is the same commencement question R1 has for the Code on Wages, and
-should be checked in the same session.
+**open**. It is **not** R1's question: R1 turns on the Code on Wages, 2019, and
+this on the Code on Social Security, 2020. They are two codes with separate
+commencement schedules. They can be checked in one session for efficiency, but
+one code's answer does not transfer to the other. *(Corrected 2026-09-28, at the
+owner's instruction.)*
 
 **The wage-base question is settled per component, and the answer split** (the
 owner's direction to check each against its own clause): admin charges on the
@@ -600,3 +607,39 @@ para 29(1), EDLI para 5(2)) were not located. EPFO's September 2026 FAQ applies
 0.50% to each. Also whether EDLI's own admin charge is still nil, and whether
 basic alone is the right base under the Code's s. 2(88) definition of wages. All
 four are in `docs/CA_REVIEW_PACKET.md` §4.
+
+## The rates, searched — 2026-09-28
+
+With the owner's approval (D-C5 ruled "wait for the notifications"), the Gazette
+was searched for the two notifications the 2026 schemes require. That meant the
+Ministry of Labour and Employment's listings for May, June, July, August and
+September 2026, and EPFO's own listings for June to September 2026, read by
+title.
+
+| Rate | Result |
+|---|---|
+| **EDLI contribution** (EDLI Scheme 2026, para 5(2)) | **Found: S.O. 3581(E)**, under s. 16(1)(c) of the Code on Social Security, 2020 (`CG-DL-E-04072026-274104`, 585,326 bytes, read). It specifies *"one-half per cent of the wages … payable every month by the employer to the Insurance Fund"*, from the commencement of the EDLI Scheme, 2026, **29 June 2026**. |
+| **EPF administrative charges** (EPF Scheme 2026, para 29(1)) | **Not found** in any listing searched. The last Gazette rate is S.O. 2011(E) (0.50%, ₹500 minimum), made under the 1952 scheme. Whether it still applies through **s. 164(2)(a) of the Code**, which keeps notifications under the repealed Acts in force as if made under the Code *"to the extent they are not contrary"*, *"till they are repealed"*, is a legal reading for the CA packet, not asserted here. |
+
+**Also read, on India Code (Legislative Department, independent of the
+Gazette listings): s. 164 of the Code on Social Security, 2020.**
+- **Sub-section (1)** repeals nine enactments, including the **EPF & MP Act, 1952**
+  (item 3) and the **Payment of Gratuity Act, 1972** (item 6).
+- **Sub-section (2)(a)** keeps notifications and schemes under them in force, as if
+  made under the Code, until repealed.
+- **Sub-section (2)(b)** keeps the 1952 EPF Scheme, the 1976 EDLI Scheme and the
+  1995 Pension Scheme in force, to the extent not inconsistent, **for one year from
+  the Code's commencement**.
+- **Sub-section (3)** applies s. 6 of the General Clauses Act, 1897 to the repeal.
+
+**When the Code commenced is not established.** Leads, from listing titles only
+and not yet read: Gazette entries under ss. 127 and 16(1)(a) of the Code carry a
+"Date of Applicability" of **21 November 2025**, and India Code records the Act as
+last modified on 25 November 2025. May 2026 carries notifications under **s. 127
+"regarding simple interest"** and **s. 128 "regarding damages"**, which look like
+the Code's successors to the 1952 Act's **ss. 7Q and 14B**. See the Open gaps row
+on the penalty claims.
+
+**R1 is a different code.** May 2026 also carries several notifications under the
+**Code on Wages, 2019**, which is R1's instrument. They are leads for R1's own
+commencement question, which is separate from this one.

@@ -492,17 +492,24 @@ def render_document() -> str:
         "admin charges plus Rs 1,500 of EDLI. Reading both as capped would give "
         "Rs 3,000; reading both as full would give Rs 36,000.",
         "",
-        "(1) Are both readings right? (2) **The rates.** Both schemes say the "
-        "percentage is fixed by separate notification (EPF para 29(1), EDLI "
-        "para 5(2)), and no such notification under the 2026 schemes was "
-        "found. The design uses 0.50% for each, from EPFO's September 2026 "
-        "wage-ceiling FAQ and the 1952-era S.O. 2011(E). Which notification "
-        "fixes them now? (3) Is EDLI's own administrative charge still nil "
-        "under the 2026 scheme? S.O. 828(E) set it nil for the 1976 scheme, and "
-        "para 6 of the 2026 scheme mentions administrative charges. (4) This "
-        "tool uses basic alone as the wage base. The Code defines \"wages\" in "
-        "s. 2(88). Is basic-only acceptable here, given the same definitional "
-        "question R1 raises?",
+        "(1) Are both readings right? (2) **The admin-charge rate.** EPF Scheme "
+        "para 29(1) says the percentage is fixed by separate notification. None "
+        "under the 2026 scheme was found in the Gazette, searching the Ministry "
+        "of Labour's and EPFO's listings for May to September 2026 by title. "
+        "The last Gazette rate is 0.50% of pay, with a Rs 500 monthly minimum "
+        "per establishment (S.O. 2011(E), 2018), made under the 1952 scheme. "
+        "Does it still apply through s. 164(2)(a) of the Code, which keeps "
+        "notifications under the repealed Acts in force as if made under the "
+        "Code, \"to the extent they are not contrary\", \"till they are "
+        "repealed\"? **The EDLI rate is settled:** S.O. 3581(E) specifies "
+        "one-half per cent of wages from 29 June 2026, under s. 16(1)(c). (3) "
+        "Is EDLI's own administrative charge still nil under the 2026 scheme? "
+        "S.O. 828(E) set it nil for the 1976 scheme, and para 6 of the 2026 "
+        "scheme mentions administrative charges. (4) This tool uses basic "
+        "alone as the wage base. The Code on Social Security defines \"wages\" "
+        "in s. 2(88). Is basic-only acceptable? This is a question of the same "
+        "kind as R1's, but under a different code (R1's turns on the Code on "
+        "Wages, s. 2(y)), so its answer must not be read across.",
         "",
         "---",
         "",
