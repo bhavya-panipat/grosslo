@@ -131,6 +131,27 @@ D-S4, the mixed computation bases in the same payload — separate decision, sti
 open. The per-row export's other fields. Any change to who approves a payout, or
 to what the Finance queue displays.
 
+### What a measured zero does and does not establish
+
+**The count is not informative on its own, and it should not be read as
+reassurance.** There is no production deployment: no Dockerfile, Procfile or
+platform config, no `DATABASE_URL` in `.env`, and only local databases on this
+machine (`TAX_ENGINE_EMPLOYER_NPS_DESIGN.md` §8). The five SQLite rows are
+development data from 2026-09-07. So "0 affected rows" here means **0 because
+nothing has been submitted by a real customer**, not 0 despite real volume. Those
+are very different levels of assurance, and this document let them look the same.
+
+**What carries the decision is the CLOSED-SET property, which is independent of
+deployment.** Every row written after the fix is computed on the corrected basis,
+so the affected set cannot grow *whatever the volume*. That argument would hold
+identically with a million rows in Postgres. The count only says nothing is owed
+retroactively today; the closed set says nothing will be owed tomorrow.
+
+*(Added 2026-09-27, at the owner's challenge. The two were run together as one
+reason and only one of them is load-bearing. If this is ever revisited, revisit
+it on the closed-set property — and note that a restored pre-fix store breaks
+that property, which is what the trigger conditions exist to catch.)*
+
 ## 5. What would make this live
 
 The same triggers as `STORED_ROW_BASIS_FLAG_DESIGN.md` §4, and they are why
