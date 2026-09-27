@@ -143,7 +143,23 @@ A third candidate rule was drafted and **held back**: *HRA structured above 50% 
 
 ---
 
-## 4. How to sign off
+## 4. A question from outside the rule set
+
+Not a rule. A reading of the statute that a shipped feature relies on, listed here so that confirming it has somewhere to arrive. Until it is confirmed, the feature says on the page that it is not practitioner-confirmed.
+
+### The workforce forecast's TDS default — Income-tax Act, 2025, s. 392(4)(a)(i)
+
+*Relied on by `workforce_forecast.py` (addition spec 2.1, `WORKFORCE_COST_FORECAST_DESIGN.md` §3), shipped in `2dc6bf9`.*
+
+For a hire who joins partway through the tax year, the forecast's primary TDS figure is the tax on this employment's pay alone. A second line shows the figure if the hire declares earlier salary at the same rate. The difference is large: for a Rs 18,00,000 hire (metro, no NPS, measured at `1aad5a8`) joining with three, six or nine months of the year left, the first is Rs 0 and the second is Rs 31,021, Rs 62,041 and Rs 93,062. Which one is primary rests on reading s. 392(4)(a)(i): the person responsible for payment *"shall take into account the following particulars furnished by the assessee, at his option"*, including *"any income under the head 'Salaries' due or received by the assessee, from any other employer or employers during the tax year"*.
+
+**What was checked, and what was not.** The text was read in CBDT's parallel-reading view on `incometaxindia.gov.in` on 2026-09-27, and `itact2025.org` carries it word for word, so **the text has two sources.** **The mapping from the 1961 Act's s. 192(2) to this provision rests on CBDT alone:** itact2025.org's own mapping cites CBDT's Navigator and calls itself a draft, and India Code does not carry the Income-tax Act, 2025, so it could not supply an independent reading. Not checked against the Gazette.
+
+(1) Absent a declaration, does the employer withhold on its own salary alone, so that the forecast's primary figure is the default rather than one of two equal cases? (2) Is s. 392(4)(a)(i) the correct in-force provision, and does any transitional provision affect it for the 2026-27 tax year? (3) Which form do the Income-tax Rules, 2026 prescribe for the declaration (Form 12B under the 1962 Rules)? The rule's number was not found. (4) Separately, the tax engine applies the standard deduction in full to a part-year salary. Is that right?
+
+---
+
+## 5. How to sign off
 
 For each candidate you approve, the following change is made in `compliance_rules.py` — one commit per rule, so the diff is the audit trail:
 
