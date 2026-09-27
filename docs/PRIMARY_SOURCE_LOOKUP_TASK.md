@@ -562,3 +562,32 @@ of the claim inventory (`legal_claims.py`, "DELIBERATELY DEFERRED AND NAMED"),
 which is why nothing caught it. Only a test calls `derive_pf()` with the ceiling
 applied, so no production figure changes today. Tracked in
 `docs/PROJECT_STATUS.md`, *Open gaps*.
+
+## The Gazette, read — 2026-09-28
+
+With the owner's permission, three notifications were downloaded from
+`egazette.gov.in` (Ministry of Labour and Employment, found by month) and read
+once, by the frontend session.
+
+| Notification | What it settles |
+|---|---|
+| **S.O. 5109(E)**, 17 September 2026 (`CG-DL-E-17092026-276299`, 446,210 bytes) | **The wage ceiling is ₹25,000 a month** "for the purposes of Chapter III" of the Code on Social Security, 2020, under s. 2(89), from publication. It supersedes S.O. 2702(E) of 29 May 2026, which was not read. |
+| **EPF Scheme, 2026**, 29 June 2026 (`CG-DL-E-01072026-273957`, 2,510,370 bytes) | **Para 19(3): admin charges are payable on the wages on which voluntary contributions are paid.** Para 28(2): the charge is a percentage of wages. Para 29(1): the percentage is fixed by separate notification. |
+| **EDLI Scheme, 2026**, 29 June 2026 (`CG-DL-E-30062026-273942`, 1,022,320 bytes) | **Para 5(1): the EDLI contribution is on wages "subject to the wage ceiling"**, with no voluntary provision. Para 5(2): the rate is fixed by separate notification. |
+
+**Open point 6 is settled:** the governing instrument is the **Code on Social
+Security, 2020**, with separate EPF, EPS and EDLI Schemes of 2026 under s. 15(1)(a)
+to (c), applicable from 29 June 2026. The 1952 Act's schemes are no longer the
+reference. So the 2017 and 2018 notifications above (S.O. 828(E), S.O. 2011(E))
+describe the old regime, and whether their rates carry over is the open question
+below.
+
+**The wage-base question is settled per component, and the answer split** (the
+owner's direction to check each against its own clause): admin charges on the
+full voluntary wage, EDLI capped. See `EPFO_CHALLAN_COMPLETENESS_DESIGN.md` §3.1.
+
+**Still open:** the notifications fixing the rates under the 2026 schemes (EPF
+para 29(1), EDLI para 5(2)) were not located. EPFO's September 2026 FAQ applies
+0.50% to each. Also whether EDLI's own admin charge is still nil, and whether
+basic alone is the right base under the Code's s. 2(88) definition of wages. All
+four are in `docs/CA_REVIEW_PACKET.md` §4.

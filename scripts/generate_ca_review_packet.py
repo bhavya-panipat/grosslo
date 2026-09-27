@@ -425,12 +425,11 @@ def render_document() -> str:
         "",
         "---",
         "",
-        "## 4. A question from outside the rule set",
+        "## 4. Questions from outside the rule set",
         "",
-        "Not a rule. A reading of the statute that a shipped feature relies on, "
-        "listed here so that confirming it has somewhere to arrive. Until it is "
-        "confirmed, the feature says on the page that it is not "
-        "practitioner-confirmed.",
+        "Not rules. Readings of the law that a shipped or designed feature relies "
+        "on, listed here so that confirming them has somewhere to arrive. Until "
+        "one is confirmed, the feature relying on it says so.",
         "",
         "### The workforce forecast's TDS default — Income-tax Act, 2025, s. 392(4)(a)(i)",
         "",
@@ -467,6 +466,43 @@ def render_document() -> str:
         "prescribe for the declaration (Form 12B under the 1962 Rules)? The "
         "rule's number was not found. (4) Separately, the tax engine applies "
         "the standard deduction in full to a part-year salary. Is that right?",
+        "",
+        "### The EPF challan's EDLI and administrative charges — EPF Scheme, 2026 and EDLI Scheme, 2026",
+        "",
+        "*Relied on by the D-S1 fix design, `EPFO_CHALLAN_COMPLETENESS_DESIGN.md`. "
+        "Not yet implemented.*",
+        "",
+        "`epfo_challan_annual` counts only the two PF shares. The fix adds EDLI "
+        "and EPF administrative charges, **on top of CTC** (owner's ruling). "
+        "Each was read against its own clause in the Gazette on 2026-09-28:",
+        "",
+        "- **EPF Scheme, 2026, para 19(3):** *\"The employer shall be liable to "
+        "pay additional administrative charges on such wages, on which "
+        "voluntary contributions are paid under this paragraph.\"* Read as: "
+        "where PF is paid above the wage ceiling (on full basic, as this tool "
+        "assumes by default), the admin charge is on the full wage.",
+        "- **EDLI Scheme, 2026, para 5(1):** the contribution *\"shall be "
+        "calculated on the basis of the wages as defined in clause (88) of "
+        "section 2 of the Code, subject to the wage ceiling specified in clause "
+        "(89)\"*, with no voluntary-contribution provision. Read as: EDLI is "
+        "always capped, now at Rs 25,000 a month (S.O. 5109(E), 17 September "
+        "2026).",
+        "",
+        "At Rs 60,00,000 CTC that reading gives Rs 19,500 a year: Rs 18,000 of "
+        "admin charges plus Rs 1,500 of EDLI. Reading both as capped would give "
+        "Rs 3,000; reading both as full would give Rs 36,000.",
+        "",
+        "(1) Are both readings right? (2) **The rates.** Both schemes say the "
+        "percentage is fixed by separate notification (EPF para 29(1), EDLI "
+        "para 5(2)), and no such notification under the 2026 schemes was "
+        "found. The design uses 0.50% for each, from EPFO's September 2026 "
+        "wage-ceiling FAQ and the 1952-era S.O. 2011(E). Which notification "
+        "fixes them now? (3) Is EDLI's own administrative charge still nil "
+        "under the 2026 scheme? S.O. 828(E) set it nil for the 1976 scheme, and "
+        "para 6 of the 2026 scheme mentions administrative charges. (4) This "
+        "tool uses basic alone as the wage base. The Code defines \"wages\" in "
+        "s. 2(88). Is basic-only acceptable here, given the same definitional "
+        "question R1 raises?",
         "",
         "---",
         "",
