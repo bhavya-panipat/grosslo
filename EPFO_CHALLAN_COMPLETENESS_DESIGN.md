@@ -1,8 +1,9 @@
 # Completing the EPF challan figure (D-S1) — fix design
 
-**Status:** design only. No code is changed. Decisions D-C1 to D-C4 (§8) are the
-project owner's. **Implementation is gated on D-C2**, for the reason measured in
-§3.
+**Status:** design only. No code is changed. **D-C1, D-C3 and D-C4 approved by
+the owner, 2026-09-28. D-C2 resolved from the primary source the same day, and
+it split** (§3.1). Implementation now waits only on **D-C5**, the rates under the
+2026 schemes (§8).
 
 **Rulings already made by the owner, 2026-09-28:**
 - D-S1: record now, fix after a primary-source lookup. The lookup is
@@ -17,6 +18,11 @@ project owner's. **Implementation is gated on D-C2**, for the reason measured in
 - This session writes the design. The tenancy session stays on the export and
   funding-gate code, and gets this document before any code, because
   `treasury_forecast()` sits in its treasury area.
+- **D-C2 is to be answered per component, not as one binary** (owner's review).
+  EDLI and admin charges fall under different schemes and may have different
+  bases. The "ship first on the full base" fallback was **removed**, not
+  footnoted, because it would put an assumption on screen as a figure, which
+  D-W3 already rejected.
 
 ---
 
@@ -28,7 +34,10 @@ project owner's. **Implementation is gated on D-C2**, for the reason measured in
 | **Minimum admin charge: ₹500 a month per establishment** with a contributing member; ₹75 with none | Same notification; restated in EPFO's wage-ceiling FAQ, Q13 | 2 (different documents) |
 | EDLI admin charges: **nil**, "for the time being", from 1 April 2017 | S.O. 828(E), Gazette, 15 March 2017 | 1 |
 | EDLI contribution: **0.5% of wages**, employer only | EPFO's EDLI scheme page (not a notification) | 2 |
-| **Statutory wage ceiling: ₹25,000 a month from 17 September 2026**, ₹15,000 before | EPFO wage-ceiling FAQ, citing S.O. 5109(E), which was **not read** | 1 |
+| **Statutory wage ceiling: ₹25,000 a month from 17 September 2026**, "for the purposes of Chapter III" of the Code on Social Security, 2020, under s. 2(89) | **S.O. 5109(E)**, Gazette of India No. 4918, 17 September 2026 (`CG-DL-E-17092026-276299`), **read**. It supersedes S.O. 2702(E) of 29 May 2026, which was **not read**; the ₹15,000 before 17 September rests on the FAQ | 1 |
+| **The governing instrument is now the Code on Social Security, 2020**, with an **EPF Scheme, 2026** (s. 15(1)(a)) and a separate **EDLI Scheme, 2026** (s. 15(1)(c)), both applicable from 29 June 2026 | Gazette, Ministry of Labour, 29 June 2026 (`CG-DL-E-01072026-273957`, `CG-DL-E-30062026-273942`), **read** | 1 |
+| **EPF admin charges follow voluntary higher wages:** *"The employer shall be liable to pay additional administrative charges on such wages, on which voluntary contributions are paid"* | **EPF Scheme, 2026, para 19(3)**; the charge is a "percentage of wages" (para 28(2)), fixed by separate notification (para 29(1)) | 1 |
+| **The EDLI contribution is capped:** *"calculated on the basis of the wages as defined in clause (88) of section 2 of the Code, subject to the wage ceiling specified in clause (89)"*. The scheme has no voluntary-contribution provision | **EDLI Scheme, 2026, para 5(1)**; the rate is fixed by separate notification (para 5(2)) | 1 |
 | **EDLI and admin charges are computed on wages capped at the ceiling**, in the mandatory case: ₹125 each at PF wages of ₹35,000 | Same FAQ, Q13 table | 1 |
 
 ## 2. What the current code computes
@@ -64,6 +73,29 @@ implemented until it is settled.
 This is magnitude, not population. How many real employees sit above the ceiling
 depends on a customer's payroll, which no store here holds.
 
+### 3.1 Resolved from the primary source, and neither column above is right
+
+Read per component, as the owner directed, each against its own clause:
+
+- **EPF admin charges: the full base** when PF is paid above the ceiling, which is
+  this tool's default. EPF Scheme, 2026, para 19(3).
+- **EDLI contribution: the capped base**, always. EDLI Scheme, 2026, para 5(1).
+
+So the table's "capped" column understates, and its "full" column overstates.
+What the fix actually adds, measured at `6087a51` (same structures):
+
+| CTC | Basic / month | Admin (full base) | EDLI (capped at ₹25,000) | Per year | % of CTC |
+|---|---|---|---|---|---|
+| ₹3,00,000 | ₹12,500 | ₹750 | ₹750 | ₹1,500 | 0.50% |
+| ₹6,00,000 | ₹25,000 | ₹1,500 | ₹1,500 | ₹3,000 | 0.50% |
+| ₹12,00,000 | ₹50,000 | ₹3,000 | ₹1,500 | ₹4,500 | 0.38% |
+| ₹18,00,000 | ₹90,000 | ₹5,400 | ₹1,500 | ₹6,900 | 0.38% |
+| ₹36,00,000 | ₹1,80,000 | ₹10,800 | ₹1,500 | ₹12,300 | 0.34% |
+| ₹60,00,000 | ₹3,00,000 | ₹18,000 | ₹1,500 | ₹19,500 | 0.33% |
+
+At ₹60L the answer is ₹19,500 a year. A single-binary D-C2 would have given
+₹3,000 or ₹36,000, and been wrong either way.
+
 ## 4. Design
 
 ### 4.1 Two new components, and an honest EPF challan
@@ -91,8 +123,15 @@ another treasury total change of the same severity.
 ### 4.2 The PF-wage base
 
 `basic / 12`. Dearness allowance is not modelled anywhere in this tool, which is
-an existing, recorded scope limit. The ceiling applies to the base or not
-according to D-C2.
+an existing, recorded scope limit. The Code defines "wages" in s. 2(88), which is
+the same kind of definition R1's open question turns on. Basic-only is carried
+into the CA question (§8, D-C5), not settled here.
+
+- **Admin charges:** 0.5% (D-C5) of `basic / 12`, **uncapped when PF is paid on
+  full basic** (`derive_pf(voluntary_full_basic=True)`, the default, para 19(3)),
+  and capped at the dated ceiling when it is not.
+- **EDLI:** 0.5% (D-C5) of `min(basic / 12, ceiling for the month)`, always
+  (para 5(1)).
 
 ### 4.3 A dated ceiling, replacing the constant
 
@@ -101,7 +140,9 @@ according to D-C2.
 ₹25,000 from October 2026. **September 2026 is prorated by days**, 16 at ₹15,000
 and 14 at ₹25,000, exactly as the FAQ's Q7 illustration does. The ceiling goes
 into the legal-claim inventory as a claim with a citation, so drift is caught.
-**Prerequisite:** read S.O. 5109(E) itself. The FAQ is not the notification.
+**S.O. 5109(E) was read from the Gazette on 2026-09-28** and confirms ₹25,000
+from 17 September 2026. The ₹15,000 before it rests on the FAQ, because the
+superseded S.O. 2702(E) was not read.
 **This design and the stale-ceiling Open gaps row are the same piece of work**,
 not cross-references: the fix cannot ship with the ceiling unsettled, and the
 ceiling's only live consequence is this fix.
@@ -178,9 +219,10 @@ and makes the two overheads the only named exception.
 
 - **The new identity:** total = CTC-modelled + EDLI + admin, for every case the
   existing identity tests cover.
-- **The cap binds:** PF wages ₹35,000 a month gives ₹125 each per month under the
-  capped base (the FAQ's own row), and ₹20,000 gives ₹100 (under the cap, the
-  bases agree).
+- **Each component on its own base (§3.1):** at basic ₹35,000 a month, EDLI is
+  ₹125 (capped, para 5(1)) and admin charges are ₹175 under full-basic PF (para
+  19(3)), or ₹125 when PF is not paid above the ceiling (the FAQ's own row). At
+  ₹20,000 both are ₹100, because under the cap the bases agree.
 - **September 2026:** prorated by days, reproducing the FAQ's Q7 Scenario B
   figures (EDLI ₹100, admin ₹100 on ₹20,000).
 - **Dated ceiling:** ₹15,000 for August 2026, ₹25,000 for October 2026.
@@ -203,7 +245,9 @@ costs, not deductions from pay); the ungated re-export the tenancy session found
 
 | | Decision | Recommendation |
 |---|---|---|
-| **D-C1** | Which ceiling does an undated annual `treasury_forecast()` use? | **The ceiling in force on the date it is computed, recorded in the forecast** (`pf_wage_ceiling_applied`), so a stored forecast says which law it used. A forecast is forward-looking payroll, and every date since 17 September 2026 gives ₹25,000. |
-| **D-C2** | When PF is paid voluntarily on full basic (this tool's default), are EDLI and admin charges on the capped wage or the full base? | **Do not implement until answered.** Up to 12x apart (§3). The FAQ covers only the mandatory, capped case, and the answer must not come from memory. Route: read S.O. 5109(E) and the EPF Scheme's paragraphs 26 and 30 on India Code, and add the question to `docs/CA_REVIEW_PACKET.md`. If the owner prefers to ship first: the **full base**, labelled, because it over-funds rather than under-funds. But that is an assumption shown as a figure, which the owner rejected on D-W3. |
-| **D-C3** | The ₹500 establishment minimum. | **Label it everywhere; apply it nowhere in the first version.** Per-row and per-hire figures are correct as marginal costs, and no upload can be known to be a whole establishment. Applying the minimum to a partial upload would overstate. |
-| **D-C4** | Pre-fix stored forecasts. | **Decide at ship time on the re-measured population.** Today it is 0 in both stores, but the set stays open until the fix ships. If still 0 then, no flag, with its trigger conditions recorded (D-S6's shape); if not, the absence-of-key flag, which needs no column. |
+| **D-C1** | Which ceiling does an undated annual `treasury_forecast()` use? | **APPROVED 2026-09-28.** The ceiling in force on the date it is computed, recorded in the forecast (`pf_wage_ceiling_applied`). |
+| **D-C2a** | EPF admin charges under voluntary full-basic PF: capped or full? | **RESOLVED from the primary source 2026-09-28: full.** EPF Scheme, 2026, para 19(3). |
+| **D-C2b** | EDLI contribution: capped or full? | **RESOLVED from the primary source 2026-09-28: capped**, always. EDLI Scheme, 2026, para 5(1). |
+| **D-C3** | The ₹500 establishment minimum. | **APPROVED 2026-09-28.** Label it everywhere; apply it nowhere in the first version. |
+| **D-C4** | Pre-fix stored forecasts. | **APPROVED 2026-09-28.** Decide at ship time on the re-measured population. |
+| **D-C5** | **The rates.** Both 2026 schemes say the percentage is fixed by separate notification (EPF para 29(1); EDLI para 5(2)). Those notifications were **not located**. The 0.5% figures come from 1952-era notifications (S.O. 2011(E); EDLI's own notification never read) and from EPFO's September 2026 FAQ, which applies 0.50% to both for contributions after 17 September 2026. | **Implement at the FAQ's rates, cited as "EPFO FAQ, September 2026; the fixing notification under the 2026 schemes not located"**, and ask the CA to confirm them together with the para 19(3) and 5(1) readings and the basic-only wage base. The FAQ is EPFO's own current statement for the new regime, not a number from memory, so this is a cited figure, not an assumed one. **The alternative is to wait** until the notifications are found. **The owner decides which.** |
