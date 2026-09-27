@@ -653,7 +653,7 @@ features added one at a time.
 
 ## Test coverage
 
-688 tests across 23 files, passing with no `ANTHROPIC_API_KEY` set
+696 tests across 24 files, passing with no `ANTHROPIC_API_KEY` set
 (every AI-layer function has a deterministic fallback, so the full suite
 exercises real logic either way — see README.md's "Test coverage" for the
 full per-file breakdown, including the files not listed here). These figures

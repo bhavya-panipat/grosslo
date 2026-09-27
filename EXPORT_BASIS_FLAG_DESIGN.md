@@ -170,3 +170,91 @@ record-and-defer would be recoverable rather than final:
 
 **Sabotage:** emit the flag unconditionally — the unflagged-row test fails alone,
 proving the pair distinguishes "carried when present" from "always present".
+
+## 8. Implementation record (2026-09-27)
+
+| Step | Commit | Result |
+|---|---|---|
+| Tests, committed failing | `f6180a4` | 8 run, **4 failures** — the four needing the feature. The other four assert that nothing changes, and had to pass from the start |
+| Both branches | `319c02c` | **696 tests OK** |
+| Sabotage: emit the payload flag unconditionally | — | **exactly the 1 predicted failure**, the unflagged-row test. The only thing in 693 tests that tells "carried when present" from "always present" |
+
+**Verified: 696 tests OK at `319c02c`, no failures, no skips**, in a worktree
+outside the shared tree. Counts in `README.md` and `FINOS_PROJECT_BRIEF.md`
+regenerated with `scripts/generate_test_counts_md.py`, not hand-edited.
+
+**The run above is the second one, and the first did not carry over.** This range
+was rebased twice. The first rebase crossed documentation only, so the earlier
+result still applied. The second crossed `output_boundary.py` — the census fix
+that lets a declaration alone make a section visible — so **the suite was re-run
+from scratch rather than the 693 figure being carried forward with new SHAs**.
+Every SHA cited here was rewritten to its post-rebase identity for the same
+reason, which is the third time in this work that a rebase has silently
+invalidated a document's own citations. The rule that follows: after a rebase,
+check whether anything the range crossed was code, and re-measure if it was.
+
+### 8.1 §7's open question, decided
+
+The correction path returns an XLSX, so the flag cannot ride in a JSON body.
+**Decided as the workbook itself plus a header, not a header alone.** A saved file
+outlives its response headers, which is the same reasoning that put the JSON
+caveat in the body rather than only on the response. `basis_warnings` is an
+optional argument to `build_salary_revision_workbook()`, so every existing caller
+is unaffected, and the rows are absent when there is nothing to say — an
+always-present warning row would train people to skip the sheet, which is
+D1-4 §8.2's argument against flagging unaffected rows, applied to a spreadsheet.
+
+**The template honesty label and the basis warning coexist, and a test pins it.**
+One is about the *file shape* and has been there since the workbook shipped; the
+other is about the *figures*. Neither replaces the other, and it would be easy to
+write the second in a way that overwrote the first.
+
+### 8.2 Two things the tests do that are worth copying
+
+- **Every reason string is asserted against `review_queue`'s own constant**, never
+  a copied literal. A copied string passes while the route emits stale text —
+  the same defect class as a figure copied out of a run.
+- **Each flagged-row test asserts the fixture actually produced a flag** before
+  asserting anything about the route. Without that precondition a fixture that
+  quietly stopped flagging would make them pass vacuously, which is exactly the
+  trap the treasury work hit: four identity assertions, all running where the
+  missing term was zero.
+
+### 8.3 A mistake, and why the conformance is safe
+
+The new annotation broke at import on Python 3.9 (3.9.6 here), because
+`salary_revision_export.py` lacked `from __future__ import annotations`. **The new
+tests caught it on their first run, before any suite.**
+
+**"Twelve other modules do it" is a pattern, not a reason, so the absence was
+checked rather than assumed.** It is not a deliberate exemption, and it is not
+quite an oversight either:
+
+- **The module never had an annotation that needed it.** Its only annotated
+  signature was `rows: list[dict]) -> Workbook`. `list[dict]` is a builtin
+  generic subscript (PEP 585) and evaluates fine on 3.9 — confirmed by running
+  it. What fails on 3.9 is the `X | None` union syntax (PEP 604, 3.10+), and
+  `basis_warnings: list[str] | None` is **the first union this file has ever
+  had**.
+- **The import was never present and never removed.**
+  `git log -S "from __future__ import annotations" -- salary_revision_export.py`
+  returns only the commit that adds it.
+- **Nothing inspects this module's annotations at runtime**, so PEP 563's
+  stringification cannot change behaviour: the file itself uses no
+  `get_type_hints`, `__annotations__`, `dataclass`, `inspect` or `typing`, its
+  consumers only import and call it, and **no file in the repository uses
+  `get_type_hints` or `__annotations__` at all**.
+- **It simply predates the convention** — created 2026-09-01, where
+  `pipeline.py` (which has the import) arrived 2026-09-08.
+
+So conforming is safe, and the reason is the absence of any runtime annotation
+consumer, not the popularity of the pattern.
+
+### 8.4 The count generator caught this change too
+
+`tests/test_doc_test_counts.py` — landed by another session while this work was in
+progress — failed on the new test file and **demanded a descriptive line, not just
+a refreshed number**: *"these test files have no entry in README.md or
+FINOS_PROJECT_BRIEF.md, so the total would count files the reader is never
+shown."* That is stronger than the hand-checked sum this project relied on until
+2026-09-26, and it earned its place on first contact with an unrelated change.

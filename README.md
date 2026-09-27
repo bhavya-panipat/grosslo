@@ -377,7 +377,7 @@ company's review queue.
 
 Backend:
 ```bash
-python3 -m unittest discover -s tests   # 688 tests, all pass with no API key set
+python3 -m unittest discover -s tests   # 696 tests, all pass with no API key set
 python3 app.py 8000                     # serves the API at http://127.0.0.1:8000
 ```
 
@@ -1139,7 +1139,7 @@ future plans:
 
 ## Test coverage
 
-688 tests across 23 files, all passing with no skips.
+696 tests across 24 files, all passing with no skips.
 
 **Every figure in this section is generated, not hand-maintained.**
 `scripts/generate_test_counts_md.py` counts the suite with unittest's own
@@ -1293,6 +1293,16 @@ suite. Counts at `ee76e4d`:
   count while malformed rows still appeared in `rows[]` carrying an `error`, and
   `api_export_approved_row`'s docstring promised a "current vs. corrected" XLSX
   that has no current column at all.
+- **8 in `tests/test_export_basis_flags.py`** — D-S3: that a superseded-basis
+  warning reaches the artefact that gets acted on, not only the Finance screen.
+  `review_queue._row_to_dict()` attaches `tax_basis_flag` and
+  `treasury_basis_flag` to every row, and the per-row export route held both and
+  read neither. Covers both branches — the JSON payout payload and the revision
+  XLSX, where the warning goes into the Read Me sheet because a saved file
+  outlives its response headers — plus the both-states pairs: an unflagged row
+  carries neither key, the payout figures are identical whether or not the row is
+  flagged, and the route still exports rather than refusing. Every reason string
+  is asserted against `review_queue`'s own constant, never a copied literal.
 - **2 in `tests/test_doc_test_counts.py`** — that the figures in this very
   section match what the generator produces, and that generation leaves the
   hand-written descriptions alone. Without it, "generated" would only mean
