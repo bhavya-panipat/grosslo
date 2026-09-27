@@ -1386,6 +1386,21 @@ def api_export_approved_row(submission_id, row_index):
     # no remaining user and the labels all read stored_at_submission. Kept as
     # explicit per-field labels rather than one blanket statement, because the
     # next change to this route may well split them again.
+    #
+    # WHAT THE LABEL CLAIMS, PRECISELY, because two of these four are not
+    # literally persisted rows: `guardrail` and `treasury_forecast` ARE read
+    # verbatim out of `computed`. `payouts` and `payout_basis` are ASSEMBLED HERE
+    # from stored inputs — the stored structure, the stored tax breakdown and the
+    # stored forecast — so every FIGURE in them derives from the submission,
+    # which is what the label is about and what D-S4 and D-S7 are about. Two
+    # things in the payout object are not from the submission at all: the
+    # `idempotency_key_hint` (a fresh uuid, deliberately, and not labelled) and
+    # the source account, which is read from live tenant settings. So read
+    # stored_at_submission as "these figures are the submission's", not as
+    # "this object is a row in the database".
+    # (Raised by the D-S4 author reviewing this change. The alternative was a
+    # third vocabulary term, `derived_from_stored`; one clause here is cheaper
+    # than a value every consumer and test would have to learn.)
     stored = {"source": "stored_at_submission", "computed_at": submission["created_at"]}
     payload["computation_basis"] = {
         "guardrail": {**stored, "note": GUARDRAIL_STORED_NOTE},
