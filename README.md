@@ -377,7 +377,7 @@ company's review queue.
 
 Backend:
 ```bash
-python3 -m unittest discover -s tests   # 696 tests, all pass with no API key set
+python3 -m unittest discover -s tests   # 718 tests, all pass with no API key set
 python3 app.py 8000                     # serves the API at http://127.0.0.1:8000
 ```
 
@@ -447,10 +447,12 @@ instances, not because they are all in the same state:
 | `frontend/components/finance/finance-flow.tsx` (`TreasuryBasisBadge`) | Treasury NPS fix (`646c5fa`) | yes | **Seen on every surface it has, 2026-09-22**, in the same runs as `TaxBasisBadge` above: first on an `auto_pass_candidate` row (2026-09-21) whose stored forecast had `nps_remittance_annual` stripped under RLS context; then on the `escalate` row (*"Funding figure incomplete"*, reason appended under *Routing decision* after the tax-basis reason) and on the legacy no-`orchestration` row, where the reason sat in its own *"Treasury basis"* panel below *"Tax basis"* |
 | `frontend/components/optimize/razorpayx-export-modal.tsx` (funding grid) | Treasury NPS + PT fix (`646c5fa`, `17051fd`) | yes | **Seen and screenshotted, 2026-09-25**, against a backend and frontend built from `a7a02cc`. A real `/optimize` → export run (₹18,00,000 CTC, NPS opted, `work_location: "karnataka"` added to the request body) showed all five values nonzero: Net take-home ₹12,86,605, TDS escrow ₹1,00,495, EPFO challan ₹2,59,200, NPS remittance ₹1,51,200, State PT ₹2,500. The unrounded API figures (₹12,86,604.8 and ₹1,00,495.2 for the first two) sum exactly to the ₹18,00,000 shown as *Capital required*. At 1024px the grid computed five columns; at 375px, two, with no horizontal page scroll. Both screenshotted. The grid only appears after name, bank account and IFSC are filled, so the form was pre-filled with the repo's own test fixture (`tests/test_review_workflow.py`) in a throwaway worktree, deleted afterwards. That change touched only the form's initial state, not the grid. First seen as DOM text only, 2026-09-21 |
 | `frontend/components/optimize/executive-summary-card.tsx`, `frontend/components/finance/treasury-gate.tsx` (period-label relabel) | Period-label fix (`4a14439`) | yes | **Seen, 2026-09-22, both screenshotted.** The Executive Summary card on `/optimize/batch` read *"Total Annual Payroll Liability ₹18,00,000 — Net take-home + TDS escrow + EPFO challan + professional tax + NPS remittance, summed across all processed rows"*. The CSV upload was driven by building a `File` in page script, attaching it to the input through a `DataTransfer`, and dispatching `change` — the earlier "no file-input capability" was the same one-access-method mistake as the `node` one above. The Treasury Gate on `/finance` read *"Live treasury check / Current RazorpayX Account Balance: ₹50,00,000 / Required Treasury Funding, annual (pending rows): ₹0"*. That branch needs a successful balance fetch, so the page's `fetch` was patched after load to answer `/api/razorpayx/balance`, and an Approve re-ran the gate's refresh. **Scope:** the balance was mocked, so this proves the label renders in the `live` branch, not anything about a real RazorpayX balance |
+| `frontend/components/forecast/forecast-flow.tsx`, `frontend/app/forecast/page.tsx` (workforce forecast) | Addition spec 2.1 (`WORKFORCE_COST_FORECAST_DESIGN.md`) | yes | **Seen, 2026-09-27, screenshotted**, against a backend built from the same branch. Filled in through the form (not a mocked fetch): 10 hires at ₹18L, metro, joining January 2027, first with rent left blank, which the backend refused with its reason shown on the page, then with rent ₹4L and Karnataka. It showed a total cash need of ₹45,00,000, TDS ₹0 with ₹3,10,206 "if earlier salary is declared", February's professional tax at ₹3,000 against ₹2,000 in the other months, and the assumptions panel carrying "not practitioner-confirmed". At 375px the page did not scroll sideways; the table scrolls inside its own box. **Not seen:** more than one hiring group at once, and the provision field with a value |
 
-As of 2026-09-25 every row above has been seen rendering, which closes this
-table, not the gap class: a UI surface added later starts out unverified again
-and belongs here until it is seen. "Seen" still means only what each row says.
+As of 2026-09-25 every row above had been seen rendering, and the workforce
+forecast joined it seen, on 2026-09-27. That closes this table, not the gap
+class: a UI surface added later starts out unverified again and belongs here
+until it is seen. "Seen" still means only what each row says.
 Two rows depend on something mocked or pre-filled (the Treasury Gate's balance
 and the export form's fixture), and each row names it.
 
@@ -1139,7 +1141,7 @@ future plans:
 
 ## Test coverage
 
-696 tests across 24 files, all passing with no skips.
+718 tests across 25 files, all passing with no skips.
 
 **Every figure in this section is generated, not hand-maintained.**
 `scripts/generate_test_counts_md.py` counts the suite with unittest's own
@@ -1309,6 +1311,16 @@ suite. Counts at `ee76e4d`:
   "generated at some point".
 - **3 in `tests/test_execution_trace.py`** — the POLICY_GATE stage returned by
   `/api/guardrail`, which nothing covered before.
+- **22 in `tests/test_workforce_forecast.py`** — the workforce cost forecast
+  (addition spec 2.1, `WORKFORCE_COST_FORECAST_DESIGN.md` §8). The strongest is
+  the identity test: one hire joining in April, over the whole year, reproduces
+  `treasury_forecast()` on every line, to the paisa. Also pinned: the §3 table
+  showing that prorated annual TDS overstates a mid-year hire's withholding;
+  rent being required exactly when it can change the tax; an inflated CTC never
+  understating the total or TDS (deliberately only those two lines, since EPFO,
+  NPS and take-home measurably go both ways); refusal of periods past the
+  rate year; and the "not practitioner-confirmed" wording the owner made a
+  condition of D-W1.
 
 All pass with no `ANTHROPIC_API_KEY` set, exercising every deterministic
 fallback. With a real key set (live Claude calls active), a small number

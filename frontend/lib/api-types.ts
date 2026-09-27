@@ -508,3 +508,68 @@ export type BootstrapResponse = {
   user: { id: number; email: string; display_name: string; roles: string[] };
   shared_codes_retired: true;
 };
+
+// --- Workforce cost forecast (addition spec 2.1) — /api/workforce-forecast ---
+// WORKFORCE_COST_FORECAST_DESIGN.md. Every figure is computed by the backend
+// (workforce_forecast.py); the page only formats. `tds` is the tax on the
+// part-year pay (the primary figure, D-W1); `tds_if_declared` assumes the hire
+// declares earlier salary at the same rate. Total is the same either way.
+
+export type WorkforceForecastLine = {
+  net_take_home: number;
+  tds: number;
+  epfo_challan: number;
+  nps_remittance: number;
+  professional_tax: number;
+  total: number;
+  tds_if_declared: number;
+  net_take_home_if_declared: number;
+};
+
+export type WorkforceForecastMonth = WorkforceForecastLine & { month: string };
+
+export type WorkforceForecastCohortInput = {
+  label?: string;
+  headcount: number;
+  ctc: number;
+  city: "metro" | "non_metro";
+  nps_opted: boolean;
+  join_month: string;
+  rent_paid?: number | null;
+  work_location?: string | null;
+  provision_excluded?: number;
+};
+
+export type WorkforceForecastCohort = {
+  label: string | null;
+  headcount: number;
+  ctc_entered: number;
+  provision_excluded: number;
+  cash_ctc: number;
+  city: "metro" | "non_metro";
+  nps_opted: boolean;
+  join_month: string;
+  months_employed_in_fy: number;
+  regime_assumed: "old" | "new";
+  rent_used: number;
+  rent_required: boolean;
+  rent_assumed_zero: boolean;
+  pt_state_recognized: boolean;
+  months: (WorkforceForecastMonth & { headcount: number })[];
+  totals: WorkforceForecastLine;
+};
+
+export type WorkforceForecastResponse = {
+  fy: string;
+  period: { start: string; end: string };
+  cohorts: WorkforceForecastCohort[];
+  months: WorkforceForecastMonth[];
+  totals: WorkforceForecastLine;
+  notes: {
+    tds_basis: string;
+    ctc_basis: string;
+    rent_assumed_zero: string;
+    rates: string;
+    not_modelled: string[];
+  };
+};

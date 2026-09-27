@@ -184,6 +184,14 @@ export default function OptimizeFlow() {
           Have a batch? →
         </a>
       </div>
+      <div className="-mt-6 mb-8 hidden justify-end sm:flex">
+        <a
+          href="/forecast"
+          className="text-sm text-neutral-500 transition-colors hover:text-neutral-200"
+        >
+          Planning hires? Forecast their cost →
+        </a>
+      </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <OfferLetterCard

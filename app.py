@@ -41,6 +41,7 @@ from auth import (
 import io
 import review_queue
 import pipeline
+import workforce_forecast
 from diff_view import build_diff
 from salary_revision_export import build_salary_revision_workbook, TEMPLATE_HONESTY_LABEL
 
@@ -464,6 +465,28 @@ def api_optimize():
         "compliance_flags": [f["rule_id"] for f in response["compliance"]["flags"]],
     })
     return jsonify(response)
+
+
+@app.route("/api/workforce-forecast", methods=["POST"])
+def api_workforce_forecast():
+    """
+    Forward-looking workforce cost forecast (addition spec 2.1,
+    WORKFORCE_COST_FORECAST_DESIGN.md). Stateless, like /api/optimize: nothing
+    is stored, so there are no pre-fix rows to decide about (D-W4). Every
+    figure comes from workforce_forecast.py, which calls the engines unchanged
+    and makes no LLM call. A refusal (rent required, period past the year whose
+    rates the engine holds, bad input) is a 400 carrying the reason.
+    """
+    try:
+        result = workforce_forecast.forecast(request.get_json(force=True, silent=True))
+    except workforce_forecast.ForecastError as e:
+        return jsonify({"error": str(e)}), 400
+    _log_compute_event("/api/workforce-forecast", {
+        "period": result["period"],
+        "cohorts": len(result["cohorts"]),
+        "total_cash_need": result["totals"]["total"],
+    })
+    return jsonify(result)
 
 
 @app.route("/api/batch-audit", methods=["POST"])

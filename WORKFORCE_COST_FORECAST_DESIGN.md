@@ -110,13 +110,17 @@ which says the same: "he may furnish". So:
   is exact when the earlier pay was at the same rate, and the real figure can
   exceed A if it was higher.
 
-**One line of evidence, not two, and not signed off.** On the owner's instruction
-the reading was checked a second way. `itact2025.org/tds-tcs/s392-salary-tds`, a
+**Text dual-sourced, mapping single-sourced pending India Code; not signed
+off.** *(Wording sharpened after implementation, at the tenancy session's
+suggestion: the two halves of this claim have different evidence, and saying
+"one line of evidence" blurred which half.)* On the owner's instruction the
+reading was checked a second way. `itact2025.org/tds-tcs/s392-salary-tds`, a
 knowledge base maintained by a practising chartered accountant, carries the same
-text word for word. **But it is not independent**, and the owner's third review
-asked exactly that: its own mapping page names its source as "CBDT Navigator
+**text** word for word. **The mapping from 1961 s. 192 to 2025 s. 392 is not
+independently confirmed**, and the owner's third review asked exactly that:
+itact2025.org's own mapping page names its source as "CBDT Navigator
 (new-bill-2025-navigator.pdf)" and labels itself "DRAFT — verify against enacted
-PDF". So both readings trace to CBDT. An independent line was tried: **India Code
+PDF". So the mapping, which is the part doing the work, is CBDT read twice. An independent line was tried: **India Code
 does not carry the Income-tax Act, 2025.** Its Acts collection, searched newest
 first on 2026-09-27, lists other 2025 Acts but not this one, and its income-tax
 link points to CBDT. That is consistent with the open gap *`(Act 30 of 2025)` is
