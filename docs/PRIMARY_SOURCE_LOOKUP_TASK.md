@@ -575,12 +575,21 @@ once, by the frontend session.
 | **EPF Scheme, 2026**, 29 June 2026 (`CG-DL-E-01072026-273957`, 2,510,370 bytes) | **Para 19(3): admin charges are payable on the wages on which voluntary contributions are paid.** Para 28(2): the charge is a percentage of wages. Para 29(1): the percentage is fixed by separate notification. |
 | **EDLI Scheme, 2026**, 29 June 2026 (`CG-DL-E-30062026-273942`, 1,022,320 bytes) | **Para 5(1): the EDLI contribution is on wages "subject to the wage ceiling"**, with no voluntary provision. Para 5(2): the rate is fixed by separate notification. |
 
-**Open point 6 is settled:** the governing instrument is the **Code on Social
-Security, 2020**, with separate EPF, EPS and EDLI Schemes of 2026 under s. 15(1)(a)
-to (c), applicable from 29 June 2026. The 1952 Act's schemes are no longer the
-reference. So the 2017 and 2018 notifications above (S.O. 828(E), S.O. 2011(E))
-describe the old regime, and whether their rates carry over is the open question
-below.
+**Open point 6 is settled for contributions only.** The contribution schemes now
+in force are the EPF, EPS and EDLI Schemes of 2026 under s. 15(1)(a) to (c) of the
+Code on Social Security, 2020, applicable from 29 June 2026. So the 2017 and 2018
+notifications above (S.O. 828(E), S.O. 2011(E)) were made under the older schemes,
+and whether their rates carry over is the open question below.
+
+**What this does NOT establish** *(corrected the same day, after the tenancy
+session's caution)*: that the EPF & MP Act, 1952 is repealed. Codes commence
+section by section, and Chapter III's schemes being in force says nothing about,
+for example, ss. 7Q and 14B, which three tracked penalty claims in
+`legal_claims.py` cite. The same Gazette listing has evidence the other way: a
+9 September 2026 notification amending the pattern of investment was issued under
+the 1952 Act's s. 17(3)(a). So which provisions of the 1952 Act still apply is
+**open**. It is the same commencement question R1 has for the Code on Wages, and
+should be checked in the same session.
 
 **The wage-base question is settled per component, and the answer split** (the
 owner's direction to check each against its own clause): admin charges on the
