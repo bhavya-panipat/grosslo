@@ -528,3 +528,37 @@ itself**, so these readings are of the notification text, not of a summary.
 6. **The in-force instrument.** Both notifications rest on the EPF & MP Act, 1952
    and its schemes. Whether the Code on Social Security, 2020 has displaced them is
    the same commencement question R1 has, and needs India Code or a practitioner.
+
+## The wage-ceiling FAQ, read — 2026-09-28
+
+With the owner's permission: `EPFO_Wage_Ceiling_FAQs.pdf`, EPFO's file server,
+347,156 bytes, uploaded 2026-09. Read once, by the frontend session. **It is
+EPFO's own FAQ, not the notification.** It cites **S.O. 5109(E), dated 17
+September 2026**, which was not read.
+
+**The statutory wage ceiling was raised from Rs 15,000 to Rs 25,000 a month,
+effective 17 September 2026.** The FAQ frames it as the ceiling "for determining
+mandatory EPF, EPS and EDLI coverage under the Code on Social Security, 2020".
+That bears on open point 6, but it is the FAQ's framing, not the notification's
+text.
+
+**Open point 3, the wage base, answered for the mandatory case.** The FAQ's
+table for October 2026 onwards (Q13) uses "Monthly PF Wages (Basic + DA)". For
+PF wages of Rs 35,000, above the cap, it shows EDLI Rs 125 and EPF admin charges
+Rs 125: 0.5% of the **Rs 25,000 ceiling**, not of the actual wage. **So EDLI and
+admin charges are computed on wages capped at the ceiling**, at most Rs 125 each
+per employee per month. Above the cap they are a flat amount, not a percentage
+of pay. Q13 also restates the establishment minimum: Rs 500 a month with at
+least one contributing member, Rs 75 with none.
+
+**Not answered:** an employer contributing PF voluntarily on full basic, which
+is this tool's default (`derive_pf()`). The FAQ shows only capped contributions.
+Whether EDLI and admin charges then follow the capped or the full base is still
+open, and is a question for the CA packet or the notification.
+
+**Consequence found in passing:** `tax_engine.PF_WAGE_CEILING_BASIC = 15_000`
+has stated superseded law since 17 September 2026. It was deliberately left out
+of the claim inventory (`legal_claims.py`, "DELIBERATELY DEFERRED AND NAMED"),
+which is why nothing caught it. Only a test calls `derive_pf()` with the ceiling
+applied, so no production figure changes today. Tracked in
+`docs/PROJECT_STATUS.md`, *Open gaps*.
