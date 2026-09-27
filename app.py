@@ -766,6 +766,14 @@ SOURCE_ACCOUNT_PLACEHOLDER_LABEL = (
     "and export again."
 )
 
+# D-S4: carried in the per-row export's computation_basis beside the stored
+# guardrail. Tests assert against this constant, never a copied literal.
+GUARDRAIL_STORED_NOTE = (
+    "This is the guardrail verdict that was approved in review, as stored when "
+    "the row was submitted. It is not recomputed at export, so if the engine has "
+    "changed since, it can differ from a verdict computed on the figures beside it."
+)
+
 
 def _payout_basis(structure, tax_breakdown: dict, forecast: dict) -> dict:
     """
@@ -1327,6 +1335,24 @@ def api_export_approved_row(submission_id, row_index):
     if basis_flags:
         payload.update(basis_flags)
         payload["WARNING_BASIS_SUPERSEDED"] = " ".join(basis_warnings)
+    # D-S4, ruled 2026-09-28: label, don't recompute. `guardrail` is the verdict
+    # a human approved, stored at submission; the three figures beside it are
+    # recomputed now. Recomputing the guardrail too would make the payload
+    # consistent by silently replacing an approved verdict with one nobody
+    # reviewed — the maker-checker gate eroding by side effect
+    # (NEIGHBOURING_ROUTE_CLAIM_SWEEP.md). So each part says where it came from
+    # and when. This describes the payload; it does not decide D-S7, which is
+    # about the Finance gate funding against the STORED forecast.
+    exported_at = datetime.now(timezone.utc).isoformat()
+    recomputed = {"source": "recomputed_at_export", "computed_at": exported_at}
+    payload["computation_basis"] = {
+        "guardrail": {"source": "stored_at_submission",
+                      "computed_at": submission["created_at"],
+                      "note": GUARDRAIL_STORED_NOTE},
+        "treasury_forecast": dict(recomputed),
+        "payouts": dict(recomputed),
+        "payout_basis": dict(recomputed),
+    }
     if using_placeholder:
         # Loud in the body, and again in a header so the warning survives being
         # piped, saved, or handed on — the same two-surface treatment

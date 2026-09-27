@@ -377,7 +377,7 @@ company's review queue.
 
 Backend:
 ```bash
-python3 -m unittest discover -s tests   # 718 tests, all pass with no API key set
+python3 -m unittest discover -s tests   # 722 tests, all pass with no API key set
 python3 app.py 8000                     # serves the API at http://127.0.0.1:8000
 ```
 
@@ -1141,7 +1141,7 @@ future plans:
 
 ## Test coverage
 
-718 tests across 25 files, all passing with no skips.
+722 tests across 26 files, all passing with no skips.
 
 **Every figure in this section is generated, not hand-maintained.**
 `scripts/generate_test_counts_md.py` counts the suite with unittest's own
@@ -1311,6 +1311,12 @@ suite. Counts at `ee76e4d`:
   "generated at some point".
 - **3 in `tests/test_execution_trace.py`** — the POLICY_GATE stage returned by
   `/api/guardrail`, which nothing covered before.
+- **4 in `tests/test_export_computation_basis.py`** — D-S4, "label, don't
+  recompute": the per-row payout payload says which parts were stored at
+  submission (the approved guardrail verdict, dated by its submission) and
+  which were recomputed at export. The load-bearing test writes a sentinel into
+  the stored guardrail and requires the export to serve it, so a route that
+  quietly recomputed the verdict would fail even while every label was right.
 - **22 in `tests/test_workforce_forecast.py`** — the workforce cost forecast
   (addition spec 2.1, `WORKFORCE_COST_FORECAST_DESIGN.md` §8). The strongest is
   the identity test: one hire joining in April, over the whole year, reproduces

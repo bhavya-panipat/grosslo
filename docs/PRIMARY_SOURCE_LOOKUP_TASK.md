@@ -420,3 +420,49 @@ records are not edited ahead of those decisions.
 
 `reviewed_by` is unchanged for both, as with every lookup: confirming what a
 provision says is not judging that the implementation is right.
+
+---
+
+# PENDING LOOKUP — D-S1: what an EPF challan carries beyond the PF shares
+
+*Added 2026-09-28, when the owner ruled D-S1: **record now, fix after a
+primary-source lookup** (`EXPORT_NUMERIC_CLAIM_SWEEP.md`). Not started.*
+
+**Why:** `payroll_breakdown.treasury_forecast()`'s `epfo_challan_annual` sums the
+employer's and the employee's PF shares and nothing else. A real EPF challan
+also carries **EDLI contributions and administrative charges**, and nothing in
+this repository states either rate (`grep -ri` returns nothing). The field is
+named for a challan it does not fully compute, so every funding figure built on
+it, and `penalty_scenario`'s arrears base, which inherits it
+(`NEIGHBOURING_ROUTE_CLAIM_SWEEP.md` §1.4), is low by those components.
+
+**The rates must not be written from memory.** That is the reason this is a
+lookup and not a code change.
+
+**Find, for each component (EDLI contribution; EPF administrative charges; EDLI
+administrative charges, if separately levied):**
+
+1. the rate, and what it is a percentage *of* (the wage base, and whether it is
+   capped);
+2. any minimum or fixed amount per challan;
+3. **the instrument that sets it, and whether that instrument is in force.** The
+   schemes framed under the EPF & MP Act, 1952 are expected to be relevant. The
+   Code on Social Security, 2020 may have displaced them, and that is **the same
+   commencement question R1 has for the Code on Wages**, so it must be settled
+   from a source, not assumed either way.
+
+**Where:** EPFO's own site, and India Code for the Acts and schemes. Search
+inside those sites, not the open web. Practitioner pages still quote superseded
+figures well after a change (see the caveat at the top of this file).
+
+**What counts as success:** every rate with its base, the instrument and its
+in-force status, and the URL and date of each. **What to record:** those, in
+this file under an OUTCOME heading, as the earlier lookups do.
+
+**What happens next, and what does not:** nothing in the code changes as a
+result of the lookup alone. Adding components to `epfo_challan_annual` is a
+correctness fix to a **stored** computed value, since submission rows store their
+`treasury_forecast`. So its design must decide about pre-fix rows before
+implementation, with the population measured (`CLAUDE.md`, *Fixing a stored
+computed value*). The optional rename to `pf_contributions_annual` also touches
+stored rows and was not taken on 2026-09-28.
