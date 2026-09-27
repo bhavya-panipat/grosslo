@@ -477,30 +477,54 @@ and nothing came from memory.
 | Component | Finding | Source |
 |---|---|---|
 | EDLI contribution | **0.5% of wages, employer only**: *"Employers contribute 0.5% of wages, with no deduction from employees."* | `epfo.gov.in/insurance-scheme-edli/`, page text |
-| EPF administrative charges | **0.50% of pay.** Circular titled *"Reduction in the rate of Administrative Charges from 0.65% to 0.50% of the pay"*, WSU, dated 29/05/2018 per the tenancy session's reading | `epfo.gov.in/circulars/` listing; PDF `WSU_AdmnCharges_4570.pdf` not read |
-| EDLI administrative charges | **Not levied.** Circular titled *"… Non levy of Administrative charges towards EDLI scheme, 1976"*, WSU, 22/03/2017 per the tenancy session | Same listing; PDF `WSU_FA_ADmCharges_33959-2.pdf` not read |
+| EPF administrative charges | **0.50% of pay.** Circular titled *"Reduction in the rate of Administrative Charges from 0.65% to 0.50% of the pay"*, WSU, dated 29/05/2018 per the tenancy session's reading | `epfo.gov.in/circulars/` listing; PDF `WSU_AdmnCharges_4570.pdf` read later the same day, below |
+| EDLI administrative charges | **Not levied.** Circular titled *"… Non levy of Administrative charges towards EDLI scheme, 1976"*, WSU, 22/03/2017 per the tenancy session | Same listing; PDF `WSU_FA_ADmCharges_33959-2.pdf` read later the same day, below |
 
-**What the rates alone say:** `epfo_challan_annual` understates a real challan by
-roughly 1.0% of the relevant pay (0.5% EDLI plus 0.50% EPF admin). That is an
-approximation until the open points below are settled, and it is not to be
-implemented as a flat 1%.
+~~**What the rates alone say:** `epfo_challan_annual` understates a real challan
+by roughly 1.0% of the relevant pay.~~ **Withdrawn the same day.** That was
+arithmetic on two rates, not a measured challan. If the wage base is capped at a
+statutory ceiling, the shortfall at this tool's salary levels is far smaller and
+roughly flat in rupees, not a percentage of pay. This tool deliberately applies PF
+on full basic, above any ceiling (`derive_pf()`). The tenancy session, which first
+offered the figure, asked for it to be withdrawn. Do not quote it.
 
-**Still open, and these are what a correct fix depends on:**
+## The circulars, read — 2026-09-28
 
-1. **Effective dates.** Taken from circular titles and dates, not the circular
-   bodies. Whether anything later superseded either circular was not checked
-   beyond the listing search.
-2. **A minimum administrative charge per establishment.** If a floor exists, a
-   percentage-only implementation is wrong for small employers. EPFO's site
-   search did not surface one, and absence from a search is not evidence of
-   absence.
-3. **The wage base, and whether it is capped.** The EDLI page says "wages" and
-   the circular says "pay", without defining either there. The existing PF
-   treatment in this codebase has its own ceiling, so the question is not idle.
-4. **The in-force instrument**: the EPF & MP Act, 1952 schemes, or the Code on
-   Social Security, 2020. This is the same commencement question as R1.
+With the owner's permission, both PDFs were downloaded from EPFO's own file server
+(`pmvbry-cdn.epfindia.gov.in`; 1,384,000 and 119,163 bytes) and read. **This is a
+single read, by the frontend session only.** The tenancy session did not read
+them, because its own user had not approved it, and it must not be counted as
+corroboration. Each circular encloses the **Gazette of India notification
+itself**, so these readings are of the notification text, not of a summary.
 
-Points 1–3 need the two circular PDFs read. **Downloading them needs the owner's
-permission**, which was requested by the tenancy session and not yet given.
-Point 4 needs India Code or a practitioner.
+| Finding | Notification | In force |
+|---|---|---|
+| **EPF administrative charges: 0.50% of pay**, *"subject to a minimum sum of seventy-five rupees per month for every non-functional establishment having no contributory member and five hundred rupees per month per establishment for other establishments."* Supersedes S.O. 827(E), which had set 0.65% with the same minimums. | **S.O. 2011(E)**, Gazette of India Extraordinary No. 1818, 21 May 2018, under para 30 read with para 39 of the EPF Scheme, 1952 | **From 1 June 2018** |
+| **EDLI administrative charges: nil.** *"no sum shall be payable for the time being by the employer"* towards the administration of the EDLI Scheme, 1976. | **S.O. 828(E)**, 15 March 2017, under s. 6C(4)(a) of the EPF & MP Act, 1952 | **From 1 April 2017**, "for the time being" |
 
+**So open points 1 and 2 are settled, as of those notifications:**
+
+1. **Effective dates:** as in the table.
+2. **The minimum exists, and it is per ESTABLISHMENT, not per employee.** That
+   changes the shape of any fix. `epfo_challan_annual` is a per-employee field, and
+   no per-row figure can apply a floor that attaches to the whole establishment.
+   For a small employer, 0.50% of total pay can fall below ₹500 a month, and then
+   the floor is what is owed. A correct fix therefore needs an establishment-level
+   figure, not just a larger per-row one.
+
+**Still open:**
+
+3. **The wage base.** Both notifications say "the pay as referred to in the said
+   paragraphs" (paras 30 and 38 of the EPF Scheme) without defining it there, and
+   the EDLI page says "wages". Whether that base is capped decides whether the
+   shortfall is a percentage or roughly flat. A newer EPFO document,
+   `EPFO_Wage_Ceiling_FAQs.pdf` (uploaded 2026-09, linked from EPFO's homepage), is
+   likely on point. **Downloading it needs the owner's permission**; the approval
+   given was for the two circulars only.
+4. **The EDLI contribution rate's own notification** was not read. The 0.5% comes
+   from EPFO's scheme page, not from a notification.
+5. **Later supersession.** Nothing after 2018 was found, but only through the
+   circulars listing's search, which is not proof of absence.
+6. **The in-force instrument.** Both notifications rest on the EPF & MP Act, 1952
+   and its schemes. Whether the Code on Social Security, 2020 has displaced them is
+   the same commencement question R1 has, and needs India Code or a practitioner.
