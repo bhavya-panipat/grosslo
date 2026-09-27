@@ -161,6 +161,22 @@ the migration omits `tax_basis`, a migrated row reads NULL, which
 fail-closed default is doing the work the closed-set claim was wrongly credited
 with.
 
+**And the fail-closed default is a tested invariant, not an accident.**
+`tests/test_review_workflow.py::TestPreFixRowsAreFlaggedOnRead` has asserted it
+since D1-5:
+`test_a_row_with_no_basis_is_flagged_as_pre_fix_never_as_current` stores a row
+with `tax_basis = NULL` and asserts it comes back flagged, and its comment names
+this exact scenario — *"a row older than the column, or copied in from the legacy
+SQLite store, reads NULL. NULL is the pre-fix basis, not today's."* Beside it,
+`test_an_unrecognised_basis_is_flagged_rather_than_trusted` covers a corrupt or
+future value. Nine tests in that class, all passing.
+
+*(Corrected 2026-09-28. An earlier draft of this section, and my report of it,
+called the NULL protection luck and said nothing asserted it. That was wrong: it
+is deliberate, documented and covered, and it was written for the legacy-SQLite
+case specifically. The closed-set claim was still overstated — that correction
+stands — but the mechanism it was wrongly credited to is itself pinned.)*
+
 
 ## 4. What would change the answer
 
