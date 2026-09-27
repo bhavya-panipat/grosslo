@@ -377,7 +377,7 @@ company's review queue.
 
 Backend:
 ```bash
-python3 -m unittest discover -s tests   # 722 tests, all pass with no API key set
+python3 -m unittest discover -s tests   # 734 tests, all pass with no API key set
 python3 app.py 8000                     # serves the API at http://127.0.0.1:8000
 ```
 
@@ -1141,7 +1141,7 @@ future plans:
 
 ## Test coverage
 
-722 tests across 26 files, all passing with no skips.
+734 tests across 27 files, all passing with no skips.
 
 **Every figure in this section is generated, not hand-maintained.**
 `scripts/generate_test_counts_md.py` counts the suite with unittest's own
@@ -1295,6 +1295,19 @@ suite. Counts at `ee76e4d`:
   count while malformed rows still appeared in `rows[]` carrying an `error`, and
   `api_export_approved_row`'s docstring promised a "current vs. corrected" XLSX
   that has no current column at all.
+- **12 in `tests/test_funding_figure_source_of_truth.py`** — D-S7: that one
+  submission has one funding figure. The Finance gate sums the **stored**
+  forecast while the per-row export recomputed one, so the amount funded was
+  not necessarily the amount instructed. Every assertion that matters runs after
+  a **forced divergence** — the stored forecast is mutated in the database to a
+  value the engine would never produce, and the export must still serve it —
+  because a plain comparison of the two passes on an unchanged engine whether or
+  not the fix is present, and *did* pass before it. Also pins the D-S7b refusal
+  when no stored figure exists, that the payout amount and `payout_basis` follow
+  storage too (`_payout_basis` reads gross, PF and TDS from the structure, so a
+  fresh one there would re-create the mixed basis inside a single payload), and
+  the containment set: the guardrail, the approval guard and the bank-details
+  guard are unchanged.
 - **8 in `tests/test_export_basis_flags.py`** — D-S3: that a superseded-basis
   warning reaches the artefact that gets acted on, not only the Finance screen.
   `review_queue._row_to_dict()` attaches `tax_basis_flag` and

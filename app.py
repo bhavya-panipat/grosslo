@@ -1294,9 +1294,41 @@ def api_export_approved_row(submission_id, row_index):
                      "can't generate a real payout payload without them",
         }), 400
 
-    result = optimize(ctc=inp["ctc"], rent_paid=inp["rent_paid"], city=inp["city"], nps_opted=inp["nps_opted"])
-    recommended = result["recommended"]
-    forecast = treasury_forecast(recommended.structure, recommended.tax_breakdown, work_location=inp.get("work_location"))
+    # D-S7a, ruled 2026-09-28: THE STORED FIGURE IS CANONICAL. The Finance
+    # funding gate sums the stored forecast (`finance-flow.tsx:826` reduces
+    # `r.computed.treasury_forecast.total_capital_outlay` over pending rows), so
+    # this route recomputing one meant the same submission had two funding
+    # figures — and because the gate reads it while the row is pending and this
+    # runs once approved, the amount funded was not necessarily the amount
+    # instructed. Serving stored is the only option that leaves the two
+    # consumers agreeing rather than relocating the disagreement; it is also the
+    # figure a human actually funded against.
+    #
+    # D-S7b, ruled refuse: no silent fallback to recomputing. A row whose
+    # funding figure was never recorded cannot have been funded against a
+    # recorded one, and recomputing here would reintroduce the divergence for
+    # exactly the oldest rows.
+    forecast = computed.get("treasury_forecast")
+    if not forecast:
+        return jsonify({
+            "error": "this row has no stored treasury_forecast — it predates the field, so "
+                     "there is no recorded funding figure to honour. Refusing rather than "
+                     "recomputing one, which would not be the figure this row was approved "
+                     "against (D-S7b)",
+        }), 400
+
+    # The STORED structure and tax breakdown, not a fresh optimize(). Serving a
+    # stored forecast beside freshly recomputed withholdings would leave the
+    # payload mixing bases: `_payout_basis` reads gross, employee PF and TDS
+    # from the structure — its docstring's claim that "every figure comes from
+    # the forecast" was never true — so a fresh structure there reproduces the
+    # D-S4 defect inside one payload instead of across two surfaces.
+    # (FUNDING_FIGURE_SOURCE_OF_TRUTH_DESIGN.md §3.3 said payouts could stay
+    # recomputed and would "inherit" the forecast. That was incomplete; the
+    # correction is recorded in §8.)
+    stored_best = computed[f"{recommended_regime}_regime_best"]
+    recommended_structure = SalaryStructure(**stored_best["structure"])
+    recommended_tax = stored_best["tax_breakdown"]
     employee = {
         "name": row.get("employee_name") or f"Row {row_index + 1}",
         "bank_account_number": inp["bank_account_number"],
@@ -1321,11 +1353,11 @@ def api_export_approved_row(submission_id, row_index):
         "guardrail": computed.get("guardrail"),
         "idempotency_key_hint": str(uuid.uuid4()),
         "payouts": [_build_composite_payout(
-            recommended.structure, employee,
+            recommended_structure, employee,
             PLACEHOLDER_SOURCE_ACCOUNT if using_placeholder else source_account,
             forecast,
         )],
-        "payout_basis": _payout_basis(recommended.structure, recommended.tax_breakdown, forecast),
+        "payout_basis": _payout_basis(recommended_structure, recommended_tax, forecast),
     }
     # D-S3. Only when the row carries one, so a consumer never has to tell "no
     # flag" from "this response predates the field" by reading a null. In the
@@ -1349,15 +1381,17 @@ def api_export_approved_row(submission_id, row_index):
     # already sums the stored one); if it is ruled that way, the
     # treasury_forecast label here flips to stored_at_submission. That change
     # is the ruling taking effect, not a regression.
-    exported_at = datetime.now(timezone.utc).isoformat()
-    recomputed = {"source": "recomputed_at_export", "computed_at": exported_at}
+    # D-S7a took effect here, exactly as the note above anticipated: every
+    # figure in this payload now comes from the submission, so `recomputed` has
+    # no remaining user and the labels all read stored_at_submission. Kept as
+    # explicit per-field labels rather than one blanket statement, because the
+    # next change to this route may well split them again.
+    stored = {"source": "stored_at_submission", "computed_at": submission["created_at"]}
     payload["computation_basis"] = {
-        "guardrail": {"source": "stored_at_submission",
-                      "computed_at": submission["created_at"],
-                      "note": GUARDRAIL_STORED_NOTE},
-        "treasury_forecast": dict(recomputed),
-        "payouts": dict(recomputed),
-        "payout_basis": dict(recomputed),
+        "guardrail": {**stored, "note": GUARDRAIL_STORED_NOTE},
+        "treasury_forecast": dict(stored),
+        "payouts": dict(stored),
+        "payout_basis": dict(stored),
     }
     if using_placeholder:
         # Loud in the body, and again in a header so the warning survives being
