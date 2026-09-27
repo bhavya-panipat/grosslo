@@ -2,8 +2,7 @@
 
 **Status:** design only. No code is changed. **D-C1, D-C3 and D-C4 approved by
 the owner, 2026-09-28. D-C2 resolved from the primary source the same day, and
-it split** (§3.1). Implementation now waits only on **D-C5**, the rates under the
-2026 schemes (§8).
+it split** (§3.1). **Implementation waits on D-C5, ruled "wait"**: the rate notifications under the 2026 schemes, not yet located (§8).
 
 **Rulings already made by the owner, 2026-09-28:**
 - D-S1: record now, fix after a primary-source lookup. The lookup is
@@ -250,4 +249,4 @@ costs, not deductions from pay); the ungated re-export the tenancy session found
 | **D-C2b** | EDLI contribution: capped or full? | **RESOLVED from the primary source 2026-09-28: capped**, always. EDLI Scheme, 2026, para 5(1). |
 | **D-C3** | The ₹500 establishment minimum. | **APPROVED 2026-09-28.** Label it everywhere; apply it nowhere in the first version. |
 | **D-C4** | Pre-fix stored forecasts. | **APPROVED 2026-09-28.** Decide at ship time on the re-measured population. |
-| **D-C5** | **The rates.** Both 2026 schemes say the percentage is fixed by separate notification (EPF para 29(1); EDLI para 5(2)). Those notifications were **not located**. The 0.5% figures come from 1952-era notifications (S.O. 2011(E); EDLI's own notification never read) and from EPFO's September 2026 FAQ, which applies 0.50% to both for contributions after 17 September 2026. | **Implement at the FAQ's rates, cited as "EPFO FAQ, September 2026; the fixing notification under the 2026 schemes not located"**, and ask the CA to confirm them together with the para 19(3) and 5(1) readings and the basic-only wage base. The FAQ is EPFO's own current statement for the new regime, not a number from memory, so this is a cited figure, not an assumed one. **The alternative is to wait** until the notifications are found. **The owner decides which.** |
+| **D-C5** | **The rates.** Both 2026 schemes fix their percentage by separate notification (EPF para 29(1); EDLI para 5(2)), and neither notification was located. The admin charge's 0.50% and ₹500 minimum rest on S.O. 2011(E), made under the **1952** scheme. The EDLI 0.5% rests on EPFO's scheme page and its September 2026 FAQ. | **RULED by the owner 2026-09-28: wait for the notifications.** A figure cited to the FAQ would be a labelled but unconfirmed legal figure, the pattern rejected on D-W3 and in D-C2's removed fallback. The wait covers **both** rates: the admin charge's Gazette grounding is under the old scheme, so under the 2026 scheme it is in the same position as EDLI's. Next action: find the notifications under EPF Scheme 2026 para 29(1) and EDLI Scheme 2026 para 5(2) (Gazette, Ministry of Labour, from June 2026). The CA packet §4 asks the same question. |
