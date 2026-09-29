@@ -643,3 +643,40 @@ on the penalty claims.
 **R1 is a different code.** May 2026 also carries several notifications under the
 **Code on Wages, 2019**, which is R1's instrument. They are leads for R1's own
 commencement question, which is separate from this one.
+
+# LOOKUP — `(Act 30 of 2025)`: NOT DONE, 2026-09-29
+
+**Outcome: not verified. No record changed.** Nothing in this section counts as
+evidence for the act number, and the six records stay as `Income-tax Act, 2025`
+(`tests/test_legal_claims.py`, `test_no_income_tax_record_carries_the_unverified_act_number`).
+
+**What was seen:** only a web-search result *title*. It reads *"INCOME-TAX ACT,
+2025 [30 OF 2025]\* [AS AMENDED BY FINANCE ACT, 2026]"*, for this URL on the
+Income Tax Department's site:
+
+`https://www.incometaxindia.gov.in/documents/d/guest/income_tax_act_2025_as_amended_by_fa_act_2026-pdf`
+
+A search engine's rendering of a title is not the document. Recording it as
+verified would repeat the 2026-09-13 failure that §"One departure" above
+describes: a number nobody read, sitting under a checked date.
+
+**Why it was not read — a third kind of wall.** The document and both
+independent sources were refused by **this session's own network egress
+policy**. That covers `www.incometaxindia.gov.in` (curl: `CONNECT tunnel failed,
+response 403`; fetch tool: `EGRESS_BLOCKED`), `egazette.gov.in` (`EGRESS_BLOCKED`)
+and `www.indiacode.nic.in` (`EGRESS_BLOCKED`). This was not the site refusing
+automation (2026-09-13) and not a dead URL scheme (2026-09-14). It says nothing
+about whether the sites are up. A session with those hosts allowed, or a human
+with a browser, can redo this.
+
+**For whoever does the lookup:**
+1. Open the PDF above. Read the act number from the title page, and the
+   asterisked footnote on `[30 OF 2025]`, which is usually the assent and
+   Gazette publication date. Record the bytes read, as for S.O. 3581(E) above.
+2. A consolidated "as amended" copy from the Department is a strong source, but
+   it is not the enactment. If it can be reached, also read the Gazette of India
+   Extraordinary, Part II, Section 1 issue that published the Act. The footnote
+   should name it.
+3. If it is confirmed, follow `docs/PROJECT_STATUS.md` (the open-gaps row on this
+   number). Restore it to TE1–TE4, PE4 and R5 **in one commit**, change the
+   exact-equality test in the same commit, and run the suite under the lock.
