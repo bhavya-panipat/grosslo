@@ -646,6 +646,11 @@ commencement question, which is separate from this one.
 
 # LOOKUP — `(Act 30 of 2025)`: NOT DONE, 2026-09-29
 
+> **Follow-up, 2026-10-01:** the number is now **verified** from a different
+> primary source, the Gazette text of Ordinance No. 2 of 2026. See the section at
+> the end of this file. This section is kept as written: it records the state on
+> 2026-09-29.
+
 **Outcome: not verified. No record changed.** Nothing in this section counts as
 evidence for the act number, and the six records stay as `Income-tax Act, 2025`
 (`tests/test_legal_claims.py`, `test_no_income_tax_record_carries_the_unverified_act_number`).
@@ -680,3 +685,93 @@ with a browser, can redo this.
 3. If it is confirmed, follow `docs/PROJECT_STATUS.md` (the open-gaps row on this
    number). Restore it to TE1–TE4, PE4 and R5 **in one commit**, change the
    exact-equality test in the same commit, and run the suite under the lock.
+
+# LOOKUP — `(Act 30 of 2025)`: VERIFIED, 2026-10-01
+
+**Outcome: the Income-tax Act, 2025 is Act 30 of 2025.** That is read from a
+Gazette of India text that cites the Act by number. **No record changed**:
+whether to write the number back into TE1–TE4, PE4 and R5 is a separate decision
+that this lookup cannot make (see "What this does NOT do" below).
+
+**Success criterion, set before reading:** a Government of India primary
+document, read in full rather than as a search snippet, that names the
+Income-tax Act, 2025 and gives its act number in the same place.
+
+## Source
+
+**The Gazette of India, Extraordinary, Part II — Section 1, No. 21, New Delhi,
+Friday, 5 June 2026**, gazette ID **`CG-DL-E-05062026-273164`**. Ministry of Law
+and Justice (Legislative Department): **The Income-tax (Amendment) Ordinance,
+2026, No. 2 of 2026**, promulgated by the President under article 123(1).
+Signed: Droupadi Murmu, President; Dr. Rajiv Mani, Secretary to the Govt. of
+India. 3 pages.
+
+**Retrieved 2026-10-01 from India Code**, which hosts the Gazette PDF:
+
+- item page: `https://indiacode.gov.in/handle/123456789/618049`
+  (collection `CENTRAL_ORDINANCE`, title *"The Income-tax (Amendment)
+  Ordinance, 2026."*)
+- PDF: `https://indiacode.gov.in/server/api/core/bitstreams/0cc736fe-55a6-460c-b8ed-a9dd6931d155/content`
+- as served: **341,692 bytes**, SHA-256
+  `20bf2760cd6078a9779932ee4d9c2815b11a9cc460ee6c823931f23fdc5fd041`.
+  India Code's own record for the file says 329,484 bytes, MD5
+  `2e4129786c132228cbfacfdc0bd60f26`, and the served copy matches neither. The
+  served pages carry an "IndiaCode" watermark, which is the likely reason: the
+  file is stamped on download. So **a re-fetch may not reproduce the hash.** The
+  gazette ID and the text below are the stable identifiers.
+
+## What was read
+
+Page 2, read both as extracted text and **as a rendered page image**, because a
+text extractor can pair a margin note with the wrong section:
+
+- **s. 2, body:** *"In the Income-tax Act, 2025, in Schedule IV, —"*
+- **s. 2, margin note, level with it:** *"Amendment of Act 30 of 2025."*
+- Page 1, long title: *"An Ordinance further to amend the Income-tax Act, 2025."*
+
+The margin note gives the number, and the body names the Act it refers to.
+This is why an amending instrument could settle the question when the Gazette
+subject lines did not (2026-09-14): its margin note cites the amended Act by
+number.
+
+## How strong this is, stated rather than implied
+
+- **It is the Legislative Department's own citation, in the Gazette, of the Act
+  by number.** It is not the Act's own enactment entry. The Act's assent date
+  and its own Gazette issue were **not** read.
+- **It is single-sourced.** The Income Tax Department PDF whose search-result
+  title reads *"INCOME-TAX ACT, 2025 [30 OF 2025]"* (the 2026-09-29 section
+  above) is **still unread**. On 2026-10-01 the host was reachable, but its CDN
+  refused the request (`HTTP 403`, Akamai "Access Denied", reference
+  `18.c7263e17.1790848364.a4568d5`). That is the automated-request block recorded
+  on 2026-09-13, not a network-policy block. A human with a browser can add it as
+  a second source.
+- **India Code does not appear to carry the Act itself.** A search for
+  `"Income-tax Act"` returned 1,386 results. The first 300 were checked, and
+  none was a central Act with "Income-tax" in its title.
+  That matches V1 in `docs/PROJECT_STATUS.md`. India Code holds the Ordinance
+  because it is a Legislative Department instrument.
+- **Not tried:** `egazette.gov.in` failed TLS certificate verification from this
+  environment (`curl: (60)`). Verification was not disabled to get past it.
+
+**To redo this check:** open the item page above, open the PDF, and go to page
+2, s. 2.
+
+## What this does NOT do
+
+**No record was changed, and the obvious next step is not a mechanical one.**
+`docs/PROJECT_STATUS.md` says to restore the number to all six records in one
+commit. But two of those records carry a check date older than this
+verification: R5 is `citation_checked_on="2026-09-13"` and TE4 is
+`"2026-09-14"`. `provenance.py` forbids crediting a check to an earlier date
+(*"a NEW check, with today's date and today's source, never a backdated
+upgrade"*). So writing the number into those two `instrument` fields under their
+existing dates would do what the evidence model rules out. Re-dating them would
+refresh claims this lookup did not re-check. TE1–TE3 and PE4 carry no check date
+at all, so the number would sit there with no date covering it.
+
+So the restore needs a decision on how a record shows a sub-claim verified later
+than the record's own check. That decision belongs to the owner and comes before
+any edit. The exact-equality test
+`test_no_income_tax_record_carries_the_unverified_act_number` keeps guarding the
+records until then.
